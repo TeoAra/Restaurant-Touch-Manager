@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Settings2, ShoppingBag, Truck, Zap, Users } from "lucide-react";
+import { BackofficeShell } from "@/components/BackofficeShell";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -89,14 +90,8 @@ export default function SettingsPage() {
   ];
 
   return (
-    <div className="p-6 max-w-2xl">
-      <div className="flex items-center gap-3 mb-8">
-        <Settings2 className="h-7 w-7 text-primary" />
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Impostazioni</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Configura le funzionalità opzionali del sistema</p>
-        </div>
-      </div>
+    <BackofficeShell title="Impostazioni" subtitle="Funzionalità e configurazione sistema">
+    <div className="p-4 md:p-6 max-w-2xl">
 
       {/* Cover charge */}
       <div className="space-y-3 mb-8">
@@ -155,5 +150,6 @@ export default function SettingsPage() {
         </div>
       </div>
     </div>
+    </BackofficeShell>
   );
 }

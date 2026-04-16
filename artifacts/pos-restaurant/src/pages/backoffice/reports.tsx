@@ -6,6 +6,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { TrendingUp, ShoppingCart, TableProperties, Euro } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { BackofficeShell } from "@/components/BackofficeShell";
 
 function StatCard({ label, value, icon: Icon, sub }: { label: string; value: string; icon: React.ElementType; sub?: string }) {
   return (
@@ -36,12 +37,7 @@ export default function ReportsPage() {
   const maxRevenue = Math.max(...topProducts.map((p) => parseFloat(p.totalRevenue)), 1);
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b border-border shrink-0">
-        <h1 className="text-2xl font-bold text-foreground">Report e Statistiche</h1>
-        <p className="text-muted-foreground text-sm mt-1">Andamento vendite e prodotti top</p>
-      </div>
-
+    <BackofficeShell title="Report e Statistiche" subtitle="Andamento vendite e prodotti top" fixedHeight>
       <ScrollArea className="flex-1">
         <div className="p-6 space-y-6">
           {/* KPI cards */}
@@ -102,6 +98,6 @@ export default function ReportsPage() {
           </div>
         </div>
       </ScrollArea>
-    </div>
+    </BackofficeShell>
   );
 }

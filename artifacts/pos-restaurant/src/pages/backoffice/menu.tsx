@@ -13,6 +13,7 @@ import {
   getListProductsQueryKey,
 } from "@workspace/api-client-react";
 import type { Category, Product } from "@workspace/api-client-react";
+import { BackofficeShell } from "@/components/BackofficeShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -194,13 +195,11 @@ export default function MenuPage() {
   const filteredProducts = filterCatId != null ? products.filter(p => p.categoryId === filterCatId) : products;
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b border-border shrink-0 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Gestione Menu</h1>
-          <p className="text-muted-foreground text-sm mt-1">{products.length} prodotti, {categories.length} categorie</p>
-        </div>
-      </div>
+    <BackofficeShell
+      title="Gestione Menu"
+      subtitle={`${products.length} prodotti, ${categories.length} categorie`}
+      fixedHeight
+    >
 
       <Tabs defaultValue="products" className="flex-1 flex flex-col overflow-hidden">
         <div className="px-6 border-b border-border shrink-0">
@@ -329,6 +328,6 @@ export default function MenuPage() {
           />
         </DialogContent>
       </Dialog>
-    </div>
+    </BackofficeShell>
   );
 }

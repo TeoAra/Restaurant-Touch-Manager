@@ -2,6 +2,7 @@ import { useListPayments, useListOrders } from "@workspace/api-client-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { CreditCard, Banknote, Wallet, Receipt } from "lucide-react";
+import { BackofficeShell } from "@/components/BackofficeShell";
 
 export default function PaymentsPage() {
   const { data: payments = [], isLoading } = useListPayments();
@@ -24,18 +25,11 @@ export default function PaymentsPage() {
   const total = payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b border-border shrink-0 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Storico Pagamenti</h1>
-          <p className="text-muted-foreground text-sm mt-1">{payments.length} transazioni</p>
-        </div>
-        <div className="text-right">
-          <div className="text-xs text-muted-foreground">Totale incassato</div>
-          <div className="text-2xl font-bold text-primary">€ {total.toFixed(2)}</div>
-        </div>
-      </div>
-
+    <BackofficeShell
+      title="Storico Pagamenti"
+      subtitle={`${payments.length} transazioni — Totale: € ${total.toFixed(2)}`}
+      fixedHeight
+    >
       <ScrollArea className="flex-1">
         <div className="p-6 space-y-2">
           {isLoading ? (
@@ -78,6 +72,6 @@ export default function PaymentsPage() {
           })}
         </div>
       </ScrollArea>
-    </div>
+    </BackofficeShell>
   );
 }

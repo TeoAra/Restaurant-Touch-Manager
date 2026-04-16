@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2, Layers, GripVertical } from "lucide-react";
+import { BackofficeShell } from "@/components/BackofficeShell";
 import {
   DndContext,
   closestCenter,
@@ -130,17 +131,12 @@ export default function RoomsPage() {
   }
 
   return (
-    <div className="p-6 max-w-2xl">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2">
-          <Layers className="h-6 w-6 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Sale</h1>
-            <p className="text-sm text-muted-foreground">Trascina per riordinare</p>
-          </div>
-        </div>
-        <Button onClick={openNew} className="gap-2"><Plus className="h-4 w-4" /> Nuova Sala</Button>
-      </div>
+    <BackofficeShell
+      title="Sale"
+      subtitle="Trascina per riordinare le sale"
+      actions={<Button size="sm" onClick={openNew} className="gap-1.5"><Plus className="h-4 w-4" /> Nuova</Button>}
+    >
+    <div className="p-4 md:p-6 max-w-2xl">
 
       {isLoading ? (
         <div className="text-muted-foreground">Caricamento...</div>
@@ -181,5 +177,6 @@ export default function RoomsPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </BackofficeShell>
   );
 }

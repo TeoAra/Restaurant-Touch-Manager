@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Pencil, Trash2, Users, LayoutGrid, List, Move } from "lucide-react";
+import { BackofficeShell } from "@/components/BackofficeShell";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -473,69 +474,60 @@ export default function TablesPage() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b border-border shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <LayoutGrid className="h-6 w-6 text-primary" />
-            <div>
-              <h1 className="text-2xl font-bold text-foreground">Gestione Tavoli</h1>
-              <p className="text-sm text-muted-foreground">
-                {view === "list" ? "Trascina per riordinare" : "Trascina per posizionare nella planimetria"}
-              </p>
-            </div>
+    <BackofficeShell
+      title="Gestione Tavoli"
+      subtitle={view === "list" ? "Trascina per riordinare" : "Trascina per posizionare nella planimetria"}
+      fixedHeight
+      actions={
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+            <button onClick={() => setView("map")}
+              className={cn("flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors",
+                view === "map" ? "bg-primary text-white" : "bg-white text-slate-600 hover:bg-slate-50")}>
+              <LayoutGrid className="h-4 w-4" /> <span className="hidden sm:inline">Planimetria</span>
+            </button>
+            <button onClick={() => setView("list")}
+              className={cn("flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors",
+                view === "list" ? "bg-primary text-white" : "bg-white text-slate-600 hover:bg-slate-50")}>
+              <List className="h-4 w-4" /> <span className="hidden sm:inline">Lista</span>
+            </button>
           </div>
-          <div className="flex items-center gap-2">
-            {/* View toggle */}
-            <div className="flex rounded-lg border border-slate-200 overflow-hidden">
-              <button onClick={() => setView("map")}
-                className={cn("flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors",
-                  view === "map" ? "bg-primary text-white" : "bg-white text-slate-600 hover:bg-slate-50")}>
-                <LayoutGrid className="h-4 w-4" /> Planimetria
+          {view === "map" && (
+            <div className="flex gap-1">
+              <button onClick={() => handleAddDecor("banco")}
+                className="px-2 py-2 rounded-lg text-xs font-semibold bg-slate-700 text-white hover:bg-slate-600 transition-colors">
+                Banco
               </button>
-              <button onClick={() => setView("list")}
-                className={cn("flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors",
-                  view === "list" ? "bg-primary text-white" : "bg-white text-slate-600 hover:bg-slate-50")}>
-                <List className="h-4 w-4" /> Lista
+              <button onClick={() => handleAddDecor("pianta")}
+                className="px-2 py-2 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors">
+                🌿
+              </button>
+              <button onClick={() => handleAddDecor("muro")}
+                className="px-2 py-2 rounded-lg text-xs font-semibold bg-slate-400 text-white hover:bg-slate-300 transition-colors">
+                ░
               </button>
             </div>
-            {view === "map" && (
-              <div className="flex gap-1">
-                <button onClick={() => handleAddDecor("banco")}
-                  className="px-3 py-2 rounded-lg text-xs font-semibold bg-slate-700 text-white hover:bg-slate-600 transition-colors">
-                  + Banco
-                </button>
-                <button onClick={() => handleAddDecor("pianta")}
-                  className="px-3 py-2 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors">
-                  🌿 Pianta
-                </button>
-                <button onClick={() => handleAddDecor("muro")}
-                  className="px-3 py-2 rounded-lg text-xs font-semibold bg-slate-400 text-white hover:bg-slate-300 transition-colors">
-                  ░ Muro
-                </button>
-              </div>
-            )}
-            <Button className="gap-1" onClick={() => setDialog({ open: true })}>
-              <Plus className="h-4 w-4" /> Nuovo Tavolo
-            </Button>
-          </div>
+          )}
+          <Button size="sm" className="gap-1" onClick={() => setDialog({ open: true })}>
+            <Plus className="h-4 w-4" /> <span className="hidden sm:inline">Nuovo</span>
+          </Button>
         </div>
+      }
+    >
+      {/* Room filter tabs (for list view) */}
+      {view === "list" && rooms.length > 0 && (
+        <div className="flex gap-1.5 px-4 pt-3 overflow-x-auto border-b border-border pb-3 shrink-0">
+          {rooms.map(r => (
+            <button key={r.id} onClick={() => setRoomFilter(roomFilter === r.id ? null : r.id)}
+              className={cn("px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all",
+                roomFilter === r.id ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
+              {r.name}
+            </button>
+          ))}
+        </div>
+      )}
 
-        {/* Room filter tabs (for list view) */}
-        {view === "list" && rooms.length > 0 && (
-          <div className="flex gap-1.5 mt-4 overflow-x-auto">
-            {rooms.map(r => (
-              <button key={r.id} onClick={() => setRoomFilter(roomFilter === r.id ? null : r.id)}
-                className={cn("px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all",
-                  roomFilter === r.id ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
-                {r.name}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-4 md:p-6">
         {view === "map" ? (
           <PositionEditor
             tables={allTables}
@@ -572,6 +564,6 @@ export default function TablesPage() {
           <TableForm initial={dialog.item} rooms={rooms} onSave={handleSave} onClose={() => setDialog({ open: false })} />
         </DialogContent>
       </Dialog>
-    </div>
+    </BackofficeShell>
   );
 }

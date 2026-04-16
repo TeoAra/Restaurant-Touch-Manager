@@ -567,10 +567,10 @@ export default function FrontOffice() {
     ? quickOrderId ?? undefined
     : (activeTableEntry?.activeOrderId as number | undefined);
 
-  const { data: activeOrder } = useGetOrder(activeOrderId!, { query: { enabled: !!activeOrderId } });
+  const { data: activeOrder } = useGetOrder(activeOrderId!, { enabled: !!activeOrderId } as never);
   const items = activeOrder?.items ?? [];
   const subtotal = parseFloat(activeOrder?.total ?? "0");
-  const coverCount = isQuickMode ? 0 : (activeOrder?.covers ?? 0);
+  const coverCount = isQuickMode ? 0 : ((activeOrder as unknown as { covers?: number })?.covers ?? 0);
   const coverTotal = coverPrice > 0 && coverCount > 0 ? coverCount * coverPrice : 0;
   const total = subtotal + coverTotal;
   const hasDraftItems = items.some(i => (i as never as { status: string }).status === "draft");

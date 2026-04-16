@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useToast } from "@/hooks/use-toast";
 import { ChefHat, Plus, Pencil, Trash2, Printer, Link2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BackofficeShell } from "@/components/BackofficeShell";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
@@ -69,17 +70,12 @@ export default function DepartmentsPage() {
   const getPrinterName = (id?: number | null) => id ? printers.find(p => p.id === id)?.name ?? "—" : "Nessuna";
 
   return (
-    <div className="p-6 max-w-2xl">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2">
-          <ChefHat className="h-6 w-6 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold">Reparti</h1>
-            <p className="text-sm text-muted-foreground">Collega ogni reparto alla stampante di produzione</p>
-          </div>
-        </div>
-        <Button onClick={openNew} className="gap-2"><Plus className="h-4 w-4" /> Nuovo Reparto</Button>
-      </div>
+    <BackofficeShell
+      title="Reparti"
+      subtitle="Collega ogni reparto alla stampante di produzione"
+      actions={<Button size="sm" onClick={openNew} className="gap-1.5"><Plus className="h-4 w-4" /> Nuovo</Button>}
+    >
+    <div className="p-4 md:p-6 max-w-2xl">
 
       <div className="flex items-start gap-3 p-4 bg-orange-50 border border-orange-200 rounded-xl mb-5">
         <Link2 className="h-5 w-5 text-primary mt-0.5 shrink-0" />
@@ -181,5 +177,6 @@ export default function DepartmentsPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </BackofficeShell>
   );
 }

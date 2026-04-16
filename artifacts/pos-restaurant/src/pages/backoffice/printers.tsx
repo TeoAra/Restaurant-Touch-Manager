@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2, Printer, Wifi, WifiOff } from "lucide-react";
+import { BackofficeShell } from "@/components/BackofficeShell";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
@@ -54,14 +55,12 @@ export default function PrintersPage() {
   }
 
   return (
-    <div className="p-6 max-w-4xl">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2">
-          <Printer className="h-6 w-6 text-primary" />
-          <h1 className="text-2xl font-bold text-foreground">Stampanti</h1>
-        </div>
-        <Button onClick={openNew} className="gap-2"><Plus className="h-4 w-4" /> Nuova Stampante</Button>
-      </div>
+    <BackofficeShell
+      title="Stampanti"
+      subtitle="Configurazione stampanti ESC/POS"
+      actions={<Button size="sm" onClick={openNew} className="gap-1.5"><Plus className="h-4 w-4" /> Nuova</Button>}
+    >
+    <div className="p-4 md:p-6 max-w-4xl">
 
       <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
         <strong>Nota:</strong> L'integrazione TCP/IP con stampanti Sewoo ESC/POS è in sviluppo. Le stampanti configurate qui saranno attivate automaticamente quando il modulo di stampa sarà completato.
@@ -142,5 +141,6 @@ export default function PrintersPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </BackofficeShell>
   );
 }
