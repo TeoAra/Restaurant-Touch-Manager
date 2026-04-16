@@ -1451,12 +1451,12 @@ export default function FrontOffice() {
       </div>
 
       {/* ══ MAIN ═════════════════════════════════════════════════════════════ */}
-      <div className="flex flex-1 min-h-0 overflow-hidden pb-14 md:pb-0">
+      <div className="flex flex-1 min-h-0 overflow-hidden pb-14 lg:pb-0">
 
         {/* ── Left: Categories + Products or Table Map ──────────────────── */}
         <div className={cn(
           "flex-1 flex flex-col min-w-0 overflow-hidden border-r border-slate-200",
-          mobilePanel === "order" ? "hidden md:flex" : "flex"
+          mobilePanel === "order" ? "hidden lg:flex" : "flex"
         )}>
           {leftView === "tablemap" ? (
             <>
@@ -1513,23 +1513,23 @@ export default function FrontOffice() {
 
           <ScrollArea className="flex-1">
             {productSearch ? (
-              <div className="p-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+              <div className="p-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-3 gap-2.5">
                 {visibleProducts.filter(p => p.available).map(p => (
                   <ProductCard key={p.id} product={p} onAdd={handleAddProduct} />
                 ))}
                 {visibleProducts.length === 0 && <EmptyState label="Nessun prodotto trovato" />}
               </div>
             ) : !selectedCategoryId ? (
-              <div className="p-4 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
+              <div className="p-3 grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))" }}>
                 {categories.map(cat => (
                   <button key={cat.id} onClick={() => setSelectedCategoryId(cat.id)}
-                    className="bg-white rounded-2xl border-2 border-slate-200 p-5 text-left shadow-sm hover:border-primary hover:shadow-md active:scale-95 transition-all group min-h-[110px] flex flex-col justify-between">
-                    <div className="h-11 w-11 rounded-xl flex items-center justify-center mb-3"
+                    className="bg-white rounded-2xl border-2 border-slate-200 p-4 text-left shadow-sm hover:border-primary hover:shadow-md active:scale-95 transition-all group min-h-[100px] flex flex-col justify-between">
+                    <div className="h-10 w-10 rounded-xl flex items-center justify-center mb-2.5"
                       style={{ backgroundColor: cat.color ? `${cat.color}22` : "#f59e0b22" }}>
                       <UtensilsCrossed className="h-5 w-5" style={{ color: cat.color || "#f59e0b" }} />
                     </div>
                     <div>
-                      <div className="font-bold text-slate-800 group-hover:text-primary transition-colors">{cat.name}</div>
+                      <div className="font-bold text-slate-800 text-sm group-hover:text-primary transition-colors">{cat.name}</div>
                     </div>
                   </button>
                 ))}
@@ -1541,7 +1541,7 @@ export default function FrontOffice() {
                 )}
               </div>
             ) : (
-              <div className="p-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+              <div className="p-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-3 gap-2.5">
                 {visibleProducts.filter(p => p.available).map(p => (
                   <ProductCard key={p.id} product={p} onAdd={handleAddProduct} />
                 ))}
@@ -1557,8 +1557,8 @@ export default function FrontOffice() {
 
         {/* ── Right: Order panel ────────────────────────────────────────── */}
         <div className={cn(
-          "w-full md:w-80 flex flex-col bg-white shrink-0",
-          mobilePanel === "menu" ? "hidden md:flex" : "flex"
+          "w-full lg:w-80 flex flex-col bg-white shrink-0",
+          mobilePanel === "menu" ? "hidden lg:flex" : "flex"
         )}>
 
           {/* Phase indicator */}
@@ -1784,8 +1784,8 @@ export default function FrontOffice() {
         </div>
       </div>
 
-      {/* ══ MOBILE BOTTOM TAB BAR (hidden on md+) ════════════════════════════ */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 flex" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+      {/* ══ MOBILE BOTTOM TAB BAR (hidden on lg+) ════════════════════════════ */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 flex" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
         <button
           onClick={() => setMobilePanel("menu")}
           className={cn(
