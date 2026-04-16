@@ -88,6 +88,10 @@ router.patch("/:id", async (req, res) => {
   const { id } = UpdateOrderParams.parse({ id: Number(req.params.id) });
   const body = UpdateOrderBody.parse(req.body);
 
+  // Read current order first (needed for table-reassign logic)
+  const [currentOrder] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+  if (!currentOrder) return res.status(404).json({ error: "Order not found" });
+
   const updateData: Record<string, unknown> = {};
   if (body.status !== undefined) updateData.status = body.status;
   if (body.notes !== undefined) updateData.notes = body.notes;
@@ -95,6 +99,22 @@ router.patch("/:id", async (req, res) => {
 
   const [order] = await db.update(ordersTable).set(updateData).where(eq(ordersTable.id, id)).returning();
   if (!order) return res.status(404).json({ error: "Order not found" });
+
+  // Handle table reassignment: free old table, occupy new table
+  if (body.tableId !== undefined && body.tableId !== currentOrder.tableId) {
+    // Free old table if no other open orders use it
+    if (currentOrder.tableId) {
+      const oldOpenOrders = await db.select().from(ordersTable)
+        .where(and(eq(ordersTable.tableId, currentOrder.tableId), eq(ordersTable.status, "open")));
+      if (oldOpenOrders.length === 0) {
+        await db.update(tablesTable).set({ status: "free" }).where(eq(tablesTable.id, currentOrder.tableId));
+      }
+    }
+    // Mark new table as occupied
+    if (body.tableId) {
+      await db.update(tablesTable).set({ status: "occupied" }).where(eq(tablesTable.id, body.tableId));
+    }
+  }
 
   // When paid/cancelled, free the table if no other open orders
   if (body.status === "paid" || body.status === "cancelled") {

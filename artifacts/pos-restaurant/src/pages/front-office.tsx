@@ -16,9 +16,11 @@ import {
 import type { TableStatus } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
@@ -26,9 +28,8 @@ import {
   ShoppingBag, Truck, Clock, Send, FileText, Divide,
   ChevronLeft, Search, X, UtensilsCrossed, Zap, Map as MapIcon,
   AlertTriangle, CheckCircle2, User, LogOut, Building2, Pencil,
-  ArrowRightFromLine, ReceiptText,
+  ArrowRightFromLine, ReceiptText, Trash2,
 } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link } from "wouter";
 
@@ -142,7 +143,6 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
   onTableClick: (t: FETable) => void;
   onBack: () => void;
 }) {
-  const [roomFilter, setRoomFilter] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   useEffect(() => {
@@ -165,6 +165,11 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
       .filter(t => t.roomName)
       .map(t => [t.roomName!, t.roomName!])
   ).values());
+
+  const [roomFilter, setRoomFilter] = useState<string | null>(() => rooms[0] ?? null);
+  useEffect(() => {
+    if (roomFilter === null && rooms.length > 0) setRoomFilter(rooms[0]);
+  }, [rooms.join(",")]);
 
   const filtered = tablesStatus.filter(t =>
     roomFilter === null || t.roomName === roomFilter
@@ -197,15 +202,10 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
             </span>
           </div>
         </div>
-        {rooms.length > 0 && (
+        {rooms.length > 1 && (
           <div className="flex gap-1.5 mt-2.5 overflow-x-auto pb-0.5">
-            <button onClick={() => setRoomFilter(null)}
-              className={cn("px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all",
-                roomFilter === null ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
-              Tutte
-            </button>
             {rooms.map(r => (
-              <button key={r} onClick={() => setRoomFilter(roomFilter === r ? null : r)}
+              <button key={r} onClick={() => setRoomFilter(r)}
                 className={cn("px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all",
                   roomFilter === r ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
                 {r}
@@ -317,6 +317,92 @@ function UserMenuButton({ showUserMenu, setShowUserMenu }: {
 // ─── Payment Dialog ───────────────────────────────────────────────────────────
 type SimpleCustomer = { id: number; ragioneSociale: string; partitaIva: string | null; codiceFiscale: string | null; sdiCode: string | null; pec: string | null; indirizzoVia: string | null; indirizzoCap: string | null; indirizzoComune: string | null; indirizzoProvince: string | null };
 
+// ─── New-customer mini-form (inside PaymentDialog) ────────────────────────────
+function NewCustomerForm({ onCreated, onCancel }: {
+  onCreated: (c: SimpleCustomer) => void;
+  onCancel: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [tipo, setTipo] = useState<"azienda" | "privato">("azienda");
+  const [ragioneSociale, setRagioneSociale] = useState("");
+  const [partitaIva, setPartitaIva] = useState("");
+  const [codiceFiscale, setCodiceFiscale] = useState("");
+  const [sdiCode, setSdiCode] = useState("");
+  const [pec, setPec] = useState("");
+  const [via, setVia] = useState("");
+  const [cap, setCap] = useState("");
+  const [comune, setComune] = useState("");
+  const [provincia, setProvincia] = useState("");
+  const { toast } = useToast();
+
+  async function save() {
+    if (!ragioneSociale.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API}/customers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tipo,
+          ragioneSociale: ragioneSociale.trim(),
+          partitaIva: partitaIva.trim() || null,
+          codiceFiscale: codiceFiscale.trim() || null,
+          sdiCode: sdiCode.trim() || null,
+          pec: pec.trim() || null,
+          indirizzoVia: via.trim() || null,
+          indirizzoCap: cap.trim() || null,
+          indirizzoComune: comune.trim() || null,
+          indirizzoProvince: provincia.trim() || null,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      const c = await res.json();
+      onCreated(c);
+      toast({ title: "Cliente creato" });
+    } catch {
+      toast({ title: "Errore creazione cliente", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2.5 border-t border-primary/20 pt-2">
+      <p className="text-xs font-semibold text-primary">Nuovo cliente</p>
+      <div className="grid grid-cols-2 gap-1 rounded-lg overflow-hidden border border-slate-200">
+        {(["azienda", "privato"] as const).map(t => (
+          <button key={t} onClick={() => setTipo(t)}
+            className={cn("py-1.5 text-xs font-semibold transition-colors capitalize",
+              tipo === t ? "bg-primary text-white" : "bg-slate-50 text-slate-600 hover:bg-slate-100")}>
+            {t === "azienda" ? "Azienda" : "Privato"}
+          </button>
+        ))}
+      </div>
+      <Input placeholder="Ragione sociale / Nome *" value={ragioneSociale} onChange={e => setRagioneSociale(e.target.value)} className="h-9 text-sm" />
+      <div className="grid grid-cols-2 gap-2">
+        <Input placeholder="P.IVA" value={partitaIva} onChange={e => setPartitaIva(e.target.value)} className="h-8 text-sm font-mono" />
+        <Input placeholder="Cod. Fiscale" value={codiceFiscale} onChange={e => setCodiceFiscale(e.target.value)} className="h-8 text-sm font-mono" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Input placeholder="Cod. SDI" value={sdiCode} onChange={e => setSdiCode(e.target.value)} className="h-8 text-sm font-mono" />
+        <Input placeholder="PEC" value={pec} onChange={e => setPec(e.target.value)} className="h-8 text-sm" />
+      </div>
+      <Input placeholder="Via / Indirizzo" value={via} onChange={e => setVia(e.target.value)} className="h-8 text-sm" />
+      <div className="grid grid-cols-5 gap-2">
+        <Input placeholder="CAP" value={cap} onChange={e => setCap(e.target.value)} className="h-8 text-sm col-span-2" />
+        <Input placeholder="Comune" value={comune} onChange={e => setComune(e.target.value)} className="h-8 text-sm col-span-2" />
+        <Input placeholder="PR" value={provincia} maxLength={2} onChange={e => setProvincia(e.target.value.toUpperCase())} className="h-8 text-sm text-center font-mono col-span-1" />
+      </div>
+      <div className="flex gap-2 pt-1">
+        <Button variant="outline" size="sm" className="flex-1 h-8" onClick={onCancel}>Annulla</Button>
+        <Button size="sm" className="flex-1 h-8" disabled={!ragioneSociale.trim() || saving} onClick={save}>
+          {saving ? "Salvataggio…" : "Crea cliente"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
   open: boolean; onClose: () => void; total: number; orderId?: number;
   orderItems?: Array<{ productName: string; quantity: number; unitPrice: string; subtotal: string }>;
@@ -329,11 +415,12 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
   const [customers, setCustomers] = useState<SimpleCustomer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<SimpleCustomer | null>(null);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [showNewCustomer, setShowNewCustomer] = useState(false);
 
   const change = method === "cash" && given ? Math.max(0, parseFloat(given) - total) : 0;
 
   useEffect(() => {
-    if (!open) { setGiven(""); setEmittiFattura(false); setSelectedCustomer(null); setCustomerSearch(""); }
+    if (!open) { setGiven(""); setEmittiFattura(false); setSelectedCustomer(null); setCustomerSearch(""); setShowNewCustomer(false); }
   }, [open]);
 
   useEffect(() => {
@@ -360,7 +447,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-sm w-full">
         <DialogHeader><DialogTitle>Pagamento</DialogTitle></DialogHeader>
-        <div className="space-y-3 py-1 max-h-[80vh] overflow-y-auto">
+        <div className="space-y-3 py-1 max-h-[85vh] overflow-y-auto">
           <div className="text-center py-3 bg-slate-50 rounded-xl">
             <p className="text-sm text-slate-500 mb-1">Totale da pagare</p>
             <p className="text-4xl font-bold text-slate-900">€ {total.toFixed(2)}</p>
@@ -403,15 +490,14 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
 
           {/* Invoice toggle */}
           <div className={cn(
-            "rounded-xl border-2 transition-all cursor-pointer",
+            "rounded-xl border-2 transition-all",
             emittiFattura ? "border-primary bg-orange-50" : "border-slate-200"
           )}>
             <div
-              role="button"
-              tabIndex={0}
-              onClick={() => { setEmittiFattura(e => !e); setSelectedCustomer(null); }}
+              role="button" tabIndex={0}
+              onClick={() => { setEmittiFattura(e => !e); setSelectedCustomer(null); setShowNewCustomer(false); }}
               onKeyDown={e => e.key === "Enter" && (setEmittiFattura(v => !v), setSelectedCustomer(null))}
-              className="w-full flex items-center justify-between p-3"
+              className="w-full flex items-center justify-between p-3 cursor-pointer"
             >
               <div className="flex items-center gap-2">
                 <ReceiptText className={cn("h-4 w-4", emittiFattura ? "text-primary" : "text-slate-400")} />
@@ -419,7 +505,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
                   Emetti Fattura Elettronica
                 </span>
               </div>
-              <Switch checked={emittiFattura} onCheckedChange={v => { setEmittiFattura(v); setSelectedCustomer(null); }} onClick={e => e.stopPropagation()} />
+              <Switch checked={emittiFattura} onCheckedChange={v => { setEmittiFattura(v); setSelectedCustomer(null); setShowNewCustomer(false); }} onClick={e => e.stopPropagation()} />
             </div>
 
             {emittiFattura && (
@@ -428,12 +514,17 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
                   <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-primary/30">
                     <div>
                       <div className="text-sm font-semibold">{selectedCustomer.ragioneSociale}</div>
-                      <div className="text-xs text-muted-foreground">{selectedCustomer.partitaIva || selectedCustomer.codiceFiscale}</div>
+                      <div className="text-xs text-muted-foreground">{selectedCustomer.partitaIva || selectedCustomer.codiceFiscale || "–"}</div>
                     </div>
                     <button onClick={() => setSelectedCustomer(null)} className="p-1 rounded hover:bg-destructive/10 text-slate-400 hover:text-destructive">
                       <X className="h-3.5 w-3.5" />
                     </button>
                   </div>
+                ) : showNewCustomer ? (
+                  <NewCustomerForm
+                    onCreated={c => { setSelectedCustomer(c); setShowNewCustomer(false); }}
+                    onCancel={() => setShowNewCustomer(false)}
+                  />
                 ) : (
                   <>
                     <div className="relative">
@@ -441,7 +532,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
                       <Input
                         value={customerSearch}
                         onChange={e => setCustomerSearch(e.target.value)}
-                        placeholder="Cerca cliente…"
+                        placeholder="Cerca cliente per nome o P.IVA…"
                         className="pl-8 h-9 text-sm"
                         autoFocus
                       />
@@ -449,7 +540,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
                     {loadingCustomers ? (
                       <div className="text-xs text-muted-foreground text-center py-2">Caricamento…</div>
                     ) : customers.length > 0 ? (
-                      <div className="space-y-1 max-h-40 overflow-y-auto">
+                      <div className="space-y-1 max-h-36 overflow-y-auto">
                         {customers.map(c => (
                           <button key={c.id} onClick={() => setSelectedCustomer(c)}
                             className="w-full text-left p-2 rounded-lg hover:bg-white border border-transparent hover:border-primary/20 transition-all">
@@ -459,11 +550,14 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
                         ))}
                       </div>
                     ) : customerSearch ? (
-                      <div className="text-xs text-muted-foreground text-center py-2">Nessun cliente trovato</div>
+                      <div className="text-xs text-muted-foreground text-center py-1.5">Nessun cliente trovato</div>
                     ) : null}
-                    <p className="text-xs text-muted-foreground text-center">
-                      Seleziona il cliente per intestare la fattura
-                    </p>
+                    <button
+                      onClick={() => setShowNewCustomer(true)}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border-2 border-dashed border-slate-300 hover:border-primary text-sm text-slate-500 hover:text-primary transition-colors font-medium"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Crea nuovo cliente
+                    </button>
                   </>
                 )}
               </div>
@@ -974,6 +1068,7 @@ export default function FrontOffice() {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [pendingTableId, setPendingTableId] = useState<number | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ itemId: number; name: string } | null>(null);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [editingItem, setEditingItem] = useState<EditableItem | null>(null);
 
   const { data: tablesStatus = [] } = useGetTablesStatus();
@@ -1157,6 +1252,18 @@ export default function FrontOffice() {
     setQuickOrderId(null);
     setSelectedCategoryId(null);
     refresh();
+  }
+
+  async function handleCancelOrder() {
+    if (!activeOrderId) return;
+    try {
+      await fetch(`${API}/orders/${activeOrderId}`, { method: "DELETE" });
+      toast({ title: "Ordine annullato", description: "Il tavolo è stato liberato" });
+    } catch {
+      toast({ title: "Errore durante l'annullamento", variant: "destructive" });
+    }
+    setShowCancelConfirm(false);
+    handleExitOrder();
   }
 
   async function handleAddProduct(productId: number) {
@@ -1479,20 +1586,7 @@ export default function FrontOffice() {
                             <Pencil className="h-2.5 w-2.5 text-primary" />
                           </button>
                         )}
-                        {isQuickMode === "rapida" && (
-                          <button
-                            onClick={e => {
-                              e.stopPropagation();
-                              setIsAssigningTable(true);
-                              setLeftView("tablemap");
-                            }}
-                            className="ml-1 flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-orange-100 hover:bg-orange-200 text-primary transition-colors"
-                            title="Assegna a un tavolo"
-                          >
-                            <ArrowRightFromLine className="h-2.5 w-2.5" />
-                            Assegna
-                          </button>
-                        )}
+                        
                         <span className="font-mono ml-1 text-slate-400">#{activeOrderId}</span>
                       </div>
                     </>
@@ -1502,13 +1596,39 @@ export default function FrontOffice() {
                 </div>
               </div>
               {activeOrderId && (
-                <button onClick={e => { e.stopPropagation(); handleExitOrder(); }}
-                  className="text-xs text-slate-400 hover:text-red-500 transition-colors p-1 rounded hover:bg-red-50">
-                  <X className="h-3.5 w-3.5" />
-                </button>
+                <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                  <button
+                    title="Annulla tutto l'ordine"
+                    onClick={e => { e.stopPropagation(); setShowCancelConfirm(true); }}
+                    className="h-7 w-7 flex items-center justify-center rounded hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                  <button onClick={e => { e.stopPropagation(); handleExitOrder(); }}
+                    className="h-7 w-7 flex items-center justify-center rounded text-slate-400 hover:text-red-500 transition-colors hover:bg-red-50">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               )}
             </div>
           </div>
+
+          {/* Assegna a Tavolo — banner visibile in quick mode */}
+          {isQuickMode === "rapida" && activeOrderId && (
+            <div className="px-4 py-2 shrink-0">
+              <button
+                onClick={() => {
+                  setIsAssigningTable(true);
+                  setLeftView("tablemap");
+                  setMobilePanel("menu");
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-primary text-primary font-semibold text-sm hover:bg-orange-50 active:scale-95 transition-all"
+              >
+                <ArrowRightFromLine className="h-4 w-4" />
+                Assegna a un Tavolo
+              </button>
+            </div>
+          )}
 
           {/* Items list */}
           <ScrollArea className="flex-1 min-h-0">
@@ -1751,6 +1871,32 @@ export default function FrontOffice() {
         coverCount={coverCount}
         onPay={(method, amount) => handlePay(method, amount)}
       />
+
+      {/* Annulla tutto — conferma */}
+      <AlertDialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-500" />
+              Annulla tutto l'ordine?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {items.length > 0
+                ? `Verranno eliminati ${items.length} prodott${items.length === 1 ? "o" : "i"} e il tavolo verrà liberato. L'azione non è reversibile.`
+                : "Il tavolo verrà liberato. L'azione non è reversibile."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annulla</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleCancelOrder}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              Sì, annulla ordine
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
