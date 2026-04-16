@@ -188,9 +188,14 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
               className="h-9 w-9 rounded-lg border-2 border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-colors">
               <ChevronLeft className="h-5 w-5" />
             </button>
-            <div className="flex items-center gap-2">
-              <MapIcon className="h-4 w-4 text-primary" />
-              <span className="font-bold text-slate-800 text-sm">Mappa Tavoli</span>
+            <div>
+              <div className="flex items-center gap-2">
+                <MapIcon className="h-4 w-4 text-primary" />
+                <span className="font-bold text-slate-800 text-sm">Mappa Tavoli</span>
+              </div>
+              {roomFilter && (
+                <span className="text-xs text-primary font-semibold ml-6">{roomFilter}</span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-3 text-xs shrink-0">
@@ -1190,6 +1195,7 @@ export default function FrontOffice() {
       setAssignPendingTableId(null);
       setPendingTableId(null);
       setLeftView("categories");
+      setMobilePanel("order");
       refresh();
       toast({ title: "Ordine assegnato al tavolo" });
     } catch {
@@ -1210,6 +1216,8 @@ export default function FrontOffice() {
       if (!res.ok) throw new Error();
       setSelectedTableId(pendingTableId);
       setSelectedCategoryId(null);
+      setLeftView("categories");
+      setMobilePanel("order");
       refresh();
     } catch { toast({ title: "Errore apertura tavolo", variant: "destructive" }); }
     finally { setPendingTableId(null); }
@@ -1560,8 +1568,18 @@ export default function FrontOffice() {
           <div className="px-4 py-3 border-b border-slate-100 shrink-0">
             <div
               role="button" tabIndex={0}
-              onClick={() => !isQuickMode && !activeOrderId && setLeftView("tablemap")}
-              onKeyDown={e => e.key === "Enter" && !isQuickMode && !activeOrderId && setLeftView("tablemap")}
+              onClick={() => {
+                if (!isQuickMode && !activeOrderId) {
+                  setLeftView("tablemap");
+                  setMobilePanel("menu");
+                }
+              }}
+              onKeyDown={e => {
+                if (e.key === "Enter" && !isQuickMode && !activeOrderId) {
+                  setLeftView("tablemap");
+                  setMobilePanel("menu");
+                }
+              }}
               className={cn(
                 "w-full flex items-center justify-between p-2.5 rounded-xl border-2 transition-all cursor-pointer",
                 activeOrderId
