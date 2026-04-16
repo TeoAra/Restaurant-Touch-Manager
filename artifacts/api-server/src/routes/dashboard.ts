@@ -99,6 +99,10 @@ router.get("/tables-status", async (req, res) => {
       status: tablesTable.status,
       roomId: tablesTable.roomId,
       sortOrder: tablesTable.sortOrder,
+      posX: tablesTable.posX,
+      posY: tablesTable.posY,
+      shape: tablesTable.shape,
+      elementType: tablesTable.elementType,
       roomName: roomsTable.name,
     })
     .from(tablesTable)
@@ -109,7 +113,7 @@ router.get("/tables-status", async (req, res) => {
   const orderByTable = new Map(openOrders.map(o => [o.tableId, o]));
 
   const result = tables.map(t => {
-    const activeOrder = orderByTable.get(t.id);
+    const activeOrder = t.elementType === "table" ? orderByTable.get(t.id) : undefined;
     return {
       id: t.id,
       number: t.number,
@@ -118,6 +122,10 @@ router.get("/tables-status", async (req, res) => {
       status: t.status,
       roomId: t.roomId ?? null,
       roomName: t.roomName ?? null,
+      posX: t.posX ?? 0,
+      posY: t.posY ?? 0,
+      shape: t.shape ?? "square",
+      elementType: t.elementType ?? "table",
       activeOrderId: activeOrder?.id ?? null,
       activeOrderTotal: activeOrder?.total ?? null,
       activeOrderCreatedAt: activeOrder?.createdAt?.toISOString() ?? null,

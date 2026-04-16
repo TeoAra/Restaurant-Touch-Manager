@@ -24,7 +24,7 @@ import { CSS } from "@dnd-kit/utilities";
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
 type Room = { id: number; name: string };
-type ExtTable = Table & { roomId?: number; sortOrder?: number; posX?: number; posY?: number };
+type ExtTable = Table & { roomId?: number; sortOrder?: number; posX?: number; posY?: number; shape?: string; elementType?: string };
 
 function useRooms() {
   return useQuery<Room[]>({ queryKey: ["rooms"], queryFn: () => fetch(`${API}/rooms`).then(r => r.json()) });
@@ -85,10 +85,98 @@ function SortableRow({ table, rooms, onEdit, onDelete }: {
   );
 }
 
-// ── Visual position editor ────────────────────────────────────────────────────
-const CELL = 80; // grid cell size px
+// ── Element size & shape helpers ──────────────────────────────────────────────
+const CELL = 80;
 const COLS = 12;
 const ROWS = 8;
+
+function getElementSize(t: { elementType?: string; shape?: string }) {
+  const et = t.elementType ?? "table";
+  const sh = t.shape ?? "square";
+  if (et === "banco") return { w: 3, h: 1 };
+  if (et === "muro") return { w: 2, h: 1 };
+  if (et === "pianta") return { w: 1, h: 1 };
+  if (sh === "rectangle") return { w: 2, h: 1 };
+  return { w: 1, h: 1 };
+}
+
+function TableShape({ t, status, isSelected, isDragging, onMouseDown, onTouchStart, onEdit, onDelete }: {
+  t: ExtTable; status: string; isSelected: boolean; isDragging: boolean;
+  onMouseDown: (e: React.MouseEvent) => void;
+  onTouchStart: (e: React.TouchEvent) => void;
+  onEdit: () => void; onDelete: (id: number) => void;
+}) {
+  const { w, h } = getElementSize(t);
+  const et = t.elementType ?? "table";
+  const sh = t.shape ?? "square";
+  const isDecor = et !== "table";
+  const isRound = sh === "round" && !isDecor;
+
+  const statusBg = { free: "bg-emerald-50 border-emerald-300", occupied: "bg-orange-50 border-orange-300", reserved: "bg-blue-50 border-blue-300" }[status as "free" | "occupied" | "reserved"] ?? "bg-slate-50 border-slate-300";
+  const statusDot = { free: "bg-emerald-500", occupied: "bg-orange-500", reserved: "bg-blue-500" }[status as "free" | "occupied" | "reserved"] ?? "bg-slate-400";
+
+  const decorStyle = et === "banco" ? "bg-slate-700 border-slate-600 text-white"
+    : et === "pianta" ? "bg-emerald-100 border-emerald-400 text-emerald-800"
+    : et === "muro" ? "bg-slate-300 border-slate-400 text-slate-600"
+    : "";
+
+  const decorLabel = et === "banco" ? "BANCO"
+    : et === "pianta" ? "🌿"
+    : et === "muro" ? "░░"
+    : "";
+
+  return (
+    <div
+      className={cn(
+        "absolute flex items-center justify-center group border-2 select-none transition-shadow",
+        isDecor ? decorStyle : cn(statusBg, "bg-white"),
+        isRound ? "rounded-full" : "rounded-xl",
+        isDragging && "shadow-2xl ring-2 ring-primary opacity-90",
+        isSelected && !isDecor && "ring-2 ring-primary",
+        !isDecor && "cursor-grab active:cursor-grabbing hover:shadow-lg"
+      )}
+      style={{
+        width: w * CELL - 6,
+        height: h * CELL - 6,
+      }}
+      onMouseDown={onMouseDown}
+      onTouchStart={onTouchStart}
+    >
+      {isDecor ? (
+        <span className={cn("text-xs font-bold tracking-widest", et === "pianta" ? "text-xl" : "")}>{decorLabel}</span>
+      ) : (
+        <div className="flex flex-col items-center justify-center w-full h-full p-1">
+          <div className={cn("h-2 w-2 rounded-full mb-0.5", statusDot)} />
+          <span className="text-[11px] font-bold text-slate-800 text-center leading-tight truncate px-1 w-full text-center">{t.name}</span>
+          {!isRound && (
+            <span className="text-[9px] text-slate-400 flex items-center gap-0.5 mt-0.5">
+              <Users className="h-2 w-2 inline" />{t.seats}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Hover controls */}
+      <div className={cn(
+        "absolute -top-2 -right-2 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10",
+        isDragging && "opacity-0"
+      )}>
+        {!isDecor && (
+          <button onClick={e => { e.stopPropagation(); onEdit(); }}
+            onMouseDown={e => e.stopPropagation()}
+            className="h-5 w-5 rounded bg-white shadow border border-slate-200 flex items-center justify-center text-slate-500 hover:text-primary hover:border-primary transition-colors">
+            <Pencil className="h-2.5 w-2.5" />
+          </button>
+        )}
+        <button onClick={e => { e.stopPropagation(); onDelete(t.id); }}
+          onMouseDown={e => e.stopPropagation()}
+          className="h-5 w-5 rounded bg-white shadow border border-slate-200 flex items-center justify-center text-slate-400 hover:text-red-600 hover:border-red-200 transition-colors">
+          <Trash2 className="h-2.5 w-2.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function PositionEditor({ tables, rooms, onEdit, onDelete, onPositionChange }: {
   tables: ExtTable[];
@@ -190,53 +278,28 @@ function PositionEditor({ tables, rooms, onEdit, onDelete, onPositionChange }: {
               style={{ left: i * CELL }} />
           ))}
 
-          {/* Tables */}
+          {/* Elements */}
           {filtered.map(t => {
             const pos = getPos(t);
             const isDragging = draggingId === t.id;
             const status = (t.status as "free" | "occupied" | "reserved") ?? "free";
-            const bgColor = { free: "bg-white", occupied: "bg-orange-50", reserved: "bg-blue-50" }[status];
-            const borderColor = { free: "border-slate-300", occupied: "border-orange-400", reserved: "border-blue-400" }[status];
 
             return (
               <div
                 key={t.id}
-                className={cn(
-                  "absolute flex flex-col rounded-xl border-2 shadow-sm cursor-grab active:cursor-grabbing transition-shadow select-none",
-                  bgColor, borderColor,
-                  isDragging ? "shadow-xl z-10 scale-105" : "hover:shadow-md z-0"
-                )}
-                style={{
-                  left: pos.x * CELL + 4,
-                  top: pos.y * CELL + 4,
-                  width: CELL * 2 - 8,
-                  height: CELL - 8,
-                }}
-                onMouseDown={e => onMouseDown(e, t)}
-                onTouchStart={e => onTouchStart(e, t)}
+                className={cn("absolute", isDragging ? "z-10" : "z-0")}
+                style={{ left: pos.x * CELL + 3, top: pos.y * CELL + 3 }}
               >
-                <div className="flex items-center justify-between px-2 pt-1.5">
-                  <span className="text-xs font-bold text-slate-800 truncate">{t.name}</span>
-                  <div className="flex gap-0.5">
-                    <button onClick={() => onEdit(t)}
-                      onMouseDown={e => e.stopPropagation()}
-                      className="h-5 w-5 rounded flex items-center justify-center text-slate-400 hover:text-primary hover:bg-orange-50 transition-colors">
-                      <Pencil className="h-2.5 w-2.5" />
-                    </button>
-                    <button onClick={() => onDelete(t.id)}
-                      onMouseDown={e => e.stopPropagation()}
-                      className="h-5 w-5 rounded flex items-center justify-center text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors">
-                      <Trash2 className="h-2.5 w-2.5" />
-                    </button>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between px-2 pb-1.5">
-                  <span className="text-[10px] text-slate-400 flex items-center gap-0.5">
-                    <Users className="h-2.5 w-2.5" />{t.seats}
-                  </span>
-                  <div className={cn("h-2 w-2 rounded-full",
-                    { free: "bg-emerald-400", occupied: "bg-orange-400", reserved: "bg-blue-400" }[status])} />
-                </div>
+                <TableShape
+                  t={t}
+                  status={status}
+                  isSelected={false}
+                  isDragging={isDragging}
+                  onMouseDown={e => onMouseDown(e, t)}
+                  onTouchStart={e => onTouchStart(e, t)}
+                  onEdit={() => onEdit(t)}
+                  onDelete={onDelete}
+                />
               </div>
             );
           })}
@@ -250,16 +313,27 @@ function PositionEditor({ tables, rooms, onEdit, onDelete, onPositionChange }: {
 }
 
 // ── Form ──────────────────────────────────────────────────────────────────────
-function TableForm({ initial, rooms, onSave, onClose }: {
+function TableForm({ initial, rooms, onSave, onClose, isDecorElement }: {
   initial?: ExtTable; rooms: Room[];
-  onSave: (data: { number: number; name: string; seats: number; status: string; roomId: number | null }) => void;
+  onSave: (data: { number: number; name: string; seats: number; status: string; roomId: number | null; shape: string; elementType: string }) => void;
   onClose: () => void;
+  isDecorElement?: boolean;
 }) {
   const [number, setNumber] = useState(initial?.number ?? 1);
   const [name, setName] = useState(initial?.name ?? "");
   const [seats, setSeats] = useState(initial?.seats ?? 4);
   const [status, setStatus] = useState<string>(initial?.status ?? "free");
   const [roomId, setRoomId] = useState<number | null>(initial?.roomId ?? null);
+  const [shape, setShape] = useState<string>(initial?.shape ?? "square");
+  const elementType = initial?.elementType ?? (isDecorElement ? "banco" : "table");
+
+  const isTable = elementType === "table";
+
+  const shapes = [
+    { id: "square", label: "Quadrato", icon: "■" },
+    { id: "round", label: "Rotondo", icon: "●" },
+    { id: "rectangle", label: "Rettangolare", icon: "▬" },
+  ];
 
   return (
     <div className="space-y-4">
@@ -270,13 +344,28 @@ function TableForm({ initial, rooms, onSave, onClose }: {
         </div>
         <div>
           <Label>Posti</Label>
-          <Input type="number" min={1} value={seats} onChange={e => setSeats(Number(e.target.value))} className="mt-1" />
+          <Input type="number" min={isTable ? 1 : 0} value={seats} onChange={e => setSeats(Number(e.target.value))} className="mt-1" />
         </div>
       </div>
       <div>
         <Label>Nome *</Label>
-        <Input value={name} onChange={e => setName(e.target.value)} placeholder="Es. Tavolo 1" className="mt-1" />
+        <Input value={name} onChange={e => setName(e.target.value)} placeholder={isTable ? "Es. Tavolo 1" : "Es. Banco principale"} className="mt-1" />
       </div>
+      {isTable && (
+        <div>
+          <Label>Forma</Label>
+          <div className="grid grid-cols-3 gap-2 mt-1">
+            {shapes.map(s => (
+              <button key={s.id} onClick={() => setShape(s.id)}
+                className={cn("py-2.5 rounded-lg text-sm font-medium border-2 transition-colors flex flex-col items-center gap-1",
+                  shape === s.id ? "border-primary bg-orange-50 text-primary" : "border-border bg-card text-muted-foreground")}>
+                <span className="text-lg">{s.icon}</span>
+                <span className="text-xs">{s.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div>
         <Label>Sala</Label>
         <select value={roomId ?? ""} onChange={e => setRoomId(e.target.value ? Number(e.target.value) : null)}
@@ -285,21 +374,23 @@ function TableForm({ initial, rooms, onSave, onClose }: {
           {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
       </div>
-      <div>
-        <Label>Stato</Label>
-        <div className="grid grid-cols-3 gap-2 mt-1">
-          {["free", "occupied", "reserved"].map(s => (
-            <button key={s} onClick={() => setStatus(s)}
-              className={cn("py-2 rounded-lg text-sm font-medium border-2 transition-colors",
-                status === s ? "border-primary bg-orange-50 text-primary" : "border-border bg-card text-muted-foreground")}>
-              {s === "free" ? "Libero" : s === "occupied" ? "Occupato" : "Riservato"}
-            </button>
-          ))}
+      {isTable && (
+        <div>
+          <Label>Stato</Label>
+          <div className="grid grid-cols-3 gap-2 mt-1">
+            {["free", "occupied", "reserved"].map(s => (
+              <button key={s} onClick={() => setStatus(s)}
+                className={cn("py-2 rounded-lg text-sm font-medium border-2 transition-colors",
+                  status === s ? "border-primary bg-orange-50 text-primary" : "border-border bg-card text-muted-foreground")}>
+                {s === "free" ? "Libero" : s === "occupied" ? "Occupato" : "Riservato"}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Annulla</Button>
-        <Button onClick={() => onSave({ number, name, seats, status, roomId })} disabled={!name}>Salva</Button>
+        <Button onClick={() => onSave({ number, name, seats, status, roomId, shape, elementType })} disabled={!name}>Salva</Button>
       </DialogFooter>
     </div>
   );
@@ -355,18 +446,31 @@ export default function TablesPage() {
     reorder(newOrder);
   }
 
-  const handleSave = (data: { number: number; name: string; seats: number; status: string; roomId: number | null }) => {
+  const handleSave = (data: { number: number; name: string; seats: number; status: string; roomId: number | null; shape: string; elementType: string }) => {
     const opts = {
       onSuccess: () => {
-        toast({ title: "Tavolo salvato" });
+        toast({ title: dialog.item?.elementType !== "table" ? "Elemento salvato" : "Tavolo salvato" });
         qc.invalidateQueries({ queryKey: getListTablesQueryKey() });
         setLocalTables([]);
         setDialog({ open: false });
       },
     };
-    if (dialog.item) updateTable.mutate({ id: dialog.item.id, data }, opts);
-    else createTable.mutate({ data }, opts);
+    if (dialog.item) updateTable.mutate({ id: dialog.item.id, data: data as never }, opts);
+    else createTable.mutate({ data: data as never }, opts);
   };
+
+  function handleAddDecor(elementType: "banco" | "pianta" | "muro") {
+    const label = { banco: "Banco", pianta: "Pianta", muro: "Muro" }[elementType];
+    const shape = elementType === "pianta" ? "round" : "rectangle";
+    createTable.mutate({
+      data: { number: 0, name: label, seats: 0, status: "free", elementType, shape, posX: 0, posY: 0 } as never
+    }, {
+      onSuccess: () => {
+        toast({ title: `${label} aggiunto alla planimetria` });
+        qc.invalidateQueries({ queryKey: getListTablesQueryKey() });
+      }
+    });
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -395,6 +499,22 @@ export default function TablesPage() {
                 <List className="h-4 w-4" /> Lista
               </button>
             </div>
+            {view === "map" && (
+              <div className="flex gap-1">
+                <button onClick={() => handleAddDecor("banco")}
+                  className="px-3 py-2 rounded-lg text-xs font-semibold bg-slate-700 text-white hover:bg-slate-600 transition-colors">
+                  + Banco
+                </button>
+                <button onClick={() => handleAddDecor("pianta")}
+                  className="px-3 py-2 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors">
+                  🌿 Pianta
+                </button>
+                <button onClick={() => handleAddDecor("muro")}
+                  className="px-3 py-2 rounded-lg text-xs font-semibold bg-slate-400 text-white hover:bg-slate-300 transition-colors">
+                  ░ Muro
+                </button>
+              </div>
+            )}
             <Button className="gap-1" onClick={() => setDialog({ open: true })}>
               <Plus className="h-4 w-4" /> Nuovo Tavolo
             </Button>
@@ -442,7 +562,13 @@ export default function TablesPage() {
 
       <Dialog open={dialog.open} onOpenChange={o => !o && setDialog({ open: false })}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{dialog.item ? "Modifica Tavolo" : "Nuovo Tavolo"}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>
+              {dialog.item
+                ? dialog.item.elementType === "table" ? "Modifica Tavolo" : "Modifica Elemento"
+                : "Nuovo Tavolo"}
+            </DialogTitle>
+          </DialogHeader>
           <TableForm initial={dialog.item} rooms={rooms} onSave={handleSave} onClose={() => setDialog({ open: false })} />
         </DialogContent>
       </Dialog>

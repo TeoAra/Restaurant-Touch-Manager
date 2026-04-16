@@ -53,9 +53,11 @@ router.get("/", async (req, res) => {
 // Create order
 router.post("/", async (req, res) => {
   const body = CreateOrderBody.parse(req.body);
+  const covers = (req.body as { covers?: number }).covers;
   const [order] = await db.insert(ordersTable).values({
     tableId: body.tableId ?? null,
     notes: body.notes ?? null,
+    covers: typeof covers === "number" && covers >= 0 ? covers : 1,
     status: "open",
     total: "0.00",
   }).returning();
@@ -218,14 +220,27 @@ router.post("/:id/send-comanda", async (req, res) => {
   res.json({ success: true, sentItems: result.length });
 });
 
-// Update covers
+// Update covers (0 allowed)
 router.patch("/:id/covers", async (req, res) => {
   const id = Number(req.params.id);
   const { covers } = req.body as { covers: number };
-  if (!covers || covers < 1) return res.status(400).json({ error: "Invalid covers" });
+  if (covers === undefined || covers < 0) return res.status(400).json({ error: "Invalid covers" });
   const [order] = await db.update(ordersTable).set({ covers }).where(eq(ordersTable.id, id)).returning();
   if (!order) return res.status(404).json({ error: "Order not found" });
   res.json(order);
+});
+
+// Void item: mark as deleted and optionally notify department (future: trigger print)
+router.post("/:orderId/items/:itemId/void", async (req, res) => {
+  const orderId = Number(req.params.orderId);
+  const itemId = Number(req.params.itemId);
+  const [item] = await db.select().from(orderItemsTable).where(
+    and(eq(orderItemsTable.id, itemId), eq(orderItemsTable.orderId, orderId))
+  );
+  if (!item) return res.status(404).json({ error: "Item not found" });
+  // TODO: trigger void print to department printer
+  console.log(`[VOID] Articolo annullato: ${item.productName} (qty: ${item.quantity}) — ordine ${orderId}`);
+  res.json({ success: true, voidedItem: item });
 });
 
 export default router;

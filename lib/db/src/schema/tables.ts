@@ -12,6 +12,8 @@ export const tablesTable = pgTable("tables", {
   sortOrder: integer("sort_order").notNull().default(0),
   posX: integer("pos_x").notNull().default(0),
   posY: integer("pos_y").notNull().default(0),
+  shape: text("shape").notNull().default("square"),
+  elementType: text("element_type").notNull().default("table"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -179,6 +179,8 @@ export const ListTablesResponseItem = zod.object({
   sortOrder: zod.number().optional(),
   posX: zod.number().optional(),
   posY: zod.number().optional(),
+  shape: zod.string().optional(),
+  elementType: zod.string().optional(),
   createdAt: zod.string(),
 });
 export const ListTablesResponse = zod.array(ListTablesResponseItem);
@@ -195,6 +197,8 @@ export const CreateTableBody = zod.object({
   sortOrder: zod.number().optional(),
   posX: zod.number().optional(),
   posY: zod.number().optional(),
+  shape: zod.string().optional(),
+  elementType: zod.string().optional(),
 });
 
 /**
@@ -229,6 +233,8 @@ export const UpdateTableBody = zod.object({
   sortOrder: zod.number().optional(),
   posX: zod.number().optional(),
   posY: zod.number().optional(),
+  shape: zod.string().optional(),
+  elementType: zod.string().optional(),
 });
 
 export const UpdateTableResponse = zod.object({
@@ -494,6 +500,12 @@ export const GetTablesStatusResponseItem = zod.object({
   name: zod.string(),
   seats: zod.number(),
   status: zod.enum(["free", "occupied", "reserved"]),
+  roomId: zod.number().nullish(),
+  roomName: zod.string().nullish(),
+  posX: zod.number().optional(),
+  posY: zod.number().optional(),
+  shape: zod.string().optional(),
+  elementType: zod.string().optional(),
   activeOrderId: zod.number().nullish(),
   activeOrderTotal: zod.string().nullish(),
   activeOrderCreatedAt: zod.string().nullish(),
