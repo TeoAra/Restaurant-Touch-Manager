@@ -1676,36 +1676,35 @@ export default function FrontOffice() {
                       "rounded-xl border",
                       isDraft ? "bg-orange-50 border-orange-200" : "bg-slate-50 border-slate-200"
                     )}>
-                      <div className="flex items-center gap-2 p-2.5">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs font-semibold text-slate-800 truncate">{item.productName}</span>
-                            {!isDraft && <span className="shrink-0 text-[10px] px-1 rounded-full bg-emerald-100 text-emerald-700">✓ inv.</span>}
-                          </div>
-                          <span className="text-[10px] text-slate-400">€{parseFloat(item.unitPrice).toFixed(2)} cad.</span>
-                        </div>
-                        {/* Edit button */}
+                      {/* Row 1: name + total */}
+                      <div className="flex items-center gap-2 px-3 pt-2.5 pb-1">
+                        <span className="flex-1 min-w-0 text-xs font-semibold text-slate-800 truncate">{item.productName}</span>
+                        {!isDraft && <span className="shrink-0 text-[10px] px-1 rounded-full bg-emerald-100 text-emerald-700">✓</span>}
+                        <span className="shrink-0 text-sm font-bold text-slate-800">
+                          €{parseFloat(item.subtotal).toFixed(2)}
+                        </span>
+                      </div>
+                      {/* Row 2: unit price + edit + qty controls */}
+                      <div className="flex items-center gap-1.5 px-3 pb-2">
+                        <span className="flex-1 text-[10px] text-slate-400">€{parseFloat(item.unitPrice).toFixed(2)} cad.</span>
                         <button
                           onClick={() => setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus })}
-                          className="h-7 w-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-colors shrink-0"
+                          className="h-6 w-6 rounded-md bg-white border border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-colors shrink-0"
                           title="Modifica riga"
                         >
                           <Pencil className="h-3 w-3" />
                         </button>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-0.5 shrink-0">
                           <button onClick={() => handleQty(item.id, item.quantity - 1)}
-                            className="h-7 w-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center hover:bg-red-50 hover:border-red-200 transition-colors active:scale-90">
+                            className="h-6 w-6 rounded-md bg-white border border-slate-200 flex items-center justify-center hover:bg-red-50 hover:border-red-200 transition-colors active:scale-90">
                             <Minus className="h-3 w-3" />
                           </button>
-                          <span className="w-5 text-center text-xs font-bold">{item.quantity}</span>
+                          <span className="w-6 text-center text-xs font-bold">{item.quantity}</span>
                           <button onClick={() => handleQty(item.id, item.quantity + 1)}
-                            className="h-7 w-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center hover:bg-emerald-50 hover:border-emerald-200 transition-colors active:scale-90">
+                            className="h-6 w-6 rounded-md bg-white border border-slate-200 flex items-center justify-center hover:bg-emerald-50 hover:border-emerald-200 transition-colors active:scale-90">
                             <Plus className="h-3 w-3" />
                           </button>
                         </div>
-                        <span className="text-xs font-bold text-slate-700 w-16 text-right shrink-0">
-                          €{parseFloat(item.subtotal).toFixed(2)}
-                        </span>
                       </div>
                       {/* Notes display */}
                       {itemNotes && (
