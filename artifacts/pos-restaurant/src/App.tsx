@@ -18,6 +18,9 @@ import ReportsPage from "@/pages/backoffice/reports";
 import PaymentsPage from "@/pages/backoffice/payments";
 import SettingsPage from "@/pages/backoffice/settings";
 import UsersPage from "@/pages/backoffice/users";
+import ClientiPage from "@/pages/backoffice/clienti";
+import FatturePage from "@/pages/backoffice/fatture";
+import FiscalePage from "@/pages/backoffice/fiscale";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,6 +52,9 @@ function AppRouter() {
         {isAdmin && <Route path="/backoffice/payments" component={PaymentsPage} />}
         {isAdmin && <Route path="/backoffice/settings" component={SettingsPage} />}
         {isAdmin && <Route path="/backoffice/users" component={UsersPage} />}
+        {isAdmin && <Route path="/backoffice/clienti" component={ClientiPage} />}
+        {isAdmin && <Route path="/backoffice/fatture" component={FatturePage} />}
+        {isAdmin && <Route path="/backoffice/fiscale" component={FiscalePage} />}
         <Route component={NotFound} />
       </Switch>
     </Layout>

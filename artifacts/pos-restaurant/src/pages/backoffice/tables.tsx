@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useListTables, useCreateTable, useUpdateTable, useDeleteTable, getListTablesQueryKey,
@@ -192,21 +192,22 @@ function TableShape({ t, status, isSelected, isDragging, onMouseDown, onTouchSta
   );
 }
 
-function PositionEditor({ tables, rooms, onEdit, onDelete, onPositionChange, onRotate }: {
+function PositionEditor({ tables, rooms, activeRoom, onActiveRoomChange, onEdit, onDelete, onPositionChange, onRotate }: {
   tables: ExtTable[];
   rooms: Room[];
+  activeRoom: number | null;
+  onActiveRoomChange: (id: number | null) => void;
   onEdit: (t: ExtTable) => void;
   onDelete: (id: number) => void;
   onPositionChange: (id: number, x: number, y: number) => void;
   onRotate: (id: number) => void;
 }) {
-  const [roomFilter, setRoomFilter] = useState<number | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef<{ id: number; startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [localPos, setLocalPos] = useState<Record<number, { x: number; y: number }>>({});
 
-  const filtered = tables.filter(t => roomFilter === null || t.roomId === roomFilter);
+  const filtered = tables.filter(t => activeRoom === null || t.roomId === activeRoom);
 
   function getPos(t: ExtTable) {
     return localPos[t.id] ?? { x: t.posX ?? 0, y: t.posY ?? 0 };
@@ -263,9 +264,9 @@ function PositionEditor({ tables, rooms, onEdit, onDelete, onPositionChange, onR
       {/* Room filter */}
       <div className="flex gap-1.5 mb-4 flex-wrap">
         {rooms.map(r => (
-          <button key={r.id} onClick={() => setRoomFilter(roomFilter === r.id ? null : r.id)}
+          <button key={r.id} onClick={() => onActiveRoomChange(activeRoom === r.id ? null : r.id)}
             className={cn("px-3 py-1.5 rounded-full text-xs font-semibold transition-all",
-              roomFilter === r.id ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
+              activeRoom === r.id ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
             {r.name}
           </button>
         ))}
@@ -418,11 +419,19 @@ export default function TablesPage() {
   const [localTables, setLocalTables] = useState<ExtTable[]>([]);
   const [view, setView] = useState<"list" | "map">("map");
   const [roomFilter, setRoomFilter] = useState<number | null>(null);
+  const [mapRoom, setMapRoom] = useState<number | null>(null);
   const { toast } = useToast();
   const qc = useQueryClient();
 
   const { data: tables = [] } = useListTables();
   const { data: rooms = [] } = useRooms();
+
+  useEffect(() => {
+    if (rooms.length > 0 && mapRoom === null) {
+      setMapRoom(rooms[0].id);
+    }
+  }, [rooms, mapRoom]);
+
   const createTable = useCreateTable();
   const updateTable = useUpdateTable();
   const deleteTable = useDeleteTable();
@@ -495,7 +504,7 @@ export default function TablesPage() {
     const label = { banco: "Banco", pianta: "Pianta", muro: "Muro" }[elementType];
     const shape = elementType === "pianta" ? "round" : "rectangle";
     createTable.mutate({
-      data: { number: 0, name: label, seats: 0, status: "free", elementType, shape, posX: 0, posY: 0 } as never
+      data: { number: 0, name: label, seats: 0, status: "free", elementType, shape, posX: 0, posY: 0, roomId: mapRoom } as never
     }, {
       onSuccess: () => {
         toast({ title: `${label} aggiunto alla planimetria` });
@@ -539,7 +548,7 @@ export default function TablesPage() {
               </button>
             </div>
           )}
-          <Button size="sm" className="gap-1" onClick={() => setDialog({ open: true })}>
+          <Button size="sm" className="gap-1" onClick={() => setDialog({ open: true, item: view === "map" && mapRoom ? { roomId: mapRoom } as ExtTable : undefined })}>
             <Plus className="h-4 w-4" /> <span className="hidden sm:inline">Nuovo</span>
           </Button>
         </div>
@@ -563,6 +572,8 @@ export default function TablesPage() {
           <PositionEditor
             tables={allTables}
             rooms={rooms}
+            activeRoom={mapRoom}
+            onActiveRoomChange={setMapRoom}
             onEdit={t => setDialog({ open: true, item: t })}
             onDelete={id => deleteTable.mutate({ id }, { onSuccess: () => { qc.invalidateQueries({ queryKey: getListTablesQueryKey() }); setLocalTables([]); } })}
             onPositionChange={savePosition}

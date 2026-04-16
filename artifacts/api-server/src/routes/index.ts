@@ -11,6 +11,9 @@ import paymentsRouter from "./payments";
 import dashboardRouter from "./dashboard";
 import settingsRouter from "./settings";
 import authRouter from "./auth";
+import customersRouter from "./customers";
+import invoicesRouter from "./invoices";
+import fiscalRouter from "./fiscal";
 
 const router: IRouter = Router();
 
@@ -26,5 +29,8 @@ router.use("/payments", paymentsRouter);
 router.use("/dashboard", dashboardRouter);
 router.use("/settings", settingsRouter);
 router.use("/auth", authRouter);
+router.use("/customers", customersRouter);
+router.use("/invoices", invoicesRouter);
+router.use("/fiscal", fiscalRouter);
 
 export default router;

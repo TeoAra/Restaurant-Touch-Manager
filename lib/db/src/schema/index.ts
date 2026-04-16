@@ -8,3 +8,6 @@ export * from "./orders";
 export * from "./payments";
 export * from "./users";
 export * from "./settings";
+export * from "./customers";
+export * from "./invoices";
+export * from "./fiscal_receipts";

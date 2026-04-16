@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { UtensilsCrossed, LayoutGrid, BarChart3, CreditCard, ArrowRight, BookOpen, Layers, ChefHat, Printer, Settings, Users } from "lucide-react";
+import { UtensilsCrossed, LayoutGrid, BarChart3, CreditCard, ArrowRight, BookOpen, Layers, ChefHat, Printer, Settings, Users, Receipt, FileText, User } from "lucide-react";
 import { useGetDashboardSummary } from "@workspace/api-client-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
 
@@ -11,6 +11,9 @@ const sections = [
   { href: "/backoffice/printers", icon: Printer, label: "Stampanti", description: "Configurazione", color: "bg-slate-50 text-slate-600 border-slate-200" },
   { href: "/backoffice/reports", icon: BarChart3, label: "Report", description: "Statistiche e vendite", color: "bg-green-50 text-green-600 border-green-200" },
   { href: "/backoffice/payments", icon: CreditCard, label: "Pagamenti", description: "Storico transazioni", color: "bg-purple-50 text-purple-600 border-purple-200" },
+  { href: "/backoffice/fiscale", icon: Receipt, label: "Fiscale", description: "Scontrini e Z-Report", color: "bg-red-50 text-red-600 border-red-200" },
+  { href: "/backoffice/clienti", icon: User, label: "Clienti", description: "Anagrafica fatturazione", color: "bg-cyan-50 text-cyan-600 border-cyan-200" },
+  { href: "/backoffice/fatture", icon: FileText, label: "Fatture", description: "FatturaPA elettronica", color: "bg-violet-50 text-violet-600 border-violet-200" },
   { href: "/backoffice/users", icon: Users, label: "Utenti", description: "Accessi e PIN", color: "bg-teal-50 text-teal-600 border-teal-200" },
   { href: "/backoffice/settings", icon: Settings, label: "Impostazioni", description: "Configurazione app", color: "bg-orange-50 text-orange-600 border-orange-200" },
 ];
