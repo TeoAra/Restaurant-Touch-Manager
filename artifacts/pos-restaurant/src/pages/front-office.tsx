@@ -388,53 +388,56 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
   onPay: (method: string, amount: number, itemIds: number[]) => void;
   coverPrice: number; coverCount: number;
 }) {
+  const coverRows = coverPrice > 0 && coverCount > 0
+    ? Array.from({ length: coverCount }, (_, i) => ({
+        id: -(i + 1),
+        productName: "Coperto",
+        quantity: 1,
+        unitPrice: coverPrice.toFixed(2),
+        subtotal: coverPrice.toFixed(2),
+        isCover: true,
+      }))
+    : [];
+  const allRows = [...items.map(i => ({ ...i, isCover: false })), ...coverRows];
+
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [method, setMethod] = useState<"cash" | "card" | "other">("cash");
   function toggleItem(id: number) {
     setSelected(s => { const ns = new Set(s); ns.has(id) ? ns.delete(id) : ns.add(id); return ns; });
   }
-  const selectedItems = items.filter(i => selected.has(i.id));
-  const itemsTotal = selectedItems.reduce((sum, i) => sum + parseFloat(i.subtotal), 0);
-  const itemsFraction = items.length > 0 ? selectedItems.length / items.length : 0;
-  const splitCoverTotal = coverPrice > 0 ? Math.round(coverCount * coverPrice * itemsFraction * 100) / 100 : 0;
-  const splitTotal = itemsTotal + splitCoverTotal;
+  const splitTotal = allRows.filter(r => selected.has(r.id)).reduce((sum, r) => sum + parseFloat(r.subtotal), 0);
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-sm">
         <DialogHeader><DialogTitle className="flex items-center gap-2"><Divide className="h-4 w-4" /> Conto Separato</DialogTitle></DialogHeader>
         <div className="space-y-3 py-1">
           <div className="flex justify-between items-center text-xs text-slate-500">
-            <span>Seleziona gli articoli da pagare</span>
+            <span>Seleziona le voci da pagare</span>
             <div className="flex gap-2">
-              <button onClick={() => setSelected(new Set(items.map(i => i.id)))} className="text-primary hover:underline">Tutti</button>
-              <button onClick={() => setSelected(new Set())} className="text-slate-400 hover:underline">Nessuno</button>
+              <button onClick={() => setSelected(new Set(allRows.map(r => r.id)))} className="text-primary hover:underline">Tutte</button>
+              <button onClick={() => setSelected(new Set())} className="text-slate-400 hover:underline">Nessuna</button>
             </div>
           </div>
-          <div className="space-y-1.5 max-h-52 overflow-y-auto">
-            {items.map(item => (
-              <button key={item.id} onClick={() => toggleItem(item.id)}
+          <div className="space-y-1.5 max-h-60 overflow-y-auto">
+            {allRows.map(row => (
+              <button key={row.id} onClick={() => toggleItem(row.id)}
                 className={cn("w-full flex items-center gap-2.5 p-2.5 rounded-lg border-2 text-left transition-all",
-                  selected.has(item.id) ? "border-primary bg-orange-50" : "border-slate-200 bg-white hover:border-slate-300")}>
+                  selected.has(row.id) ? "border-primary bg-orange-50" : "border-slate-200 bg-white hover:border-slate-300")}>
                 <div className={cn("h-4 w-4 rounded border-2 flex items-center justify-center shrink-0",
-                  selected.has(item.id) ? "border-primary bg-primary" : "border-slate-300")}>
-                  {selected.has(item.id) && <span className="text-white text-[10px] font-bold">✓</span>}
+                  selected.has(row.id) ? "border-primary bg-primary" : "border-slate-300")}>
+                  {selected.has(row.id) && <span className="text-white text-[10px] font-bold">✓</span>}
                 </div>
-                <span className="flex-1 text-xs font-medium text-slate-800">{item.quantity}× {item.productName}</span>
-                <span className="text-xs font-bold text-slate-700 shrink-0">€ {parseFloat(item.subtotal).toFixed(2)}</span>
+                <span className={cn("flex-1 text-xs font-medium truncate", row.isCover ? "text-slate-500 italic" : "text-slate-800")}>
+                  {row.isCover ? <Users className="inline h-3 w-3 mr-1" /> : null}
+                  {row.quantity > 1 ? `${row.quantity}× ` : ""}{row.productName}
+                </span>
+                <span className="text-xs font-bold text-slate-700 shrink-0">€ {parseFloat(row.subtotal).toFixed(2)}</span>
               </button>
             ))}
           </div>
           {selected.size > 0 && (
             <div className="space-y-1 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs">
-              <div className="flex justify-between text-slate-400">
-                <span>Prodotti</span><span>€ {itemsTotal.toFixed(2)}</span>
-              </div>
-              {splitCoverTotal > 0 && (
-                <div className="flex justify-between text-slate-400">
-                  <span>Coperti (quota)</span><span>€ {splitCoverTotal.toFixed(2)}</span>
-                </div>
-              )}
-              <div className="flex justify-between font-bold text-slate-800 pt-1 border-t border-slate-200">
+              <div className="flex justify-between font-bold text-slate-800">
                 <span>Totale separato</span><span className="text-primary">€ {splitTotal.toFixed(2)}</span>
               </div>
             </div>
@@ -460,7 +463,7 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Annulla</Button>
-          <Button onClick={() => { onPay(method, splitTotal, [...selected]); onClose(); }} disabled={selected.size === 0}>
+          <Button onClick={() => { onPay(method, splitTotal, [...selected].filter(id => id > 0)); onClose(); }} disabled={selected.size === 0}>
             Incassa € {splitTotal.toFixed(2)}
           </Button>
         </DialogFooter>
@@ -485,7 +488,7 @@ function ProductCard({ product, onAdd }: {
 
 function EmptyState({ label }: { label: string }) {
   return (
-    <div className="col-span-3 flex flex-col items-center justify-center h-40 text-slate-400">
+    <div className="col-span-full flex flex-col items-center justify-center h-40 text-slate-400">
       <UtensilsCrossed className="h-8 w-8 mb-2 opacity-25" />
       <span className="text-sm">{label}</span>
     </div>
@@ -541,6 +544,9 @@ export default function FrontOffice() {
   const [productSearch, setProductSearch] = useState("");
   const [quickOrderId, setQuickOrderId] = useState<number | null>(null);
   const [isQuickMode, setIsQuickMode] = useState<"rapida" | "asporto" | "delivery" | null>(null);
+
+  // Mobile panel toggle ("menu" | "order")
+  const [mobilePanel, setMobilePanel] = useState<"menu" | "order">("menu");
 
   // Dialog state
   const [showPayment, setShowPayment] = useState(false);
@@ -773,31 +779,37 @@ export default function FrontOffice() {
         <div className="h-6 w-px bg-slate-200" />
 
         {/* Quick actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 md:gap-2">
           <button onClick={() => handleQuickMode("rapida")}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-50 text-emerald-700 text-sm font-semibold border border-emerald-200 hover:bg-emerald-100 active:scale-95 transition-all">
-            <Zap className="h-4 w-4" /> Bevuta Rapida
+            className="flex items-center gap-1.5 px-2.5 md:px-3 py-2 rounded-lg bg-emerald-50 text-emerald-700 text-sm font-semibold border border-emerald-200 hover:bg-emerald-100 active:scale-95 transition-all">
+            <Zap className="h-4 w-4" />
+            <span className="hidden sm:inline">Bevuta Rapida</span>
           </button>
           {enableAsporto && (
             <button onClick={() => handleQuickMode("asporto")}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-orange-50 text-primary text-sm font-semibold border border-orange-200 hover:bg-orange-100 active:scale-95 transition-all">
-              <ShoppingBag className="h-4 w-4" /> Asporto
+              className="flex items-center gap-1.5 px-2.5 md:px-3 py-2 rounded-lg bg-orange-50 text-primary text-sm font-semibold border border-orange-200 hover:bg-orange-100 active:scale-95 transition-all">
+              <ShoppingBag className="h-4 w-4" />
+              <span className="hidden sm:inline">Asporto</span>
             </button>
           )}
           {enableDelivery && (
             <button onClick={() => handleQuickMode("delivery")}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-50 text-blue-700 text-sm font-semibold border border-blue-200 hover:bg-blue-100 active:scale-95 transition-all">
-              <Truck className="h-4 w-4" /> Delivery
+              className="flex items-center gap-1.5 px-2.5 md:px-3 py-2 rounded-lg bg-blue-50 text-blue-700 text-sm font-semibold border border-blue-200 hover:bg-blue-100 active:scale-95 transition-all">
+              <Truck className="h-4 w-4" />
+              <span className="hidden sm:inline">Delivery</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* ══ MAIN: always 2-panel ══════════════════════════════════════════════ */}
+      {/* ══ MAIN ═════════════════════════════════════════════════════════════ */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
         {/* ── Left: Categories + Products ───────────────────────────────── */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden border-r border-slate-200">
+        <div className={cn(
+          "flex-1 flex flex-col min-w-0 overflow-hidden border-r border-slate-200",
+          mobilePanel === "order" ? "hidden md:flex" : "flex"
+        )}>
           {/* Search + breadcrumb */}
           <div className="flex items-center gap-3 px-4 py-3 bg-white border-b border-slate-100 shrink-0">
             {selectedCategoryId && (
@@ -828,7 +840,7 @@ export default function FrontOffice() {
 
           <ScrollArea className="flex-1">
             {productSearch ? (
-              <div className="p-4 grid grid-cols-3 gap-3">
+              <div className="p-4 grid grid-cols-2 md:grid-cols-3 gap-3">
                 {visibleProducts.filter(p => p.available).map(p => (
                   <ProductCard key={p.id} product={p} onAdd={handleAddProduct} />
                 ))}
@@ -849,14 +861,14 @@ export default function FrontOffice() {
                   </button>
                 ))}
                 {categories.length === 0 && (
-                  <div className="col-span-3 flex flex-col items-center justify-center h-40 text-slate-400">
+                  <div className="col-span-full flex flex-col items-center justify-center h-40 text-slate-400">
                     <UtensilsCrossed className="h-8 w-8 mb-2 opacity-25" />
                     <p className="text-sm">Nessuna categoria disponibile</p>
                   </div>
                 )}
               </div>
             ) : (
-              <div className="p-4 grid grid-cols-3 gap-3">
+              <div className="p-4 grid grid-cols-2 md:grid-cols-3 gap-3">
                 {visibleProducts.filter(p => p.available).map(p => (
                   <ProductCard key={p.id} product={p} onAdd={handleAddProduct} />
                 ))}
@@ -869,7 +881,10 @@ export default function FrontOffice() {
         </div>
 
         {/* ── Right: Order panel ────────────────────────────────────────── */}
-        <div className="w-80 flex flex-col bg-white shrink-0">
+        <div className={cn(
+          "w-full md:w-80 flex flex-col bg-white shrink-0",
+          mobilePanel === "menu" ? "hidden md:flex" : "flex"
+        )}>
 
           {/* Phase indicator */}
           <PhaseIndicator phase={currentPhase} />
@@ -1005,7 +1020,8 @@ export default function FrontOffice() {
                 className="flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 active:scale-95 transition-all disabled:opacity-40">
                 <FileText className="h-3.5 w-3.5" /> Preconto
               </button>
-              <button onClick={() => setShowSplitBill(true)} disabled={items.length < 2}
+              <button onClick={() => setShowSplitBill(true)}
+                disabled={(items.length + (coverPrice > 0 && coverCount > 0 ? coverCount : 0)) < 2}
                 className="flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 active:scale-95 transition-all disabled:opacity-40">
                 <Divide className="h-3.5 w-3.5" /> Separato
               </button>
@@ -1023,6 +1039,37 @@ export default function FrontOffice() {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* ══ MOBILE BOTTOM TAB BAR (hidden on md+) ════════════════════════════ */}
+      <div className="md:hidden shrink-0 bg-white border-t border-slate-200 flex">
+        <button
+          onClick={() => setMobilePanel("menu")}
+          className={cn(
+            "flex-1 flex flex-col items-center justify-center gap-1 py-3 text-xs font-semibold transition-colors",
+            mobilePanel === "menu" ? "text-primary" : "text-slate-400"
+          )}
+        >
+          <UtensilsCrossed className="h-5 w-5" />
+          <span>Menu</span>
+        </button>
+        <button
+          onClick={() => setMobilePanel("order")}
+          className={cn(
+            "flex-1 flex flex-col items-center justify-center gap-1 py-3 text-xs font-semibold transition-colors relative",
+            mobilePanel === "order" ? "text-primary" : "text-slate-400"
+          )}
+        >
+          <div className="relative">
+            <FileText className="h-5 w-5" />
+            {items.length > 0 && (
+              <span className="absolute -top-1.5 -right-2 bg-primary text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">
+                {items.length}
+              </span>
+            )}
+          </div>
+          <span>Ordine{total > 0 ? ` · €${total.toFixed(2)}` : ""}</span>
+        </button>
       </div>
 
       {/* ══ MODALS ═══════════════════════════════════════════════════════════ */}
