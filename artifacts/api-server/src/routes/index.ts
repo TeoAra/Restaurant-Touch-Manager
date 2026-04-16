@@ -9,6 +9,7 @@ import printersRouter from "./printers";
 import ordersRouter from "./orders";
 import paymentsRouter from "./payments";
 import dashboardRouter from "./dashboard";
+import settingsRouter from "./settings";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use("/printers", printersRouter);
 router.use("/orders", ordersRouter);
 router.use("/payments", paymentsRouter);
 router.use("/dashboard", dashboardRouter);
+router.use("/settings", settingsRouter);
 
 export default router;

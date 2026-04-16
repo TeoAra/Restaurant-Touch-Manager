@@ -20,6 +20,7 @@ const adminItems = [
   { href: "/backoffice/printers", icon: Printer, label: "Stampanti" },
   { href: "/backoffice/reports", icon: BarChart3, label: "Report" },
   { href: "/backoffice/payments", icon: CreditCard, label: "Pagamenti" },
+  { href: "/backoffice/settings", icon: Settings, label: "Impostazioni" },
 ];
 
 function NavItem({ href, icon: Icon, label, active }: { href: string; icon: React.ComponentType<{ className?: string }>; label: string; active: boolean }) {

@@ -14,6 +14,7 @@ import DepartmentsPage from "@/pages/backoffice/departments";
 import PrintersPage from "@/pages/backoffice/printers";
 import ReportsPage from "@/pages/backoffice/reports";
 import PaymentsPage from "@/pages/backoffice/payments";
+import SettingsPage from "@/pages/backoffice/settings";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,6 +39,7 @@ function AppRouter() {
         <Route path="/backoffice/printers" component={PrintersPage} />
         <Route path="/backoffice/reports" component={ReportsPage} />
         <Route path="/backoffice/payments" component={PaymentsPage} />
+        <Route path="/backoffice/settings" component={SettingsPage} />
         <Route component={NotFound} />
       </Switch>
     </Layout>
