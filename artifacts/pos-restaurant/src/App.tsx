@@ -21,6 +21,13 @@ import UsersPage from "@/pages/backoffice/users";
 import ClientiPage from "@/pages/backoffice/clienti";
 import FatturePage from "@/pages/backoffice/fatture";
 import FiscalePage from "@/pages/backoffice/fiscale";
+import ScontiPage from "@/pages/backoffice/sconti";
+import PromozioniPage from "@/pages/backoffice/promozioni";
+import FattoriniPage from "@/pages/backoffice/fattorini";
+import ComboPage from "@/pages/backoffice/combo";
+import HappyHourPage from "@/pages/backoffice/happy-hour";
+import KpCommentsPage from "@/pages/backoffice/kp-comments";
+import AliquoteIvaPage from "@/pages/backoffice/aliquote-iva";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,7 +41,6 @@ const queryClient = new QueryClient({
 function AppRouter() {
   const { user, isAdmin } = useAuth();
 
-  // Not logged in → show login page
   if (!user) return <LoginPage />;
 
   return (
@@ -55,6 +61,13 @@ function AppRouter() {
         {isAdmin && <Route path="/backoffice/clienti" component={ClientiPage} />}
         {isAdmin && <Route path="/backoffice/fatture" component={FatturePage} />}
         {isAdmin && <Route path="/backoffice/fiscale" component={FiscalePage} />}
+        {isAdmin && <Route path="/backoffice/sconti" component={ScontiPage} />}
+        {isAdmin && <Route path="/backoffice/promozioni" component={PromozioniPage} />}
+        {isAdmin && <Route path="/backoffice/fattorini" component={FattoriniPage} />}
+        {isAdmin && <Route path="/backoffice/combo" component={ComboPage} />}
+        {isAdmin && <Route path="/backoffice/happy-hour" component={HappyHourPage} />}
+        {isAdmin && <Route path="/backoffice/kp-comments" component={KpCommentsPage} />}
+        {isAdmin && <Route path="/backoffice/aliquote-iva" component={AliquoteIvaPage} />}
         <Route component={NotFound} />
       </Switch>
     </Layout>

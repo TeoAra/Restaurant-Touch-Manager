@@ -14,6 +14,12 @@ import authRouter from "./auth";
 import customersRouter from "./customers";
 import invoicesRouter from "./invoices";
 import fiscalRouter from "./fiscal";
+import discountsRouter from "./discounts";
+import promotionsRouter from "./promotions";
+import couriersRouter from "./couriers";
+import combosRouter from "./combos";
+import happyHourRouter from "./happy-hour";
+import kpCommentsRouter from "./kp-comments";
 
 const router: IRouter = Router();
 
@@ -32,5 +38,11 @@ router.use("/auth", authRouter);
 router.use("/customers", customersRouter);
 router.use("/invoices", invoicesRouter);
 router.use("/fiscal", fiscalRouter);
+router.use("/discounts", discountsRouter);
+router.use("/promotions", promotionsRouter);
+router.use("/couriers", couriersRouter);
+router.use("/combos", combosRouter);
+router.use("/happy-hour", happyHourRouter);
+router.use("/kp-comments", kpCommentsRouter);
 
 export default router;

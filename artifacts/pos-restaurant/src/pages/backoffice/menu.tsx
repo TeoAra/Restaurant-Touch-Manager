@@ -106,31 +106,34 @@ function CategoryForm({ initial, onSave, onClose }: { initial?: Category; onSave
 const IVA_RATES = ["4", "10", "22"] as const;
 
 // ── ProductForm ───────────────────────────────────────────────────────────────
+type ProductExt = Product & { iva?: string; sku?: string; barcode?: string; price2?: string; price3?: string; price4?: string };
+
 function ProductForm({ initial, categories, onSave, onClose }: {
   initial?: Product;
   categories: Category[];
-  onSave: (data: { name: string; price: string; categoryId: number | null; description: string | null; available: boolean; sortOrder: number; iva: string; sku: string | null }) => void;
+  onSave: (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; available: boolean; sortOrder: number; iva: string; sku: string | null; barcode: string | null }) => void;
   onClose: () => void
 }) {
-  const [name, setName] = useState(initial?.name ?? "");
-  const [price, setPrice] = useState(initial?.price ?? "");
-  const [categoryId, setCategoryId] = useState<number | null>(initial?.categoryId ?? null);
-  const [description, setDescription] = useState(initial?.description ?? "");
-  const [available, setAvailable] = useState(initial?.available ?? true);
-  const [sortOrder, setSortOrder] = useState(initial?.sortOrder ?? 0);
-  const [iva, setIva] = useState((initial as Product & { iva?: string })?.iva ?? "10");
-  const [sku, setSku] = useState((initial as Product & { sku?: string })?.sku ?? "");
+  const ext = initial as ProductExt | undefined;
+  const [name, setName] = useState(ext?.name ?? "");
+  const [price, setPrice] = useState(ext?.price ?? "");
+  const [price2, setPrice2] = useState(ext?.price2 ?? "0.00");
+  const [price3, setPrice3] = useState(ext?.price3 ?? "0.00");
+  const [price4, setPrice4] = useState(ext?.price4 ?? "0.00");
+  const [categoryId, setCategoryId] = useState<number | null>(ext?.categoryId ?? null);
+  const [description, setDescription] = useState(ext?.description ?? "");
+  const [available, setAvailable] = useState(ext?.available ?? true);
+  const [sortOrder, setSortOrder] = useState(ext?.sortOrder ?? 0);
+  const [iva, setIva] = useState(ext?.iva ?? "10");
+  const [sku, setSku] = useState(ext?.sku ?? "");
+  const [barcode, setBarcode] = useState(ext?.barcode ?? "");
 
   return (
-    <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+    <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2">
           <Label>Nome prodotto *</Label>
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Es. Birra Chiara" className="mt-1" />
-        </div>
-        <div>
-          <Label>Prezzo (€) *</Label>
-          <Input type="number" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.00" className="mt-1" />
         </div>
         <div>
           <Label>IVA %</Label>
@@ -139,36 +142,61 @@ function ProductForm({ initial, categories, onSave, onClose }: {
             {IVA_RATES.map(r => <option key={r} value={r}>{r}%</option>)}
           </select>
         </div>
+        <div>
+          <Label>Categoria</Label>
+          <select value={categoryId ?? ""} onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : null)}
+            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+            <option value="">Nessuna</option>
+            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
       </div>
+
+      {/* 4 listini prezzi */}
       <div>
-        <Label>Categoria</Label>
-        <select value={categoryId ?? ""} onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : null)}
-          className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-          <option value="">Nessuna categoria</option>
-          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
+        <Label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Listini Prezzi (€)</Label>
+        <div className="mt-1.5 grid grid-cols-2 gap-2">
+          {[
+            { label: "1 — Servito", val: price, set: setPrice },
+            { label: "2 — Asporto", val: price2, set: setPrice2 },
+            { label: "3 — Fidelity", val: price3, set: setPrice3 },
+            { label: "4 — Staff", val: price4, set: setPrice4 },
+          ].map(({ label, val, set }) => (
+            <div key={label}>
+              <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{label}</label>
+              <Input type="number" step="0.01" min="0" value={val} onChange={e => set(e.target.value)} placeholder="0.00" className="mt-0.5 text-sm" />
+            </div>
+          ))}
+        </div>
       </div>
+
       <div>
         <Label>Descrizione</Label>
         <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Facoltativa" className="mt-1" />
       </div>
-      <div className="grid grid-cols-2 gap-3">
+
+      <div className="grid grid-cols-3 gap-2">
         <div>
           <Label>SKU / Codice</Label>
-          <Input value={sku} onChange={(e) => setSku(e.target.value)} placeholder="opzionale" className="mt-1 font-mono" />
+          <Input value={sku} onChange={(e) => setSku(e.target.value)} placeholder="opz." className="mt-1 font-mono text-sm" />
+        </div>
+        <div>
+          <Label>Barcode</Label>
+          <Input value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="EAN13…" className="mt-1 font-mono text-sm" />
         </div>
         <div>
           <Label>Ordine</Label>
           <Input type="number" value={sortOrder} onChange={(e) => setSortOrder(Number(e.target.value))} className="mt-1" />
         </div>
       </div>
+
       <div className="flex items-center gap-2">
         <Switch checked={available} onCheckedChange={setAvailable} id="available" />
         <Label htmlFor="available">Disponibile</Label>
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Annulla</Button>
-        <Button onClick={() => onSave({ name, price, categoryId, description: description || null, available, sortOrder, iva, sku: sku || null })} disabled={!name || !price}>Salva</Button>
+        <Button onClick={() => onSave({ name, price, price2, price3, price4, categoryId, description: description || null, available, sortOrder, iva, sku: sku || null, barcode: barcode || null })} disabled={!name || !price}>Salva</Button>
       </DialogFooter>
     </div>
   );
@@ -497,7 +525,7 @@ export default function MenuPage() {
     }
   };
 
-  const handleSaveProduct = (data: { name: string; price: string; categoryId: number | null; description: string | null; available: boolean; sortOrder: number; iva: string; sku: string | null }) => {
+  const handleSaveProduct = (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; available: boolean; sortOrder: number; iva: string; sku: string | null; barcode: string | null }) => {
     const opts = {
       onSuccess: () => {
         toast({ title: "Prodotto salvato" });
