@@ -176,9 +176,13 @@ router.patch("/:orderId/items/:itemId", async (req, res) => {
   if (!existing) return res.status(404).json({ error: "Order item not found" });
 
   const updateData: Record<string, unknown> = {};
+  const effectiveUnitPrice = body.unitPrice ?? existing.unitPrice;
+  if (body.unitPrice !== undefined) updateData.unitPrice = body.unitPrice;
   if (body.quantity !== undefined) {
     updateData.quantity = body.quantity;
-    updateData.subtotal = (parseFloat(existing.unitPrice) * body.quantity).toFixed(2);
+    updateData.subtotal = (parseFloat(effectiveUnitPrice) * body.quantity).toFixed(2);
+  } else if (body.unitPrice !== undefined) {
+    updateData.subtotal = (parseFloat(effectiveUnitPrice) * existing.quantity).toFixed(2);
   }
   if (body.notes !== undefined) updateData.notes = body.notes;
 

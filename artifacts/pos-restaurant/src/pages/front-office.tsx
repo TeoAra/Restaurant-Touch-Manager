@@ -25,7 +25,7 @@ import {
   Users, Plus, Minus, CreditCard, Banknote, Wallet,
   ShoppingBag, Truck, Clock, Send, FileText, Divide,
   ChevronLeft, Search, X, UtensilsCrossed, Zap, Map as MapIcon,
-  AlertTriangle, CheckCircle2, User, LogOut, Building2,
+  AlertTriangle, CheckCircle2, User, LogOut, Building2, Pencil,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link } from "wouter";
@@ -59,7 +59,7 @@ function getElementSize(t: { elementType?: string; shape?: string }) {
 }
 
 // ─── Floor plan element renderer ─────────────────────────────────────────────
-type FETable = TableStatus & { roomName?: string; posX?: number; posY?: number; shape?: string; elementType?: string };
+type FETable = TableStatus & { roomName?: string; posX?: number; posY?: number; shape?: string; elementType?: string; rotation?: number };
 
 function FloorElement({ t, isSelected, onClick }: {
   t: FETable; isSelected: boolean; onClick?: () => void;
@@ -105,7 +105,7 @@ function FloorElement({ t, isSelected, onClick }: {
         !isDecor && status === "free" && "cursor-pointer",
         !isDecor && status === "occupied" && "cursor-pointer",
       )}
-      style={{ width: w * CELL - 6, height: h * CELL - 6 }}
+      style={{ width: w * CELL - 6, height: h * CELL - 6, rotate: t.rotation ? `${t.rotation}deg` : undefined }}
     >
       {isDecor ? (
         <span className={cn("text-xs font-bold tracking-widest", et === "pianta" && "text-xl")}>{decorLabel}</span>
@@ -141,6 +141,22 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
   onBack: () => void;
 }) {
   const [roomFilter, setRoomFilter] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    function updateScale() {
+      if (!containerRef.current) return;
+      const w = containerRef.current.clientWidth - 32;
+      const h = containerRef.current.clientHeight - 32;
+      const canvasW = COLS * CELL;
+      const canvasH = ROWS * CELL;
+      setScale(Math.min(1, w / canvasW, h / canvasH));
+    }
+    updateScale();
+    const ro = new ResizeObserver(updateScale);
+    if (containerRef.current) ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, []);
 
   const rooms = Array.from(new Map(
     tablesStatus
@@ -198,9 +214,15 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
       </div>
 
       {/* Floor plan */}
-      <div className="flex-1 overflow-auto p-4 bg-[#f4f6fa]">
-        <div className="overflow-auto border border-slate-200 rounded-2xl bg-[#f8fafc] inline-block min-w-full">
-          <div className="relative select-none" style={{ width: COLS * CELL, height: ROWS * CELL }}>
+      <div ref={containerRef} className="flex-1 overflow-hidden p-4 bg-[#f4f6fa] flex items-start justify-center">
+        <div
+          className="border border-slate-200 rounded-2xl bg-[#f8fafc] overflow-hidden shrink-0"
+          style={{ width: COLS * CELL * scale, height: ROWS * CELL * scale }}
+        >
+          <div
+            className="relative select-none origin-top-left"
+            style={{ width: COLS * CELL, height: ROWS * CELL, transform: `scale(${scale})` }}
+          >
             {Array.from({ length: ROWS + 1 }).map((_, i) => (
               <div key={`h${i}`} className="absolute left-0 right-0 border-b border-slate-200/60" style={{ top: i * CELL }} />
             ))}
@@ -359,14 +381,21 @@ function PaymentDialog({ open, onClose, total, onPay }: {
 }
 
 // ─── Covers Dialog (allows 0) ─────────────────────────────────────────────────
-function CoversDialog({ open, onClose, tableName, onConfirm }: {
+function CoversDialog({ open, onClose, tableName, onConfirm, initialCovers = 2, mode = "open" }: {
   open: boolean; onClose: () => void; tableName: string; onConfirm: (covers: number) => void;
+  initialCovers?: number; mode?: "open" | "edit";
 }) {
-  const [covers, setCovers] = useState(2);
+  const [covers, setCovers] = useState(initialCovers);
+  useEffect(() => { if (open) setCovers(initialCovers); }, [open, initialCovers]);
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-xs">
-        <DialogHeader><DialogTitle>Coperti — {tableName}</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-primary" />
+            {mode === "edit" ? "Modifica Coperti" : "Coperti"} — {tableName}
+          </DialogTitle>
+        </DialogHeader>
         <div className="py-4 text-center space-y-4">
           <p className="text-sm text-muted-foreground">Numero di coperti (0 = nessun coperto)</p>
           <div className="flex items-center justify-center gap-5">
@@ -374,16 +403,28 @@ function CoversDialog({ open, onClose, tableName, onConfirm }: {
               className="h-12 w-12 rounded-full border-2 border-slate-200 flex items-center justify-center hover:border-primary active:scale-90 transition-all">
               <Minus className="h-5 w-5" />
             </button>
-            <span className="text-6xl font-bold w-20 text-center">{covers}</span>
+            <span className="text-6xl font-bold w-20 text-center tabular-nums">{covers}</span>
             <button onClick={() => setCovers(c => c + 1)}
               className="h-12 w-12 rounded-full border-2 border-slate-200 flex items-center justify-center hover:border-primary active:scale-90 transition-all">
               <Plus className="h-5 w-5" />
             </button>
           </div>
+          {/* Quick-select buttons */}
+          <div className="flex items-center justify-center gap-2 flex-wrap">
+            {[1,2,3,4,5,6,8,10].map(n => (
+              <button key={n} onClick={() => setCovers(n)}
+                className={cn("h-9 w-9 rounded-lg border-2 text-sm font-bold transition-all",
+                  covers === n ? "border-primary bg-primary/10 text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300")}>
+                {n}
+              </button>
+            ))}
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Annulla</Button>
-          <Button onClick={() => onConfirm(covers)} className="flex-1">Apri Tavolo</Button>
+          <Button onClick={() => onConfirm(covers)} className="flex-1">
+            {mode === "edit" ? "Salva" : "Apri Tavolo"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -471,18 +512,33 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
         productName: "Coperto",
         quantity: 1,
         unitPrice: coverPrice.toFixed(2),
-        subtotal: coverPrice.toFixed(2),
         isCover: true,
       }))
     : [];
   const allRows = [...items.map(i => ({ ...i, isCover: false })), ...coverRows];
 
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  // qty[id] = selected quantity for this row (0 = not included)
+  const [qty, setQty] = useState<Record<number, number>>({});
   const [method, setMethod] = useState<"cash" | "card" | "other">("cash");
-  function toggleItem(id: number) {
-    setSelected(s => { const ns = new Set(s); ns.has(id) ? ns.delete(id) : ns.add(id); return ns; });
+
+  useEffect(() => {
+    if (open) { setQty({}); setMethod("cash"); }
+  }, [open]);
+
+  function setRowQty(id: number, val: number, max: number) {
+    setQty(q => ({ ...q, [id]: Math.min(max, Math.max(0, val)) }));
   }
-  const splitTotal = allRows.filter(r => selected.has(r.id)).reduce((sum, r) => sum + parseFloat(r.subtotal), 0);
+  function selectAll() {
+    setQty(Object.fromEntries(allRows.map(r => [r.id, r.quantity])));
+  }
+  function selectNone() { setQty({}); }
+
+  const splitTotal = allRows.reduce((sum, r) => {
+    const q = qty[r.id] ?? 0;
+    return sum + q * parseFloat(r.unitPrice);
+  }, 0);
+  const hasSelection = allRows.some(r => (qty[r.id] ?? 0) > 0);
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-sm">
@@ -491,35 +547,80 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
           <div className="flex justify-between items-center text-xs text-slate-500">
             <span>Seleziona le voci da pagare</span>
             <div className="flex gap-2">
-              <button onClick={() => setSelected(new Set(allRows.map(r => r.id)))} className="text-primary hover:underline">Tutte</button>
-              <button onClick={() => setSelected(new Set())} className="text-slate-400 hover:underline">Nessuna</button>
+              <button onClick={selectAll} className="text-primary hover:underline">Tutte</button>
+              <button onClick={selectNone} className="text-slate-400 hover:underline">Nessuna</button>
             </div>
           </div>
-          <div className="space-y-1.5 max-h-60 overflow-y-auto">
-            {allRows.map(row => (
-              <button key={row.id} onClick={() => toggleItem(row.id)}
-                className={cn("w-full flex items-center gap-2.5 p-2.5 rounded-lg border-2 text-left transition-all",
-                  selected.has(row.id) ? "border-primary bg-orange-50" : "border-slate-200 bg-white hover:border-slate-300")}>
-                <div className={cn("h-4 w-4 rounded border-2 flex items-center justify-center shrink-0",
-                  selected.has(row.id) ? "border-primary bg-primary" : "border-slate-300")}>
-                  {selected.has(row.id) && <span className="text-white text-[10px] font-bold">✓</span>}
+          <div className="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
+            {allRows.map(row => {
+              const selected = qty[row.id] ?? 0;
+              const unitPrice = parseFloat(row.unitPrice);
+              const rowTotal = selected * unitPrice;
+              const isActive = selected > 0;
+              return (
+                <div key={row.id} className={cn(
+                  "flex items-center gap-2 p-2.5 rounded-lg border-2 transition-all",
+                  isActive ? "border-primary bg-orange-50" : "border-slate-200 bg-white"
+                )}>
+                  {/* Name + price */}
+                  <div className="flex-1 min-w-0">
+                    <div className={cn("text-xs font-semibold truncate", row.isCover ? "text-slate-500 italic" : "text-slate-800")}>
+                      {row.isCover && <Users className="inline h-3 w-3 mr-1" />}
+                      {row.productName}
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      €{unitPrice.toFixed(2)} cad. · max {row.quantity}
+                    </div>
+                  </div>
+
+                  {/* Qty stepper */}
+                  {row.quantity === 1 ? (
+                    /* Simple toggle for qty=1 */
+                    <button
+                      onClick={() => setRowQty(row.id, selected === 0 ? 1 : 0, 1)}
+                      className={cn("h-7 w-7 rounded-lg border-2 flex items-center justify-center transition-all",
+                        isActive ? "border-primary bg-primary text-white" : "border-slate-300 hover:border-primary")}
+                    >
+                      {isActive ? <span className="text-[11px] font-bold">✓</span> : <span className="text-xs text-slate-400">·</span>}
+                    </button>
+                  ) : (
+                    /* Stepper for qty>1 */
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button onClick={() => setRowQty(row.id, selected - 1, row.quantity)}
+                        className="h-7 w-7 rounded-lg border-2 border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-all text-slate-600">
+                        <Minus className="h-3 w-3" />
+                      </button>
+                      <span className={cn("w-8 text-center text-sm font-bold tabular-nums",
+                        isActive ? "text-primary" : "text-slate-400")}>
+                        {selected}/{row.quantity}
+                      </span>
+                      <button onClick={() => setRowQty(row.id, selected + 1, row.quantity)}
+                        className="h-7 w-7 rounded-lg border-2 border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-all text-slate-600">
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Row total */}
+                  <span className={cn("text-xs font-bold w-14 text-right shrink-0",
+                    isActive ? "text-primary" : "text-slate-300")}>
+                    € {rowTotal.toFixed(2)}
+                  </span>
                 </div>
-                <span className={cn("flex-1 text-xs font-medium truncate", row.isCover ? "text-slate-500 italic" : "text-slate-800")}>
-                  {row.isCover ? <Users className="inline h-3 w-3 mr-1" /> : null}
-                  {row.quantity > 1 ? `${row.quantity}× ` : ""}{row.productName}
-                </span>
-                <span className="text-xs font-bold text-slate-700 shrink-0">€ {parseFloat(row.subtotal).toFixed(2)}</span>
-              </button>
-            ))}
+              );
+            })}
           </div>
-          {selected.size > 0 && (
-            <div className="space-y-1 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+
+          {hasSelection && (
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs">
               <div className="flex justify-between font-bold text-slate-800">
-                <span>Totale separato</span><span className="text-primary">€ {splitTotal.toFixed(2)}</span>
+                <span>Totale separato</span>
+                <span className="text-primary text-sm">€ {splitTotal.toFixed(2)}</span>
               </div>
             </div>
           )}
-          {selected.size > 0 && (
+
+          {hasSelection && (
             <div>
               <div className="text-xs font-semibold text-slate-500 mb-2">Metodo di pagamento</div>
               <div className="grid grid-cols-3 gap-1.5">
@@ -540,9 +641,138 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Annulla</Button>
-          <Button onClick={() => { onPay(method, splitTotal, [...selected].filter(id => id > 0)); onClose(); }} disabled={selected.size === 0}>
+          <Button
+            onClick={() => {
+              const ids = allRows.filter(r => (qty[r.id] ?? 0) > 0 && !r.isCover).map(r => r.id);
+              onPay(method, splitTotal, ids);
+              onClose();
+            }}
+            disabled={!hasSelection}
+          >
             Incassa € {splitTotal.toFixed(2)}
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Item Edit Dialog (note + modifica prezzo + variazioni) ───────────────────
+type EditableItem = { id: number; productName: string; quantity: number; unitPrice: string; notes?: string | null; status: string };
+function ItemEditDialog({ open, onClose, item, onSave }: {
+  open: boolean; onClose: () => void;
+  item: EditableItem | null;
+  onSave: (itemId: number, notes: string, unitPrice: string) => void;
+}) {
+  const [notes, setNotes] = useState("");
+  const [price, setPrice] = useState("");
+
+  useEffect(() => {
+    if (open && item) {
+      setNotes(item.notes ?? "");
+      setPrice(parseFloat(item.unitPrice).toFixed(2));
+    }
+  }, [open, item]);
+
+  if (!item) return null;
+
+  const originalPrice = parseFloat(item.unitPrice);
+  const currentPrice = parseFloat(price) || 0;
+  const priceDiff = currentPrice - originalPrice;
+
+  const QUICK_MODS = [
+    { label: "Senza cipolla", val: "- Senza cipolla", price: 0 },
+    { label: "Senza glutine", val: "- Senza glutine", price: 0 },
+    { label: "+ Salsa extra", val: "+ Salsa extra", price: 0.5 },
+    { label: "+ Extra formaggio", val: "+ Extra formaggio", price: 1.0 },
+    { label: "+ Doppio", val: "+ Doppio", price: 2.0 },
+    { label: "Ben cotto", val: "· Ben cotto", price: 0 },
+    { label: "Al sangue", val: "· Al sangue", price: 0 },
+    { label: "Senza ghiaccio", val: "- Senza ghiaccio", price: 0 },
+  ];
+
+  function addMod(mod: { val: string; price: number }) {
+    setNotes(n => n ? `${n}, ${mod.val}` : mod.val);
+    if (mod.price !== 0) {
+      setPrice(p => (parseFloat(p) + mod.price).toFixed(2));
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Pencil className="h-4 w-4 text-primary" />
+            Modifica Riga
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-1">
+          <div className="flex items-center gap-2 px-3 py-2.5 bg-slate-50 rounded-xl">
+            <div className="flex-1">
+              <div className="font-semibold text-slate-800 text-sm">{item.productName}</div>
+              <div className="text-xs text-slate-400">{item.quantity}× · Prezzo originale: €{originalPrice.toFixed(2)}</div>
+            </div>
+            {item.status === "sent" && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Inviato</span>
+            )}
+          </div>
+
+          {/* Variazioni rapide */}
+          <div>
+            <div className="text-xs font-semibold text-slate-500 mb-1.5">Variazioni rapide</div>
+            <div className="flex flex-wrap gap-1.5">
+              {QUICK_MODS.map(m => (
+                <button key={m.val} onClick={() => addMod(m)}
+                  className="px-2.5 py-1 rounded-full border border-slate-200 text-xs text-slate-600 hover:border-primary hover:text-primary hover:bg-orange-50 transition-all">
+                  {m.label}{m.price > 0 ? ` +€${m.price.toFixed(2)}` : ""}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Note libere */}
+          <div>
+            <Label className="text-xs font-semibold text-slate-500 mb-1 block">Note libere</Label>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              rows={2}
+              placeholder="Es. senza sale, extra piccante…"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm resize-none outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+          </div>
+
+          {/* Modifica prezzo */}
+          <div>
+            <Label className="text-xs font-semibold text-slate-500 mb-1 block">
+              Prezzo unitario
+              {Math.abs(priceDiff) > 0.001 && (
+                <span className={cn("ml-1.5 text-xs", priceDiff > 0 ? "text-emerald-600" : "text-red-500")}>
+                  ({priceDiff > 0 ? "+" : ""}{priceDiff.toFixed(2)}€)
+                </span>
+              )}
+            </Label>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500 text-sm">€</span>
+              <Input
+                type="number" step="0.01" min="0"
+                value={price}
+                onChange={e => setPrice(e.target.value)}
+                className="text-center font-bold"
+              />
+              {Math.abs(priceDiff) > 0.001 && (
+                <button onClick={() => setPrice(originalPrice.toFixed(2))}
+                  className="text-xs text-slate-400 hover:text-primary whitespace-nowrap">
+                  Ripristina
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Annulla</Button>
+          <Button onClick={() => { onSave(item.id, notes, parseFloat(price).toFixed(2)); onClose(); }}>Salva</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -575,8 +805,8 @@ function EmptyState({ label }: { label: string }) {
 // ─── Phase Indicator ──────────────────────────────────────────────────────────
 function PhaseIndicator({ phase }: { phase: 1 | 2 | 3 | 4 }) {
   const phases = [
-    { n: 1, label: "Prodotti" },
-    { n: 2, label: "Tavolo" },
+    { n: 1, label: "Tavolo" },
+    { n: 2, label: "Prodotti" },
     { n: 3, label: "Comanda" },
     { n: 4, label: "Cassa" },
   ];
@@ -628,6 +858,7 @@ export default function FrontOffice() {
   // Dialog state
   const [showPayment, setShowPayment] = useState(false);
   const [showCovers, setShowCovers] = useState(false);
+  const [showEditCovers, setShowEditCovers] = useState(false);
   const [showRomana, setShowRomana] = useState(false);
   const [showPreconto, setShowPreconto] = useState(false);
   const [showSplitBill, setShowSplitBill] = useState(false);
@@ -635,6 +866,7 @@ export default function FrontOffice() {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [pendingTableId, setPendingTableId] = useState<number | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ itemId: number; name: string } | null>(null);
+  const [editingItem, setEditingItem] = useState<EditableItem | null>(null);
 
   const { data: tablesStatus = [] } = useGetTablesStatus();
   const { data: categories = [] } = useListCategories();
@@ -738,6 +970,22 @@ export default function FrontOffice() {
     finally { setPendingTableId(null); }
   }
 
+  async function handleEditCovers(newCovers: number) {
+    if (!activeOrderId) return;
+    setShowEditCovers(false);
+    try {
+      const res = await fetch(`${API}/orders/${activeOrderId}/covers`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ covers: newCovers }),
+      });
+      if (!res.ok) throw new Error();
+      qc.invalidateQueries({ queryKey: getGetOrderQueryKey(activeOrderId) });
+      refresh();
+      toast({ title: `Coperti aggiornati: ${newCovers}` });
+    } catch { toast({ title: "Errore aggiornamento coperti", variant: "destructive" }); }
+  }
+
   async function handleQuickMode(mode: "rapida" | "asporto" | "delivery") {
     setSelectedTableId(null);
     const notes = mode === "rapida" ? "Scontrino Rapido" : mode === "asporto" ? "Asporto" : "Delivery";
@@ -762,16 +1010,25 @@ export default function FrontOffice() {
   }
 
   async function handleAddProduct(productId: number) {
-    if (!activeOrderId) {
-      setLeftView("tablemap");
-      toast({ title: "Prima seleziona un tavolo", variant: "destructive" });
-      return;
+    let orderId = activeOrderId;
+    if (!orderId) {
+      const res = await fetch(`${API}/orders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tableId: null, covers: 0, notes: "Scontrino Rapido" }),
+      });
+      const order = await res.json();
+      setIsQuickMode("rapida");
+      setQuickOrderId(order.id);
+      setSelectedTableId(null);
+      setMobilePanel("order");
+      orderId = order.id;
     }
     const existing = items.find(i => i.productId === productId);
-    if (existing) {
-      await updateItem.mutateAsync({ orderId: activeOrderId, itemId: existing.id, data: { quantity: existing.quantity + 1 } });
+    if (existing && orderId === activeOrderId) {
+      await updateItem.mutateAsync({ orderId, itemId: existing.id, data: { quantity: existing.quantity + 1 } });
     } else {
-      await addItem.mutateAsync({ orderId: activeOrderId, data: { productId, quantity: 1 } });
+      await addItem.mutateAsync({ orderId, data: { productId, quantity: 1 } });
     }
     refresh();
   }
@@ -800,6 +1057,17 @@ export default function FrontOffice() {
     await deleteItem.mutateAsync({ orderId: activeOrderId, itemId: deleteConfirm.itemId });
     refresh();
     setDeleteConfirm(null);
+  }
+
+  async function handleSaveItemEdit(itemId: number, notes: string, unitPrice: string) {
+    if (!activeOrderId) return;
+    await updateItem.mutateAsync({
+      orderId: activeOrderId,
+      itemId,
+      data: { notes, unitPrice } as never,
+    });
+    refresh();
+    toast({ title: "Riga aggiornata" });
   }
 
   async function handleSendComanda() {
@@ -860,11 +1128,6 @@ export default function FrontOffice() {
 
         {/* Quick actions */}
         <div className="flex items-center gap-1.5 md:gap-2">
-          <button onClick={() => handleQuickMode("rapida")}
-            className="flex items-center gap-1.5 px-2.5 md:px-3 py-2 rounded-lg bg-emerald-50 text-emerald-700 text-sm font-semibold border border-emerald-200 hover:bg-emerald-100 active:scale-95 transition-all">
-            <Zap className="h-4 w-4" />
-            <span className="hidden sm:inline">Bevuta Rapida</span>
-          </button>
           {enableAsporto && (
             <button onClick={() => handleQuickMode("asporto")}
               className="flex items-center gap-1.5 px-2.5 md:px-3 py-2 rounded-lg bg-orange-50 text-primary text-sm font-semibold border border-orange-200 hover:bg-orange-100 active:scale-95 transition-all">
@@ -988,10 +1251,12 @@ export default function FrontOffice() {
 
           {/* Table / order header */}
           <div className="px-4 py-3 border-b border-slate-100 shrink-0">
-            <button
-              onClick={() => !isQuickMode && setLeftView("tablemap")}
+            <div
+              role="button" tabIndex={0}
+              onClick={() => !isQuickMode && !activeOrderId && setLeftView("tablemap")}
+              onKeyDown={e => e.key === "Enter" && !isQuickMode && !activeOrderId && setLeftView("tablemap")}
               className={cn(
-                "w-full flex items-center justify-between p-2.5 rounded-xl border-2 transition-all text-left",
+                "w-full flex items-center justify-between p-2.5 rounded-xl border-2 transition-all cursor-pointer",
                 activeOrderId
                   ? "border-primary bg-orange-50"
                   : "border-dashed border-slate-300 hover:border-primary hover:bg-orange-50/50"
@@ -1005,7 +1270,16 @@ export default function FrontOffice() {
                       <div className="text-sm font-bold text-primary">{orderLabel}</div>
                       <div className="text-xs text-slate-500 flex items-center gap-1">
                         <Users className="h-3 w-3" /> {coverCount} coperti
-                        {activeOrderId && <span className="font-mono ml-1 text-slate-400">#{activeOrderId}</span>}
+                        {!isQuickMode && (
+                          <button
+                            onClick={e => { e.stopPropagation(); setShowEditCovers(true); }}
+                            className="ml-0.5 h-4 w-4 flex items-center justify-center rounded hover:bg-orange-200 transition-colors"
+                            title="Modifica coperti"
+                          >
+                            <Pencil className="h-2.5 w-2.5 text-primary" />
+                          </button>
+                        )}
+                        <span className="font-mono ml-1 text-slate-400">#{activeOrderId}</span>
                       </div>
                     </>
                   ) : (
@@ -1015,11 +1289,11 @@ export default function FrontOffice() {
               </div>
               {activeOrderId && (
                 <button onClick={e => { e.stopPropagation(); handleExitOrder(); }}
-                  className="text-xs text-slate-400 hover:text-red-500 transition-colors px-1.5 py-0.5 rounded hover:bg-red-50">
+                  className="text-xs text-slate-400 hover:text-red-500 transition-colors p-1 rounded hover:bg-red-50">
                   <X className="h-3.5 w-3.5" />
                 </button>
               )}
-            </button>
+            </div>
           </div>
 
           {/* Items list */}
@@ -1037,32 +1311,52 @@ export default function FrontOffice() {
               <div className="p-3 space-y-2">
                 {items.map(item => {
                   const isDraft = (item as never as { status: string }).status === "draft";
+                  const itemNotes = (item as never as { notes?: string | null }).notes;
+                  const itemStatus = (item as never as { status: string }).status;
                   return (
                     <div key={item.id} className={cn(
-                      "flex items-center gap-2 p-2.5 rounded-xl border",
+                      "rounded-xl border",
                       isDraft ? "bg-orange-50 border-orange-200" : "bg-slate-50 border-slate-200"
                     )}>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs font-semibold text-slate-800 truncate">{item.productName}</span>
-                          {!isDraft && <span className="shrink-0 text-[10px] px-1 rounded-full bg-emerald-100 text-emerald-700">✓ inv.</span>}
+                      <div className="flex items-center gap-2 p-2.5">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs font-semibold text-slate-800 truncate">{item.productName}</span>
+                            {!isDraft && <span className="shrink-0 text-[10px] px-1 rounded-full bg-emerald-100 text-emerald-700">✓ inv.</span>}
+                          </div>
+                          <span className="text-[10px] text-slate-400">€{parseFloat(item.unitPrice).toFixed(2)} cad.</span>
                         </div>
-                        <span className="text-[10px] text-slate-400">€{parseFloat(item.unitPrice).toFixed(2)} cad.</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => handleQty(item.id, item.quantity - 1)}
-                          className="h-7 w-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center hover:bg-red-50 hover:border-red-200 transition-colors active:scale-90">
-                          <Minus className="h-3 w-3" />
+                        {/* Edit button */}
+                        <button
+                          onClick={() => setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus })}
+                          className="h-7 w-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-colors shrink-0"
+                          title="Modifica riga"
+                        >
+                          <Pencil className="h-3 w-3" />
                         </button>
-                        <span className="w-5 text-center text-xs font-bold">{item.quantity}</span>
-                        <button onClick={() => handleQty(item.id, item.quantity + 1)}
-                          className="h-7 w-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center hover:bg-emerald-50 hover:border-emerald-200 transition-colors active:scale-90">
-                          <Plus className="h-3 w-3" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => handleQty(item.id, item.quantity - 1)}
+                            className="h-7 w-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center hover:bg-red-50 hover:border-red-200 transition-colors active:scale-90">
+                            <Minus className="h-3 w-3" />
+                          </button>
+                          <span className="w-5 text-center text-xs font-bold">{item.quantity}</span>
+                          <button onClick={() => handleQty(item.id, item.quantity + 1)}
+                            className="h-7 w-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center hover:bg-emerald-50 hover:border-emerald-200 transition-colors active:scale-90">
+                            <Plus className="h-3 w-3" />
+                          </button>
+                        </div>
+                        <span className="text-xs font-bold text-slate-700 w-14 text-right shrink-0">
+                          €{parseFloat(item.subtotal).toFixed(2)}
+                        </span>
                       </div>
-                      <span className="text-xs font-bold text-slate-700 w-14 text-right shrink-0">
-                        €{parseFloat(item.subtotal).toFixed(2)}
-                      </span>
+                      {/* Notes display */}
+                      {itemNotes && (
+                        <div className="px-3 pb-2 -mt-1">
+                          <span className="text-[10px] text-slate-500 italic bg-white/70 px-2 py-0.5 rounded-full border border-slate-200">
+                            {itemNotes}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1171,12 +1465,31 @@ export default function FrontOffice() {
 
       {/* ══ MODALS ═══════════════════════════════════════════════════════════ */}
 
-      {/* Covers dialog */}
+      {/* Item edit dialog */}
+      <ItemEditDialog
+        open={!!editingItem}
+        onClose={() => setEditingItem(null)}
+        item={editingItem}
+        onSave={handleSaveItemEdit}
+      />
+
+      {/* Covers dialog — open table */}
       <CoversDialog
         open={showCovers}
         onClose={() => { setShowCovers(false); setPendingTableId(null); }}
         tableName={tablesStatus.find(t => t.id === pendingTableId)?.name ?? ""}
         onConfirm={handleOpenTable}
+        mode="open"
+      />
+
+      {/* Covers dialog — edit existing order */}
+      <CoversDialog
+        open={showEditCovers}
+        onClose={() => setShowEditCovers(false)}
+        tableName={orderLabel}
+        initialCovers={coverCount}
+        onConfirm={handleEditCovers}
+        mode="edit"
       />
 
       {/* Delete sent item confirmation */}

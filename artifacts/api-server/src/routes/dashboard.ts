@@ -103,6 +103,7 @@ router.get("/tables-status", async (req, res) => {
       posY: tablesTable.posY,
       shape: tablesTable.shape,
       elementType: tablesTable.elementType,
+      rotation: tablesTable.rotation,
       roomName: roomsTable.name,
     })
     .from(tablesTable)
@@ -126,6 +127,7 @@ router.get("/tables-status", async (req, res) => {
       posY: t.posY ?? 0,
       shape: t.shape ?? "square",
       elementType: t.elementType ?? "table",
+      rotation: t.rotation ?? 0,
       activeOrderId: activeOrder?.id ?? null,
       activeOrderTotal: activeOrder?.total ?? null,
       activeOrderCreatedAt: activeOrder?.createdAt?.toISOString() ?? null,

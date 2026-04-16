@@ -181,6 +181,7 @@ export const ListTablesResponseItem = zod.object({
   posY: zod.number().optional(),
   shape: zod.string().optional(),
   elementType: zod.string().optional(),
+  rotation: zod.number().optional(),
   createdAt: zod.string(),
 });
 export const ListTablesResponse = zod.array(ListTablesResponseItem);
@@ -235,6 +236,7 @@ export const UpdateTableBody = zod.object({
   posY: zod.number().optional(),
   shape: zod.string().optional(),
   elementType: zod.string().optional(),
+  rotation: zod.number().optional(),
 });
 
 export const UpdateTableResponse = zod.object({
@@ -396,6 +398,7 @@ export const UpdateOrderItemParams = zod.object({
 export const UpdateOrderItemBody = zod.object({
   quantity: zod.number().optional(),
   notes: zod.string().nullish(),
+  unitPrice: zod.string().optional(),
 });
 
 export const UpdateOrderItemResponse = zod.object({
@@ -506,6 +509,7 @@ export const GetTablesStatusResponseItem = zod.object({
   posY: zod.number().optional(),
   shape: zod.string().optional(),
   elementType: zod.string().optional(),
+  rotation: zod.number().optional(),
   activeOrderId: zod.number().nullish(),
   activeOrderTotal: zod.string().nullish(),
   activeOrderCreatedAt: zod.string().nullish(),

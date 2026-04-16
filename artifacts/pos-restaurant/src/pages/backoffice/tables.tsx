@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, Users, LayoutGrid, List, Move } from "lucide-react";
+import { Plus, Pencil, Trash2, Users, LayoutGrid, List, Move, RotateCw } from "lucide-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -25,7 +25,7 @@ import { CSS } from "@dnd-kit/utilities";
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
 type Room = { id: number; name: string };
-type ExtTable = Table & { roomId?: number; sortOrder?: number; posX?: number; posY?: number; shape?: string; elementType?: string };
+type ExtTable = Table & { roomId?: number; sortOrder?: number; posX?: number; posY?: number; shape?: string; elementType?: string; rotation?: number };
 
 function useRooms() {
   return useQuery<Room[]>({ queryKey: ["rooms"], queryFn: () => fetch(`${API}/rooms`).then(r => r.json()) });
@@ -101,17 +101,19 @@ function getElementSize(t: { elementType?: string; shape?: string }) {
   return { w: 1, h: 1 };
 }
 
-function TableShape({ t, status, isSelected, isDragging, onMouseDown, onTouchStart, onEdit, onDelete }: {
+function TableShape({ t, status, isSelected, isDragging, onMouseDown, onTouchStart, onEdit, onDelete, onRotate }: {
   t: ExtTable; status: string; isSelected: boolean; isDragging: boolean;
   onMouseDown: (e: React.MouseEvent) => void;
   onTouchStart: (e: React.TouchEvent) => void;
   onEdit: () => void; onDelete: (id: number) => void;
+  onRotate?: (id: number) => void;
 }) {
   const { w, h } = getElementSize(t);
   const et = t.elementType ?? "table";
   const sh = t.shape ?? "square";
   const isDecor = et !== "table";
   const isRound = sh === "round" && !isDecor;
+  const rotation = t.rotation ?? 0;
 
   const statusBg = { free: "bg-emerald-50 border-emerald-300", occupied: "bg-orange-50 border-orange-300", reserved: "bg-blue-50 border-blue-300" }[status as "free" | "occupied" | "reserved"] ?? "bg-slate-50 border-slate-300";
   const statusDot = { free: "bg-emerald-500", occupied: "bg-orange-500", reserved: "bg-blue-500" }[status as "free" | "occupied" | "reserved"] ?? "bg-slate-400";
@@ -139,6 +141,7 @@ function TableShape({ t, status, isSelected, isDragging, onMouseDown, onTouchSta
       style={{
         width: w * CELL - 6,
         height: h * CELL - 6,
+        transform: rotation ? `rotate(${rotation}deg)` : undefined,
       }}
       onMouseDown={onMouseDown}
       onTouchStart={onTouchStart}
@@ -161,7 +164,17 @@ function TableShape({ t, status, isSelected, isDragging, onMouseDown, onTouchSta
       <div className={cn(
         "absolute -top-2 -right-2 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10",
         isDragging && "opacity-0"
-      )}>
+      )}
+        style={{ transform: rotation ? `rotate(-${rotation}deg)` : undefined }}
+      >
+        {!isDecor && onRotate && (
+          <button onClick={e => { e.stopPropagation(); onRotate(t.id); }}
+            onMouseDown={e => e.stopPropagation()}
+            className="h-5 w-5 rounded bg-white shadow border border-slate-200 flex items-center justify-center text-slate-500 hover:text-blue-600 hover:border-blue-300 transition-colors"
+            title="Ruota 90°">
+            <RotateCw className="h-2.5 w-2.5" />
+          </button>
+        )}
         {!isDecor && (
           <button onClick={e => { e.stopPropagation(); onEdit(); }}
             onMouseDown={e => e.stopPropagation()}
@@ -179,12 +192,13 @@ function TableShape({ t, status, isSelected, isDragging, onMouseDown, onTouchSta
   );
 }
 
-function PositionEditor({ tables, rooms, onEdit, onDelete, onPositionChange }: {
+function PositionEditor({ tables, rooms, onEdit, onDelete, onPositionChange, onRotate }: {
   tables: ExtTable[];
   rooms: Room[];
   onEdit: (t: ExtTable) => void;
   onDelete: (id: number) => void;
   onPositionChange: (id: number, x: number, y: number) => void;
+  onRotate: (id: number) => void;
 }) {
   const [roomFilter, setRoomFilter] = useState<number | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -300,6 +314,7 @@ function PositionEditor({ tables, rooms, onEdit, onDelete, onPositionChange }: {
                   onTouchStart={e => onTouchStart(e, t)}
                   onEdit={() => onEdit(t)}
                   onDelete={onDelete}
+                  onRotate={onRotate}
                 />
               </div>
             );
@@ -430,6 +445,22 @@ export default function TablesPage() {
     qc.invalidateQueries({ queryKey: getListTablesQueryKey() });
   }, [qc]);
 
+  const handleRotate = useCallback(async (id: number) => {
+    const table = allTables.find(t => t.id === id);
+    if (!table) return;
+    const newRotation = ((table.rotation ?? 0) + 90) % 360;
+    setLocalTables(prev => {
+      const base = prev.length > 0 ? prev : (tables as ExtTable[]);
+      return base.map(t => t.id === id ? { ...t, rotation: newRotation } : t);
+    });
+    await fetch(`${API}/tables/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rotation: newRotation }),
+    });
+    qc.invalidateQueries({ queryKey: getListTablesQueryKey() });
+  }, [allTables, tables, qc]);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 100, tolerance: 5 } }),
@@ -535,6 +566,7 @@ export default function TablesPage() {
             onEdit={t => setDialog({ open: true, item: t })}
             onDelete={id => deleteTable.mutate({ id }, { onSuccess: () => { qc.invalidateQueries({ queryKey: getListTablesQueryKey() }); setLocalTables([]); } })}
             onPositionChange={savePosition}
+            onRotate={handleRotate}
           />
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
