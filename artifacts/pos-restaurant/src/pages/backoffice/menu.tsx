@@ -22,7 +22,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Pencil, Trash2, Package, Settings2, X, GripVertical, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Pencil, Trash2, Package, Settings2, X, GripVertical, ChevronDown, ChevronUp, ChevronRight, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
@@ -490,17 +490,152 @@ function VariationsDialog({ product, open, onClose }: { product: Product; open: 
   );
 }
 
+// ── ProductVariationsInline ───────────────────────────────────────────────────
+function ProductVariationsInline({ product, categories }: { product: Product; categories: Category[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const [groups, setGroups] = useState<VariationGroup[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newRequired, setNewRequired] = useState(false);
+  const [newOptions, setNewOptions] = useState<VariationOption[]>([]);
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+
+  const cat = categories.find(c => c.id === product.categoryId);
+
+  async function load() {
+    if (loaded) return;
+    setLoading(true);
+    const data = await fetchVariations(product.id);
+    setGroups(data);
+    setLoaded(true);
+    setLoading(false);
+  }
+
+  function toggle() {
+    if (!expanded) load();
+    setExpanded(e => !e);
+  }
+
+  async function handleAddGroup() {
+    if (!newName.trim()) return;
+    setSaving(true);
+    try {
+      const group = await saveVariation(product.id, { name: newName.trim(), options: newOptions, required: newRequired, sortOrder: groups.length });
+      setGroups(g => [...g, group]);
+      setNewName(""); setNewRequired(false); setNewOptions([]); setShowNewForm(false);
+      toast({ title: "Variazione aggiunta" });
+    } catch { toast({ title: "Errore", variant: "destructive" }); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      {/* Header row — click to expand */}
+      <button
+        onClick={toggle}
+        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent/30 transition-colors text-left"
+      >
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-sm text-foreground">{product.name}</span>
+            {cat && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: cat.color + "28", color: cat.color }}>
+                {cat.name}
+              </span>
+            )}
+          </div>
+          {!expanded && (
+            <span className="text-xs text-muted-foreground">
+              {loaded ? `${groups.length} gruppi variazione` : "Tocca per vedere le variazioni"}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-xs text-primary font-semibold">€ {product.price}</span>
+          {expanded
+            ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            : <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          }
+        </div>
+      </button>
+
+      {/* Variations panel */}
+      {expanded && (
+        <div className="border-t border-border bg-muted/10 px-4 pb-4 pt-3 space-y-3">
+          {loading && <div className="text-center py-4 text-sm text-muted-foreground">Caricamento…</div>}
+
+          {!loading && groups.length === 0 && !showNewForm && (
+            <div className="text-center py-4 text-muted-foreground">
+              <Settings2 className="h-8 w-8 mx-auto mb-2 opacity-25" />
+              <p className="text-xs">Nessun gruppo variazione — es. Cottura, Taglia, Aggiunta</p>
+            </div>
+          )}
+
+          {!loading && groups.map(g => (
+            <VariationGroupCard
+              key={g.id}
+              group={g}
+              productId={product.id}
+              onSaved={updated => setGroups(prev => prev.map(x => x.id === updated.id ? updated : x))}
+              onDeleted={id => setGroups(prev => prev.filter(x => x.id !== id))}
+            />
+          ))}
+
+          {showNewForm && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 pb-3 pt-2 space-y-3">
+              <p className="text-sm font-semibold text-primary">Nuovo gruppo variazione</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Nome gruppo *</Label>
+                  <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Es. Cottura, Taglia…" className="mt-1 h-9" autoFocus />
+                </div>
+                <div className="flex items-center gap-2 pt-5">
+                  <Switch checked={newRequired} onCheckedChange={setNewRequired} id={`nr-${product.id}`} />
+                  <Label htmlFor={`nr-${product.id}`} className="text-sm">Obbligatoria</Label>
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs mb-2 block">Opzioni</Label>
+                <VariationOptionEditor options={newOptions} onChange={setNewOptions} />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" size="sm" onClick={() => { setShowNewForm(false); setNewName(""); setNewOptions([]); setNewRequired(false); }}>
+                  Annulla
+                </Button>
+                <Button size="sm" disabled={!newName.trim() || saving} onClick={handleAddGroup}>
+                  {saving ? "Salvataggio…" : "Aggiungi"}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {!showNewForm && !loading && (
+            <Button variant="outline" size="sm" className="gap-1 w-full border-dashed" onClick={() => setShowNewForm(true)}>
+              <Plus className="h-4 w-4" /> Aggiungi gruppo variazione
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── MenuPage ──────────────────────────────────────────────────────────────────
 export default function MenuPage() {
   const [catDialog, setCatDialog] = useState<{ open: boolean; item?: Category }>({ open: false });
   const [prodDialog, setProdDialog] = useState<{ open: boolean; item?: Product }>({ open: false });
   const [variationsDialog, setVariationsDialog] = useState<{ open: boolean; product?: Product }>({ open: false });
   const [filterCatId, setFilterCatId] = useState<number | null>(null);
+  const [varSearch, setVarSearch] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const { data: categories = [] } = useListCategories();
   const { data: products = [] } = useListProducts(filterCatId != null ? { categoryId: filterCatId } : undefined);
+  const { data: allProducts = [] } = useListProducts();
 
   const createCat = useCreateCategory();
   const updateCat = useUpdateCategory();
@@ -572,6 +707,7 @@ export default function MenuPage() {
           <TabsList className="mb-0">
             <TabsTrigger value="products">Prodotti</TabsTrigger>
             <TabsTrigger value="categories">Categorie</TabsTrigger>
+            <TabsTrigger value="variations">Variazioni</TabsTrigger>
           </TabsList>
         </div>
 
@@ -679,6 +815,41 @@ export default function MenuPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          </ScrollArea>
+        </TabsContent>
+
+        {/* ── Tab: Variazioni ─────────────────────────────────────────────── */}
+        <TabsContent value="variations" className="flex-1 overflow-hidden m-0 flex flex-col">
+          <div className="px-4 sm:px-6 pt-4 pb-2 shrink-0">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                value={varSearch}
+                onChange={e => setVarSearch(e.target.value)}
+                placeholder="Cerca prodotto…"
+                className="w-full pl-8 pr-3 py-2 rounded-lg border border-input bg-background text-sm focus:border-primary focus:outline-none"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Clicca su un prodotto per espandere e gestire i suoi gruppi variazione (es. Cottura, Taglia, Aggiunta).
+            </p>
+          </div>
+          <ScrollArea className="flex-1">
+            <div className="px-4 sm:px-6 pb-6 space-y-2">
+              {allProducts
+                .filter(p => !varSearch || p.name.toLowerCase().includes(varSearch.toLowerCase()))
+                .map(p => (
+                  <ProductVariationsInline key={p.id} product={p} categories={categories} />
+                ))
+              }
+              {allProducts.length === 0 && (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Package className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                  <div className="text-sm">Nessun prodotto nel menu</div>
+                  <div className="text-xs mt-1">Aggiungi prima i prodotti nel tab Prodotti</div>
+                </div>
+              )}
             </div>
           </ScrollArea>
         </TabsContent>
