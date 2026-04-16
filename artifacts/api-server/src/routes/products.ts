@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, productsTable } from "@workspace/db";
+import { db, productsTable, productVariationsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { CreateProductBody, UpdateProductBody, GetProductParams, UpdateProductParams, DeleteProductParams, ListProductsQueryParams } from "@workspace/api-zod";
 
@@ -42,6 +42,55 @@ router.patch("/:id", async (req, res) => {
 router.delete("/:id", async (req, res) => {
   const { id } = DeleteProductParams.parse({ id: Number(req.params.id) });
   await db.delete(productsTable).where(eq(productsTable.id, id));
+  res.status(204).end();
+});
+
+// ── Product Variations ─────────────────────────────────────────────────────
+
+router.get("/:id/variations", async (req, res) => {
+  const productId = Number(req.params.id);
+  const rows = await db.select().from(productVariationsTable)
+    .where(eq(productVariationsTable.productId, productId))
+    .orderBy(productVariationsTable.sortOrder);
+  res.json(rows);
+});
+
+router.post("/:id/variations", async (req, res) => {
+  const productId = Number(req.params.id);
+  const { name, options, required, sortOrder } = req.body as {
+    name: string; options: Array<{ name: string; priceExtra: string }>;
+    required?: boolean; sortOrder?: number;
+  };
+  const [row] = await db.insert(productVariationsTable).values({
+    productId,
+    name,
+    options: JSON.stringify(options ?? []),
+    required: required ?? false,
+    sortOrder: sortOrder ?? 0,
+  }).returning();
+  res.status(201).json(row);
+});
+
+router.patch("/:productId/variations/:varId", async (req, res) => {
+  const varId = Number(req.params.varId);
+  const { name, options, required, sortOrder } = req.body as {
+    name?: string; options?: Array<{ name: string; priceExtra: string }>;
+    required?: boolean; sortOrder?: number;
+  };
+  const updates: Record<string, unknown> = {};
+  if (name !== undefined) updates.name = name;
+  if (options !== undefined) updates.options = JSON.stringify(options);
+  if (required !== undefined) updates.required = required;
+  if (sortOrder !== undefined) updates.sortOrder = sortOrder;
+  const [row] = await db.update(productVariationsTable).set(updates as never)
+    .where(eq(productVariationsTable.id, varId)).returning();
+  if (!row) return res.status(404).json({ error: "Not found" });
+  res.json(row);
+});
+
+router.delete("/:productId/variations/:varId", async (req, res) => {
+  const varId = Number(req.params.varId);
+  await db.delete(productVariationsTable).where(eq(productVariationsTable.id, varId));
   res.status(204).end();
 });
 

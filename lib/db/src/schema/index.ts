@@ -11,3 +11,4 @@ export * from "./settings";
 export * from "./customers";
 export * from "./invoices";
 export * from "./fiscal_receipts";
+export * from "./product_variations";

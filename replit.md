@@ -92,18 +92,34 @@ Full-stack POS (Point of Sale) system for restaurants, pubs, and breweries. Buil
 - `payments` — Payment records with method and amounts
 - `users` — Auth users: name, PIN (4-digit), role (admin/employee)
 - `app_settings` — Key-value: enable_asporto, enable_delivery, **cover_price**
+- `product_variations` — Variation groups per product: name, options (JSON), required, sortOrder
+- `customers` — Customer registry for electronic invoicing (FatturaPA)
+- `invoices` — FatturaPA 1.2.1 invoices with XML content
+- `fiscal_receipts` — Fiscal receipt records
 
 ## POS Flow
 
 1. **Login**: PIN numpad → sessionStorage user (cleared on tab close)
-2. Select table → Covers dialog (how many guests)
-3. Table opens → order created, table marked "Occupato"
+2. **Option A**: Select table → Covers dialog → order opened
+3. **Option B**: Click product directly → auto-creates "Scontrino Rapido" → tap "Assegna" to move to a real table
 4. Add products → items are "draft" (orange background in comanda)
 5. **Invia Comanda** → all draft items → "sent" (routes to dept printer in future)
 6. **Preconto** → shows receipt preview with cover charge
 7. **Conto Separato** → select individual items + proportional covers → partial payment
 8. **Romana** → split total by number of people
-9. **Paga** → payment dialog (cash with change, card, other) → order closed, table freed
+9. **Paga** → payment dialog (cash with change, card, other) → optionally toggle **Emetti Fattura** → search/select customer → creates FatturaPA + emits XML → order closed, table freed
+
+## Table Editor
+
+- Rotation step: **45°** (supports diamond/rhombus layout for 4-seat tables)
+- Rooms, tables, decors on a 12×8 grid (80px cells)
+
+## Product Variations (Back-office → Menu)
+
+Each product has a **⚙ Variazioni** button opening a dedicated dialog:
+- Add/edit/delete **variation groups** (e.g., "Cottura", "Taglia", "Aggiunta")
+- Each group has: **name**, **required** toggle, list of **options** (name + price extra)
+- API: `GET/POST /api/products/:id/variations`, `PATCH/DELETE /api/products/:productId/variations/:varId`
 
 ## Key Commands
 

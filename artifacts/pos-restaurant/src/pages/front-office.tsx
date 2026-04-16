@@ -26,7 +26,9 @@ import {
   ShoppingBag, Truck, Clock, Send, FileText, Divide,
   ChevronLeft, Search, X, UtensilsCrossed, Zap, Map as MapIcon,
   AlertTriangle, CheckCircle2, User, LogOut, Building2, Pencil,
+  ArrowRightFromLine, ReceiptText,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link } from "wouter";
 
@@ -313,27 +315,57 @@ function UserMenuButton({ showUserMenu, setShowUserMenu }: {
 }
 
 // ─── Payment Dialog ───────────────────────────────────────────────────────────
-function PaymentDialog({ open, onClose, total, onPay }: {
-  open: boolean; onClose: () => void; total: number;
-  onPay: (method: string, amountGiven?: number) => void;
+type SimpleCustomer = { id: number; ragioneSociale: string; partitaIva: string | null; codiceFiscale: string | null; sdiCode: string | null; pec: string | null; indirizzoVia: string | null; indirizzoCap: string | null; indirizzoComune: string | null; indirizzoProvince: string | null };
+
+function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
+  open: boolean; onClose: () => void; total: number; orderId?: number;
+  orderItems?: Array<{ productName: string; quantity: number; unitPrice: string; subtotal: string }>;
+  onPay: (method: string, amountGiven?: number, invoiceCustomerId?: number) => void;
 }) {
   const [method, setMethod] = useState<"cash" | "card" | "other">("cash");
   const [given, setGiven] = useState("");
+  const [emittiFattura, setEmittiFattura] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [customers, setCustomers] = useState<SimpleCustomer[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<SimpleCustomer | null>(null);
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
+
   const change = method === "cash" && given ? Math.max(0, parseFloat(given) - total) : 0;
+
+  useEffect(() => {
+    if (!open) { setGiven(""); setEmittiFattura(false); setSelectedCustomer(null); setCustomerSearch(""); }
+  }, [open]);
+
+  useEffect(() => {
+    if (!emittiFattura) return;
+    setLoadingCustomers(true);
+    const url = customerSearch
+      ? `${API}/customers?search=${encodeURIComponent(customerSearch)}`
+      : `${API}/customers`;
+    fetch(url).then(r => r.json()).then(data => {
+      setCustomers(Array.isArray(data) ? data : []);
+    }).finally(() => setLoadingCustomers(false));
+  }, [emittiFattura, customerSearch]);
+
+  const canPay = method !== "cash" || parseFloat(given) >= total;
+  const canConfirm = canPay && (!emittiFattura || selectedCustomer !== null);
+
   const methods = [
     { id: "cash" as const, label: "Contanti", icon: Banknote, color: "text-emerald-600" },
     { id: "card" as const, label: "Carta/POS", icon: CreditCard, color: "text-blue-600" },
     { id: "other" as const, label: "Altro", icon: Wallet, color: "text-purple-600" },
   ];
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-sm w-full">
         <DialogHeader><DialogTitle>Pagamento</DialogTitle></DialogHeader>
-        <div className="space-y-4 py-1">
-          <div className="text-center py-4 bg-slate-50 rounded-xl">
+        <div className="space-y-3 py-1 max-h-[80vh] overflow-y-auto">
+          <div className="text-center py-3 bg-slate-50 rounded-xl">
             <p className="text-sm text-slate-500 mb-1">Totale da pagare</p>
             <p className="text-4xl font-bold text-slate-900">€ {total.toFixed(2)}</p>
           </div>
+
           <div className="grid grid-cols-3 gap-2">
             {methods.map(m => (
               <button key={m.id} onClick={() => setMethod(m.id)}
@@ -344,6 +376,7 @@ function PaymentDialog({ open, onClose, total, onPay }: {
               </button>
             ))}
           </div>
+
           {method === "cash" && (
             <>
               <div>
@@ -367,12 +400,85 @@ function PaymentDialog({ open, onClose, total, onPay }: {
               )}
             </>
           )}
+
+          {/* Invoice toggle */}
+          <div className={cn(
+            "rounded-xl border-2 transition-all cursor-pointer",
+            emittiFattura ? "border-primary bg-orange-50" : "border-slate-200"
+          )}>
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => { setEmittiFattura(e => !e); setSelectedCustomer(null); }}
+              onKeyDown={e => e.key === "Enter" && (setEmittiFattura(v => !v), setSelectedCustomer(null))}
+              className="w-full flex items-center justify-between p-3"
+            >
+              <div className="flex items-center gap-2">
+                <ReceiptText className={cn("h-4 w-4", emittiFattura ? "text-primary" : "text-slate-400")} />
+                <span className={cn("text-sm font-semibold", emittiFattura ? "text-primary" : "text-slate-600")}>
+                  Emetti Fattura Elettronica
+                </span>
+              </div>
+              <Switch checked={emittiFattura} onCheckedChange={v => { setEmittiFattura(v); setSelectedCustomer(null); }} onClick={e => e.stopPropagation()} />
+            </div>
+
+            {emittiFattura && (
+              <div className="border-t border-primary/20 px-3 pb-3 pt-2 space-y-2">
+                {selectedCustomer ? (
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-primary/30">
+                    <div>
+                      <div className="text-sm font-semibold">{selectedCustomer.ragioneSociale}</div>
+                      <div className="text-xs text-muted-foreground">{selectedCustomer.partitaIva || selectedCustomer.codiceFiscale}</div>
+                    </div>
+                    <button onClick={() => setSelectedCustomer(null)} className="p-1 rounded hover:bg-destructive/10 text-slate-400 hover:text-destructive">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                      <Input
+                        value={customerSearch}
+                        onChange={e => setCustomerSearch(e.target.value)}
+                        placeholder="Cerca cliente…"
+                        className="pl-8 h-9 text-sm"
+                        autoFocus
+                      />
+                    </div>
+                    {loadingCustomers ? (
+                      <div className="text-xs text-muted-foreground text-center py-2">Caricamento…</div>
+                    ) : customers.length > 0 ? (
+                      <div className="space-y-1 max-h-40 overflow-y-auto">
+                        {customers.map(c => (
+                          <button key={c.id} onClick={() => setSelectedCustomer(c)}
+                            className="w-full text-left p-2 rounded-lg hover:bg-white border border-transparent hover:border-primary/20 transition-all">
+                            <div className="text-sm font-medium">{c.ragioneSociale}</div>
+                            <div className="text-xs text-muted-foreground">{c.partitaIva || c.codiceFiscale || "–"}</div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : customerSearch ? (
+                      <div className="text-xs text-muted-foreground text-center py-2">Nessun cliente trovato</div>
+                    ) : null}
+                    <p className="text-xs text-muted-foreground text-center">
+                      Seleziona il cliente per intestare la fattura
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
+
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose} className="flex-1">Annulla</Button>
-          <Button onClick={() => onPay(method, parseFloat(given) || total)}
-            disabled={method === "cash" && parseFloat(given) < total} className="flex-1">
-            Incassa € {total.toFixed(2)}
+          <Button
+            onClick={() => onPay(method, parseFloat(given) || total, emittiFattura && selectedCustomer ? selectedCustomer.id : undefined)}
+            disabled={!canConfirm}
+            className="flex-1"
+          >
+            {emittiFattura ? "Incassa + Fattura" : `Incassa € ${total.toFixed(2)}`}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -851,6 +957,8 @@ export default function FrontOffice() {
   const [productSearch, setProductSearch] = useState("");
   const [quickOrderId, setQuickOrderId] = useState<number | null>(null);
   const [isQuickMode, setIsQuickMode] = useState<"rapida" | "asporto" | "delivery" | null>(null);
+  const [isAssigningTable, setIsAssigningTable] = useState(false);
+  const [assignPendingTableId, setAssignPendingTableId] = useState<number | null>(null);
 
   // Mobile panel toggle ("menu" | "order")
   const [mobilePanel, setMobilePanel] = useState<"menu" | "order">("menu");
@@ -941,6 +1049,19 @@ export default function FrontOffice() {
   function handleTableClick(table: FETable) {
     const et = (table as FETable).elementType ?? "table";
     if (et !== "table") return;
+
+    // "Assegna Tavolo" mode: move quick order to a real table
+    if (isAssigningTable && quickOrderId) {
+      if (table.activeOrderId) {
+        toast({ title: "Tavolo occupato", description: "Scegli un tavolo libero", variant: "destructive" });
+        return;
+      }
+      setAssignPendingTableId(table.id);
+      setPendingTableId(table.id);
+      setShowCovers(true);
+      return;
+    }
+
     setIsQuickMode(null);
     setQuickOrderId(null);
     setLeftView("categories");
@@ -953,7 +1074,36 @@ export default function FrontOffice() {
     }
   }
 
+  async function handleAssignToTable(covers: number) {
+    if (!assignPendingTableId || !quickOrderId) return;
+    setShowCovers(false);
+    try {
+      await fetch(`${API}/orders/${quickOrderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tableId: assignPendingTableId, covers }),
+      });
+      await fetch(`${API}/orders/${quickOrderId}/covers`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ covers }),
+      });
+      setSelectedTableId(assignPendingTableId);
+      setIsQuickMode(null);
+      setQuickOrderId(null);
+      setIsAssigningTable(false);
+      setAssignPendingTableId(null);
+      setPendingTableId(null);
+      setLeftView("categories");
+      refresh();
+      toast({ title: "Ordine assegnato al tavolo" });
+    } catch {
+      toast({ title: "Errore assegnazione", variant: "destructive" });
+    }
+  }
+
   async function handleOpenTable(covers: number) {
+    if (assignPendingTableId) { await handleAssignToTable(covers); return; }
     if (!pendingTableId) return;
     setShowCovers(false);
     try {
@@ -1078,12 +1228,46 @@ export default function FrontOffice() {
     toast({ title: "Comanda inviata", description: `${data.sentItems} righe inviate ai reparti` });
   }
 
-  async function handlePay(method: string, amountGiven?: number) {
+  async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number) {
     if (!activeOrderId) return;
     setShowPayment(false);
     await createPayment.mutateAsync({
       data: { orderId: activeOrderId, method, amount: total.toFixed(2), amountGiven: amountGiven?.toFixed(2) } as never
     });
+    if (invoiceCustomerId && items.length > 0) {
+      try {
+        const righe = items.map(i => ({
+          descrizione: (i as never as { productName: string }).productName,
+          quantita: (i as never as { quantity: number }).quantity,
+          prezzoUnitario: (i as never as { unitPrice: string }).unitPrice,
+          aliquotaIva: "22",
+          imponibile: (i as never as { subtotal: string }).subtotal,
+        }));
+        const imponibile = righe.reduce((s, r) => s + parseFloat(r.imponibile || "0"), 0);
+        const iva = imponibile * 0.22;
+        const invRes = await fetch(`${API}/invoices`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customerId: invoiceCustomerId,
+            orderId: activeOrderId,
+            tipoDocumento: "TD01",
+            imponibile: imponibile.toFixed(2),
+            aliquotaIva: "22",
+            iva: iva.toFixed(2),
+            totale: (imponibile + iva).toFixed(2),
+            righe,
+          }),
+        });
+        if (invRes.ok) {
+          const inv = await invRes.json();
+          await fetch(`${API}/invoices/${inv.id}/emit`, { method: "POST" });
+          toast({ title: "Fattura emessa", description: `N. ${inv.numero}/${inv.anno}` });
+        }
+      } catch {
+        toast({ title: "Pagamento OK — errore fattura", variant: "destructive" });
+      }
+    }
     handleExitOrder();
     refresh();
     toast({ title: "Pagamento registrato", description: `€ ${total.toFixed(2)} — ${method}` });
@@ -1160,12 +1344,28 @@ export default function FrontOffice() {
           mobilePanel === "order" ? "hidden md:flex" : "flex"
         )}>
           {leftView === "tablemap" ? (
-            <TableMapPanel
-              tablesStatus={tablesStatus as FETable[]}
-              selectedTableId={selectedTableId}
-              onTableClick={handleTableClick}
-              onBack={() => setLeftView("categories")}
-            />
+            <>
+              {isAssigningTable && (
+                <div className="flex items-center justify-between px-4 py-2 bg-amber-50 border-b border-amber-200 shrink-0">
+                  <div className="flex items-center gap-2 text-amber-700 text-sm font-semibold">
+                    <ArrowRightFromLine className="h-4 w-4" />
+                    Seleziona il tavolo a cui assegnare l'ordine
+                  </div>
+                  <button
+                    onClick={() => { setIsAssigningTable(false); setLeftView("categories"); }}
+                    className="text-xs text-amber-600 hover:text-amber-800 font-medium px-2 py-1 rounded hover:bg-amber-100 transition-colors"
+                  >
+                    Annulla
+                  </button>
+                </div>
+              )}
+              <TableMapPanel
+                tablesStatus={tablesStatus as FETable[]}
+                selectedTableId={selectedTableId}
+                onTableClick={handleTableClick}
+                onBack={() => { setIsAssigningTable(false); setLeftView("categories"); }}
+              />
+            </>
           ) : (
           <>
           {/* Search + breadcrumb */}
@@ -1277,6 +1477,20 @@ export default function FrontOffice() {
                             title="Modifica coperti"
                           >
                             <Pencil className="h-2.5 w-2.5 text-primary" />
+                          </button>
+                        )}
+                        {isQuickMode === "rapida" && (
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              setIsAssigningTable(true);
+                              setLeftView("tablemap");
+                            }}
+                            className="ml-1 flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-orange-100 hover:bg-orange-200 text-primary transition-colors"
+                            title="Assegna a un tavolo"
+                          >
+                            <ArrowRightFromLine className="h-2.5 w-2.5" />
+                            Assegna
                           </button>
                         )}
                         <span className="font-mono ml-1 text-slate-400">#{activeOrderId}</span>
@@ -1516,7 +1730,14 @@ export default function FrontOffice() {
       </Dialog>
 
       {/* Payment dialog */}
-      <PaymentDialog open={showPayment} onClose={() => setShowPayment(false)} total={total} onPay={handlePay} />
+      <PaymentDialog
+        open={showPayment}
+        onClose={() => setShowPayment(false)}
+        total={total}
+        orderId={activeOrderId}
+        orderItems={items as never}
+        onPay={handlePay}
+      />
 
       {/* Other dialogs */}
       <RomanaDialog open={showRomana} onClose={() => setShowRomana(false)} total={total} />

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useListCategories,
@@ -22,9 +22,57 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Pencil, Trash2, Package } from "lucide-react";
+import { Plus, Pencil, Trash2, Package, Settings2, X, GripVertical, ChevronDown, ChevronUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
+const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
+const API = `${BASE}/api`;
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+type VariationOption = { name: string; priceExtra: string };
+type VariationGroup = {
+  id: number;
+  productId: number;
+  name: string;
+  options: VariationOption[];
+  required: boolean;
+  sortOrder: number;
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+async function fetchVariations(productId: number): Promise<VariationGroup[]> {
+  const res = await fetch(`${API}/products/${productId}/variations`);
+  if (!res.ok) return [];
+  const rows = await res.json();
+  return rows.map((r: VariationGroup & { options: string }) => ({
+    ...r,
+    options: typeof r.options === "string" ? JSON.parse(r.options) : r.options,
+  }));
+}
+
+async function saveVariation(productId: number, data: Omit<VariationGroup, "id" | "productId">): Promise<VariationGroup> {
+  const res = await fetch(`${API}/products/${productId}/variations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  const row = await res.json();
+  return { ...row, options: typeof row.options === "string" ? JSON.parse(row.options) : row.options };
+}
+
+async function updateVariation(productId: number, varId: number, data: Partial<Omit<VariationGroup, "id" | "productId">>): Promise<void> {
+  await fetch(`${API}/products/${productId}/variations/${varId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+async function deleteVariation(productId: number, varId: number): Promise<void> {
+  await fetch(`${API}/products/${productId}/variations/${varId}`, { method: "DELETE" });
+}
+
+// ── CategoryForm ──────────────────────────────────────────────────────────────
 function CategoryForm({ initial, onSave, onClose }: { initial?: Category; onSave: (data: { name: string; color: string; sortOrder: number }) => void; onClose: () => void }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [color, setColor] = useState(initial?.color ?? "#f59e0b");
@@ -57,6 +105,7 @@ function CategoryForm({ initial, onSave, onClose }: { initial?: Category; onSave
 
 const IVA_RATES = ["4", "10", "22"] as const;
 
+// ── ProductForm ───────────────────────────────────────────────────────────────
 function ProductForm({ initial, categories, onSave, onClose }: {
   initial?: Product;
   categories: Category[];
@@ -125,9 +174,299 @@ function ProductForm({ initial, categories, onSave, onClose }: {
   );
 }
 
+// ── VariationOptionEditor ─────────────────────────────────────────────────────
+function VariationOptionEditor({
+  options,
+  onChange,
+}: {
+  options: VariationOption[];
+  onChange: (opts: VariationOption[]) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      {options.map((opt, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
+          <Input
+            placeholder="Nome opzione"
+            value={opt.name}
+            onChange={e => {
+              const next = [...options];
+              next[i] = { ...next[i], name: e.target.value };
+              onChange(next);
+            }}
+            className="flex-1 h-9 text-sm"
+          />
+          <div className="flex items-center gap-1 shrink-0">
+            <span className="text-xs text-muted-foreground">+€</span>
+            <Input
+              type="number"
+              step="0.01"
+              placeholder="0.00"
+              value={opt.priceExtra}
+              onChange={e => {
+                const next = [...options];
+                next[i] = { ...next[i], priceExtra: e.target.value };
+                onChange(next);
+              }}
+              className="w-20 h-9 text-sm text-right"
+            />
+          </div>
+          <button
+            onClick={() => onChange(options.filter((_, j) => j !== i))}
+            className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full gap-1 text-xs h-8 border-dashed"
+        onClick={() => onChange([...options, { name: "", priceExtra: "0" }])}
+      >
+        <Plus className="h-3.5 w-3.5" /> Aggiungi opzione
+      </Button>
+    </div>
+  );
+}
+
+// ── VariationGroupCard ────────────────────────────────────────────────────────
+function VariationGroupCard({
+  group,
+  productId,
+  onSaved,
+  onDeleted,
+}: {
+  group: VariationGroup;
+  productId: number;
+  onSaved: (updated: VariationGroup) => void;
+  onDeleted: (id: number) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [name, setName] = useState(group.name);
+  const [required, setRequired] = useState(group.required);
+  const [options, setOptions] = useState<VariationOption[]>(group.options);
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+
+  const isDirty =
+    name !== group.name ||
+    required !== group.required ||
+    JSON.stringify(options) !== JSON.stringify(group.options);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await updateVariation(productId, group.id, { name, required, options });
+      onSaved({ ...group, name, required, options });
+      toast({ title: "Variazione salvata" });
+      setExpanded(false);
+    } catch {
+      toast({ title: "Errore salvataggio", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    await deleteVariation(productId, group.id);
+    onDeleted(group.id);
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-card overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-sm text-foreground">{group.name || "Senza nome"}</span>
+            {group.required && (
+              <Badge variant="secondary" className="text-xs">Obbligatoria</Badge>
+            )}
+            <span className="text-xs text-muted-foreground">{group.options.length} opzioni</span>
+          </div>
+          {!expanded && group.options.length > 0 && (
+            <div className="text-xs text-muted-foreground mt-0.5 truncate">
+              {group.options.map(o => o.name).join(", ")}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => setExpanded(e => !e)}
+            className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground"
+          >
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+          <button
+            onClick={handleDelete}
+            className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="border-t border-border px-3 pb-3 pt-2 space-y-3 bg-muted/20">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Nome gruppo *</Label>
+              <Input value={name} onChange={e => setName(e.target.value)} className="mt-1 h-9" placeholder="Es. Cottura, Taglia…" />
+            </div>
+            <div className="flex items-center gap-2 pt-5">
+              <Switch checked={required} onCheckedChange={setRequired} id={`req-${group.id}`} />
+              <Label htmlFor={`req-${group.id}`} className="text-sm">Selezione obbligatoria</Label>
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs mb-2 block">Opzioni</Label>
+            <VariationOptionEditor options={options} onChange={setOptions} />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="outline" size="sm" onClick={() => { setExpanded(false); setName(group.name); setRequired(group.required); setOptions(group.options); }}>
+              Annulla
+            </Button>
+            <Button size="sm" disabled={!isDirty || saving || !name} onClick={handleSave}>
+              {saving ? "Salvataggio…" : "Salva"}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── VariationsDialog ──────────────────────────────────────────────────────────
+function VariationsDialog({ product, open, onClose }: { product: Product; open: boolean; onClose: () => void }) {
+  const [groups, setGroups] = useState<VariationGroup[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newRequired, setNewRequired] = useState(false);
+  const [newOptions, setNewOptions] = useState<VariationOption[]>([]);
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    fetchVariations(product.id).then(data => {
+      setGroups(data);
+      setLoading(false);
+    });
+  }, [open, product.id]);
+
+  async function handleAddGroup() {
+    if (!newName.trim()) return;
+    setSaving(true);
+    try {
+      const group = await saveVariation(product.id, {
+        name: newName.trim(),
+        options: newOptions,
+        required: newRequired,
+        sortOrder: groups.length,
+      });
+      setGroups(g => [...g, group]);
+      setNewName("");
+      setNewRequired(false);
+      setNewOptions([]);
+      setShowNewForm(false);
+      toast({ title: "Variazione aggiunta" });
+    } catch {
+      toast({ title: "Errore", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-lg w-full">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Settings2 className="h-5 w-5 text-primary" />
+            Variazioni — {product.name}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
+          {loading ? (
+            <div className="text-center py-8 text-muted-foreground text-sm">Caricamento…</div>
+          ) : groups.length === 0 && !showNewForm ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Settings2 className="h-10 w-10 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">Nessuna variazione definita</p>
+              <p className="text-xs mt-1">Aggiungi gruppi come "Cottura", "Taglia", "Aggiunta"</p>
+            </div>
+          ) : (
+            <>
+              {groups.map(g => (
+                <VariationGroupCard
+                  key={g.id}
+                  group={g}
+                  productId={product.id}
+                  onSaved={updated => setGroups(prev => prev.map(x => x.id === updated.id ? updated : x))}
+                  onDeleted={id => setGroups(prev => prev.filter(x => x.id !== id))}
+                />
+              ))}
+            </>
+          )}
+
+          {showNewForm && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 pb-3 pt-2 space-y-3">
+              <p className="text-sm font-medium text-primary">Nuovo gruppo variazione</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Nome gruppo *</Label>
+                  <Input
+                    value={newName}
+                    onChange={e => setNewName(e.target.value)}
+                    placeholder="Es. Cottura, Taglia…"
+                    className="mt-1 h-9"
+                    autoFocus
+                  />
+                </div>
+                <div className="flex items-center gap-2 pt-5">
+                  <Switch checked={newRequired} onCheckedChange={setNewRequired} id="new-req" />
+                  <Label htmlFor="new-req" className="text-sm">Obbligatoria</Label>
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs mb-2 block">Opzioni</Label>
+                <VariationOptionEditor options={newOptions} onChange={setNewOptions} />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" size="sm" onClick={() => { setShowNewForm(false); setNewName(""); setNewOptions([]); setNewRequired(false); }}>
+                  Annulla
+                </Button>
+                <Button size="sm" disabled={!newName.trim() || saving} onClick={handleAddGroup}>
+                  {saving ? "Salvataggio…" : "Aggiungi"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2">
+          {!showNewForm && (
+            <Button variant="outline" className="gap-1" onClick={() => setShowNewForm(true)}>
+              <Plus className="h-4 w-4" /> Nuovo gruppo
+            </Button>
+          )}
+          <Button onClick={onClose}>Chiudi</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── MenuPage ──────────────────────────────────────────────────────────────────
 export default function MenuPage() {
   const [catDialog, setCatDialog] = useState<{ open: boolean; item?: Category }>({ open: false });
   const [prodDialog, setProdDialog] = useState<{ open: boolean; item?: Product }>({ open: false });
+  const [variationsDialog, setVariationsDialog] = useState<{ open: boolean; product?: Product }>({ open: false });
   const [filterCatId, setFilterCatId] = useState<number | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -200,9 +539,8 @@ export default function MenuPage() {
       subtitle={`${products.length} prodotti, ${categories.length} categorie`}
       fixedHeight
     >
-
       <Tabs defaultValue="products" className="flex-1 flex flex-col overflow-hidden">
-        <div className="px-6 border-b border-border shrink-0">
+        <div className="px-4 sm:px-6 border-b border-border shrink-0">
           <TabsList className="mb-0">
             <TabsTrigger value="products">Prodotti</TabsTrigger>
             <TabsTrigger value="categories">Categorie</TabsTrigger>
@@ -210,8 +548,8 @@ export default function MenuPage() {
         </div>
 
         <TabsContent value="products" className="flex-1 overflow-hidden m-0 flex flex-col">
-          <div className="px-6 pt-4 pb-2 flex items-center justify-between shrink-0">
-            <div className="flex gap-2 flex-wrap">
+          <div className="px-4 sm:px-6 pt-4 pb-2 flex items-center justify-between shrink-0 gap-2">
+            <div className="flex gap-1.5 flex-wrap flex-1 min-w-0">
               <button
                 onClick={() => setFilterCatId(null)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filterCatId === null ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-accent"}`}
@@ -228,36 +566,52 @@ export default function MenuPage() {
                 </button>
               ))}
             </div>
-            <Button size="sm" className="gap-1" onClick={() => setProdDialog({ open: true })}>
-              <Plus className="h-4 w-4" /> Aggiungi
+            <Button size="sm" className="gap-1 shrink-0" onClick={() => setProdDialog({ open: true })}>
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Aggiungi</span>
             </Button>
           </div>
           <ScrollArea className="flex-1">
-            <div className="px-6 pb-6 space-y-2">
+            <div className="px-4 sm:px-6 pb-6 space-y-2">
               {filteredProducts.map((p) => {
                 const cat = categories.find(c => c.id === p.categoryId);
                 return (
-                  <div key={p.id} className="flex items-center gap-3 p-3 rounded-lg bg-card border border-border">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-foreground">{p.name}</span>
-                        {!p.available && <Badge variant="outline" className="text-xs text-muted-foreground">Non disponibile</Badge>}
+                  <div key={p.id} className="flex items-center gap-2 sm:gap-3 p-3 rounded-lg bg-card border border-border">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-foreground text-sm">{p.name}</span>
+                        {!p.available && <Badge variant="outline" className="text-xs text-muted-foreground">Non disp.</Badge>}
                         {cat && (
-                          <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: cat.color + "30", color: cat.color }}>
+                          <span className="text-xs px-2 py-0.5 rounded-full hidden sm:inline" style={{ backgroundColor: cat.color + "30", color: cat.color }}>
                             {cat.name}
                           </span>
                         )}
                       </div>
-                      {p.description && <div className="text-xs text-muted-foreground mt-0.5">{p.description}</div>}
+                      {p.description && <div className="text-xs text-muted-foreground mt-0.5 truncate">{p.description}</div>}
                     </div>
-                    <div className="text-primary font-bold">€ {p.price}</div>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setProdDialog({ open: true, item: p })}>
+                    <div className="text-primary font-bold text-sm shrink-0">€ {p.price}</div>
+                    <div className="flex gap-1 shrink-0">
+                      <button
+                        title="Variazioni"
+                        onClick={() => setVariationsDialog({ open: true, product: p })}
+                        className="h-8 w-8 flex items-center justify-center rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+                      >
+                        <Settings2 className="h-4 w-4" />
+                      </button>
+                      <button
+                        title="Modifica"
+                        onClick={() => setProdDialog({ open: true, item: p })}
+                        className="h-8 w-8 flex items-center justify-center rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+                      >
                         <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDeleteProd(p.id)}>
+                      </button>
+                      <button
+                        title="Elimina"
+                        onClick={() => handleDeleteProd(p.id)}
+                        className="h-8 w-8 flex items-center justify-center rounded hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
+                      >
                         <Trash2 className="h-4 w-4" />
-                      </Button>
+                      </button>
                     </div>
                   </div>
                 );
@@ -265,7 +619,7 @@ export default function MenuPage() {
               {filteredProducts.length === 0 && (
                 <div className="text-center py-12 text-muted-foreground">
                   <Package className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                  <div>Nessun prodotto trovato</div>
+                  <div className="text-sm">Nessun prodotto trovato</div>
                 </div>
               )}
             </div>
@@ -273,27 +627,27 @@ export default function MenuPage() {
         </TabsContent>
 
         <TabsContent value="categories" className="flex-1 overflow-hidden m-0 flex flex-col">
-          <div className="px-6 pt-4 pb-2 flex justify-end shrink-0">
+          <div className="px-4 sm:px-6 pt-4 pb-2 flex justify-end shrink-0">
             <Button size="sm" className="gap-1" onClick={() => setCatDialog({ open: true })}>
               <Plus className="h-4 w-4" /> Aggiungi
             </Button>
           </div>
           <ScrollArea className="flex-1">
-            <div className="px-6 pb-6 space-y-2">
+            <div className="px-4 sm:px-6 pb-6 space-y-2">
               {categories.map((c) => (
                 <div key={c.id} className="flex items-center gap-3 p-3 rounded-lg bg-card border border-border">
                   <div className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
-                  <div className="flex-1">
-                    <div className="font-medium text-foreground">{c.name}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-foreground text-sm">{c.name}</div>
                     <div className="text-xs text-muted-foreground">Ordine: {c.sortOrder}</div>
                   </div>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setCatDialog({ open: true, item: c })}>
+                  <div className="flex gap-1 shrink-0">
+                    <button onClick={() => setCatDialog({ open: true, item: c })} className="h-8 w-8 flex items-center justify-center rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground">
                       <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDeleteCat(c.id)}>
+                    </button>
+                    <button onClick={() => handleDeleteCat(c.id)} className="h-8 w-8 flex items-center justify-center rounded hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive">
                       <Trash2 className="h-4 w-4" />
-                    </Button>
+                    </button>
                   </div>
                 </div>
               ))}
@@ -302,32 +656,34 @@ export default function MenuPage() {
         </TabsContent>
       </Tabs>
 
+      {/* Category dialog */}
       <Dialog open={catDialog.open} onOpenChange={(o) => !o && setCatDialog({ open: false })}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{catDialog.item ? "Modifica Categoria" : "Nuova Categoria"}</DialogTitle>
           </DialogHeader>
-          <CategoryForm
-            initial={catDialog.item}
-            onSave={handleSaveCategory}
-            onClose={() => setCatDialog({ open: false })}
-          />
+          <CategoryForm initial={catDialog.item} onSave={handleSaveCategory} onClose={() => setCatDialog({ open: false })} />
         </DialogContent>
       </Dialog>
 
+      {/* Product dialog */}
       <Dialog open={prodDialog.open} onOpenChange={(o) => !o && setProdDialog({ open: false })}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{prodDialog.item ? "Modifica Prodotto" : "Nuovo Prodotto"}</DialogTitle>
           </DialogHeader>
-          <ProductForm
-            initial={prodDialog.item}
-            categories={categories}
-            onSave={handleSaveProduct}
-            onClose={() => setProdDialog({ open: false })}
-          />
+          <ProductForm initial={prodDialog.item} categories={categories} onSave={handleSaveProduct} onClose={() => setProdDialog({ open: false })} />
         </DialogContent>
       </Dialog>
+
+      {/* Variations dialog */}
+      {variationsDialog.product && (
+        <VariationsDialog
+          product={variationsDialog.product}
+          open={variationsDialog.open}
+          onClose={() => setVariationsDialog({ open: false })}
+        />
+      )}
     </BackofficeShell>
   );
 }

@@ -457,7 +457,7 @@ export default function TablesPage() {
   const handleRotate = useCallback(async (id: number) => {
     const table = allTables.find(t => t.id === id);
     if (!table) return;
-    const newRotation = ((table.rotation ?? 0) + 90) % 360;
+    const newRotation = ((table.rotation ?? 0) + 45) % 360;
     setLocalTables(prev => {
       const base = prev.length > 0 ? prev : (tables as ExtTable[]);
       return base.map(t => t.id === id ? { ...t, rotation: newRotation } : t);
