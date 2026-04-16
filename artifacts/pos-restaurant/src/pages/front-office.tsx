@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, Fragment } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useGetTablesStatus,
@@ -148,11 +148,11 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
   useEffect(() => {
     function updateScale() {
       if (!containerRef.current) return;
-      const w = containerRef.current.clientWidth - 32;
-      const h = containerRef.current.clientHeight - 32;
+      const w = containerRef.current.clientWidth - 8;
+      const h = containerRef.current.clientHeight - 8;
       const canvasW = COLS * CELL;
       const canvasH = ROWS * CELL;
-      setScale(Math.min(1, w / canvasW, h / canvasH));
+      setScale(Math.min(w / canvasW, h / canvasH));
     }
     updateScale();
     const ro = new ResizeObserver(updateScale);
@@ -221,7 +221,7 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
       </div>
 
       {/* Floor plan */}
-      <div ref={containerRef} className="flex-1 overflow-hidden p-4 bg-[#f4f6fa] flex items-start justify-center">
+      <div ref={containerRef} className="flex-1 overflow-hidden p-1 bg-[#f4f6fa] flex items-center justify-center">
         <div
           className="border border-slate-200 rounded-2xl bg-[#f8fafc] overflow-hidden shrink-0"
           style={{ width: COLS * CELL * scale, height: ROWS * CELL * scale }}
@@ -1016,25 +1016,31 @@ function PhaseIndicator({ phase }: { phase: 1 | 2 | 3 | 4 }) {
     { n: 4, label: "Cassa" },
   ];
   return (
-    <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-b border-slate-100 shrink-0">
+    <div className="flex items-center px-3 py-2 bg-slate-50 border-b border-slate-100 shrink-0 gap-1">
       {phases.map((p, i) => (
-        <div key={p.n} className="flex items-center">
-          <div className={cn(
-            "flex items-center gap-1 text-xs font-semibold",
-            p.n < phase ? "text-emerald-600" : p.n === phase ? "text-primary" : "text-slate-300"
-          )}>
-            {p.n < phase ? (
-              <CheckCircle2 className="h-3.5 w-3.5" />
-            ) : (
-              <div className={cn("h-5 w-5 rounded-full border-2 flex items-center justify-center text-[10px] font-bold",
-                p.n === phase ? "border-primary text-primary bg-orange-50" : "border-slate-300 text-slate-300")}>
-                {p.n}
-              </div>
-            )}
-            {p.label}
+        <Fragment key={p.n}>
+          <div className="flex flex-col items-center gap-0.5 shrink-0">
+            <div className={cn(
+              "h-6 w-6 rounded-full border-2 flex items-center justify-center",
+              p.n < phase  ? "border-emerald-500 bg-emerald-50"
+              : p.n === phase ? "border-primary bg-orange-50"
+              : "border-slate-300 bg-white"
+            )}>
+              {p.n < phase
+                ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                : <span className={cn("text-[10px] font-bold",
+                    p.n === phase ? "text-primary" : "text-slate-300")}>{p.n}</span>
+              }
+            </div>
+            <span className={cn(
+              "text-[9px] font-semibold leading-none",
+              p.n < phase ? "text-emerald-600" : p.n === phase ? "text-primary" : "text-slate-300"
+            )}>{p.label}</span>
           </div>
-          {i < phases.length - 1 && <div className="w-4 h-px bg-slate-200 mx-1.5" />}
-        </div>
+          {i < phases.length - 1 && (
+            <div className={cn("flex-1 h-px", p.n < phase ? "bg-emerald-300" : "bg-slate-200")} />
+          )}
+        </Fragment>
       ))}
     </div>
   );
@@ -1697,7 +1703,7 @@ export default function FrontOffice() {
                             <Plus className="h-3 w-3" />
                           </button>
                         </div>
-                        <span className="text-xs font-bold text-slate-700 w-14 text-right shrink-0">
+                        <span className="text-xs font-bold text-slate-700 w-16 text-right shrink-0">
                           €{parseFloat(item.subtotal).toFixed(2)}
                         </span>
                       </div>
