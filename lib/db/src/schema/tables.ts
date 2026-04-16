@@ -8,6 +8,7 @@ export const tablesTable = pgTable("tables", {
   name: text("name").notNull(),
   seats: integer("seats").notNull().default(4),
   status: text("status").notNull().default("free"),
+  roomId: integer("room_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

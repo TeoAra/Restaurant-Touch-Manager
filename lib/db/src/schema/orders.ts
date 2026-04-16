@@ -6,6 +6,7 @@ export const ordersTable = pgTable("orders", {
   id: serial("id").primaryKey(),
   tableId: integer("table_id"),
   status: text("status").notNull().default("open"),
+  covers: integer("covers").notNull().default(1),
   notes: text("notes"),
   total: text("total").notNull().default("0.00"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -21,6 +22,7 @@ export const orderItemsTable = pgTable("order_items", {
   quantity: integer("quantity").notNull().default(1),
   unitPrice: text("unit_price").notNull(),
   subtotal: text("subtotal").notNull(),
+  status: text("status").notNull().default("draft"),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

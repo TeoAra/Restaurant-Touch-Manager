@@ -1,0 +1,334 @@
+Voglio costruire un software gestionale POS per ristorante/pizzeria/bar, professionale, scalabile e pensato per funzionare in locale su Windows, con accesso via browser da tablet e PC in rete Wi-Fi.
+
+Obiettivo:
+Creare un sistema composto da:
+1. POS operativo per sala/cassa
+2. Web-admin per configurazione e gestione
+3. Backend API locale
+4. Database
+5. Architettura pronta per stampanti di reparto Sewoo e fiscale DTR
+6. Possibilità futura di installer Windows e vendita del software
+
+Stack richiesto:
+- Realtime pronto per futuro uso: Socket.IO o WebSocket
+- UI moderna, pulita, touch-first, colori chiari
+- Monorepo con struttura chiara
+
+Requisiti architetturali:
+- Il backend deve esporre API REST
+- Il POS deve collegarsi al backend locale via HTTP
+- Il sistema deve essere locale-first
+- Il backend deve essere pensato per girare su un PC Windows locale
+- In futuro il backend dovrà poter parlare con:
+  - stampanti Sewoo via TCP/IP ESC/POS
+  - registratore fiscale DTR tramite adapter separato
+- Separare la logica hardware dal resto del sistema
+- Preparare moduli dedicati per stampa e fiscale, anche se inizialmente mock
+- l'accesso al frontend/backend deve essere tramite codice operatore quindi admin piuttosto che cameriere 
+Voglio che il progetto venga generato come base reale e ordinata, non come demo casuale.
+
+========================
+FUNZIONI DEL POS
+========================
+
+Il POS deve gestire:
+- sale
+- tavoli
+- tavoli aperti/chiusi
+- selezione tavolo
+- apertura tavolo
+- sessione tavolo
+- coperti
+- categorie prodotti
+- prodotti
+- aggiunta prodotti all’ordine
+- quantità +/-
+- totale ordine
+- divisione alla romana
+- pulsante invia comanda
+- pulsante preconto
+- pulsante paga
+- stato tavolo
+- ordine associato al tavolo
+- interfaccia touch-first
+- tante altre funzioni da ricercare nel web paragonate ad altri sistemi
+Layout POS richiesto:
+- colonna sinistra: tavoli
+- colonna centrale: categorie e prodotti
+- colonna destra: ordine e riepilogo
+
+Stile grafico POS richiesto:
+- moderno
+- intuitivo
+- minimale
+- simile ai migliori concept POS moderni
+- colori neutri
+- card bianche
+- bordi morbidi
+- molto leggibile
+- molto smart
+- ottimizzato per touchscreen
+- tutto in italiano
+
+Il POS deve visualizzare:
+- nome tavolo
+- sala
+- coperti
+- stato tavolo
+- prodotti
+- reparto del prodotto
+- subtotale
+- totale
+- romana
+-tipo di pagamento (contanti / carte) in base alle normative vigenti italiane aggiornate al 2026
+
+========================
+FUNZIONI WEB-ADMIN
+========================
+
+Il web-admin deve essere separato dal POS e servire per la configurazione.
+
+Pagine admin MVP richieste:
+1. Dashboard semplice
+2. Gestione categorie
+3. Gestione prodotti
+4. Gestione sale
+5. Gestione tavoli
+6. Gestione reparti
+7. Gestione stampanti
+8. Configurazione fiscale placeholder
+9. Utenti placeholder
+10. Report placeholder
+11. Gestione scontrini con annullo storno
+12. Creazione fattura xml con tutte le funzioni in base al nuovo standard xml fiscale italiano
+CRUD reali da implementare subito:
+- categorie
+- prodotti
+- sale
+- tavoli
+- reparti
+Per i prodotti voglio campi:
+- nome
+- categoria
+- reparto
+- prezzo base
+- aliquota IVA
+- attivo/non attivo
+- SKU opzionale
+- descrizione opzionale
+
+Per i tavoli voglio campi:
+- nome/codice tavolo
+- sala
+- coperti
+- stato
+- posizione opzionale
+
+Per i reparti voglio campi:
+- nome
+- codice
+- tipo produzione
+
+Per le stampanti voglio campi:
+- nome
+- IP
+- porta
+- modello
+- reparto associato
+- attiva/non attiva
+
+UI admin richiesta:
+- sidebar sinistra
+- header superiore
+- pagine CRUD pulite
+- tabelle semplici
+- modali o form chiari
+- stile sobrio e professionale
+- tutto in italiano
+
+========================
+BACKEND E API
+========================
+
+Creare backend NestJS con moduli separati e struttura pulita.
+
+Moduli richiesti:
+- auth
+- users
+- roles
+- rooms
+- tables
+- table-sessions
+- categories
+- departments
+- products
+- orders
+- order-items
+- printers
+- print-jobs
+- fiscal
+- reports
+- settings
+
+Per ora auth può essere semplice o placeholder, ma il codice deve essere pronto a evolvere.
+
+Endpoint iniziali richiesti:
+- GET /categories
+- POST /categories
+- PATCH /categories/:id
+- DELETE /categories/:id
+
+- GET /products
+- GET /products?categoryId=...
+- POST /products
+- PATCH /products/:id
+- DELETE /products/:id
+
+- GET /rooms
+- POST /rooms
+- PATCH /rooms/:id
+- DELETE /rooms/:id
+
+- GET /tables
+- POST /tables
+- PATCH /tables/:id
+- DELETE /tables/:id
+
+- POST /table-sessions/open
+- POST /orders
+- POST /orders/item
+- POST /orders/send
+
+- GET /departments
+- POST /departments
+- PATCH /departments/:id
+- DELETE /departments/:id
+
+- GET /printers
+- POST /printers
+- PATCH /printers/:id
+- DELETE /printers/:id
+
+Voglio controller, service e moduli separati e ben organizzati.
+
+
+
+========================
+LOGICA POS
+========================
+
+Flusso richiesto:
+1. carico tavoli
+2. seleziono tavolo
+3. apro sessione tavolo
+4. seleziono coperti (da impostare prezzo in backend)
+4. creo ordine
+5. aggiungo prodotti
+6. salvo righe ordine nel DB
+7. invio comanda
+8. le righe passano da draft a sent
+
+Per ora il pulsante “Invia comanda” deve:
+- cambiare stato righe ordine in sent
+- restituire messaggio di conferma
+- preparare il terreno per futura stampa su reparti
+
+========================
+STAMPANTI E FISCALE
+========================
+
+Non implementare ancora integrazione completa, ma preparare architettura.
+
+Creare moduli placeholder:
+- print-engine
+- fiscal-adapter
+
+Stampanti:
+- preparare servizio per invio ticket via TCP/IP
+- pensato per stampanti Sewoo ESC/POS
+- per ora anche solo mock/log console
+
+Fiscale:
+- preparare adapter DTR separato
+- per ora mock con metodi:
+  - getStatus()
+  - printReceipt()
+  - readXReport()
+  - closeZReport()
+
+Non mischiare questa logica col frontend.
+
+========================
+REQUISITI UI / UX
+========================
+
+Voglio un design:
+- smart
+- intuitivo
+- molto ordinato
+- professionale
+- italiano
+- da vero ristorante
+- molto veloce da usare
+- pochi passaggi
+- ottimo per touch
+- leggibile anche sotto stress
+
+POS:
+- tavoli ben leggibili
+- prodotti grandi
+- categorie in alto
+- ordine chiaro a destra
+- pulsanti evidenti
+
+Admin:
+- funzionale, non per forza elaborato
+- pronto a scalare
+- sidebar chiara
+- CRUD semplici e veloci
+
+
+========================
+PRIORITÀ ASSOLUTA
+========================
+
+Prima fai funzionare bene:
+- categorie
+- prodotti
+- tavoli
+- sale
+- ordine
+- invio comanda
+- admin CRUD base
+
+Non perdere tempo ora su:
+- report avanzati
+- login complesso
+- installer Windows
+- fiscale reale
+- stampa reale
+- permessi complessi
+- dashboard avanzate
+
+========================
+OUTPUT RICHIESTO
+========================
+
+Voglio che tu:
+- crei tutta la struttura del progetto
+- generi i file principali
+- implementi il backend e i frontend base
+- renda il progetto eseguibile
+- spieghi come avviarlo
+- lasci il codice pronto per iterare
+
+Quando hai finito:
+- mostrami la struttura cartelle
+- mostrami i file principali creati
+- mostrami come avviare server, web-pos e web-admin
+- indicami dove intervenire per espandere:
+  - stampa
+  - fiscale
+  - pagamenti
+  - varianti prodotto
+  - split conto

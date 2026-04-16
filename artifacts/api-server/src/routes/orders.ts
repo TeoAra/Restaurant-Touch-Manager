@@ -201,4 +201,31 @@ router.delete("/:orderId/items/:itemId", async (req, res) => {
   res.status(204).end();
 });
 
+// Send comanda: change all draft items to sent
+router.post("/:id/send-comanda", async (req, res) => {
+  const id = Number(req.params.id);
+  const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+  if (!order) return res.status(404).json({ error: "Order not found" });
+
+  const result = await db.update(orderItemsTable)
+    .set({ status: "sent" })
+    .where(and(eq(orderItemsTable.orderId, id), eq(orderItemsTable.status, "draft")))
+    .returning();
+
+  // TODO: trigger print-engine for kitchen/bar printers
+  console.log(`[PRINT] Comanda inviata per ordine ${id}: ${result.length} righe`);
+
+  res.json({ success: true, sentItems: result.length });
+});
+
+// Update covers
+router.patch("/:id/covers", async (req, res) => {
+  const id = Number(req.params.id);
+  const { covers } = req.body as { covers: number };
+  if (!covers || covers < 1) return res.status(400).json({ error: "Invalid covers" });
+  const [order] = await db.update(ordersTable).set({ covers }).where(eq(ordersTable.id, id)).returning();
+  if (!order) return res.status(404).json({ error: "Order not found" });
+  res.json(order);
+});
+
 export default router;

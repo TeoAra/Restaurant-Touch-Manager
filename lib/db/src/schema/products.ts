@@ -5,9 +5,12 @@ import { z } from "zod/v4";
 export const productsTable = pgTable("products", {
   id: serial("id").primaryKey(),
   categoryId: integer("category_id"),
+  departmentId: integer("department_id"),
   name: text("name").notNull(),
   description: text("description"),
   price: text("price").notNull(),
+  iva: text("iva").notNull().default("10"),
+  sku: text("sku"),
   available: boolean("available").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

@@ -1,72 +1,77 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Receipt, Settings, UtensilsCrossed, Package, LayoutGrid, BarChart3, CreditCard } from "lucide-react";
+import {
+  UtensilsCrossed, LayoutGrid, Receipt, Settings,
+  ChefHat, BarChart3, CreditCard, Layers, Printer,
+  BookOpen, Home, Users
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const mainItems = [
+  { href: "/", icon: Home, label: "Sala" },
+  { href: "/orders", icon: Receipt, label: "Comande Attive" },
+];
+
+const adminItems = [
+  { href: "/backoffice", icon: BarChart3, label: "Dashboard" },
+  { href: "/backoffice/menu", icon: BookOpen, label: "Menu" },
+  { href: "/backoffice/rooms", icon: Layers, label: "Sale" },
+  { href: "/backoffice/tables", icon: LayoutGrid, label: "Tavoli" },
+  { href: "/backoffice/departments", icon: ChefHat, label: "Reparti" },
+  { href: "/backoffice/printers", icon: Printer, label: "Stampanti" },
+  { href: "/backoffice/reports", icon: BarChart3, label: "Report" },
+  { href: "/backoffice/payments", icon: CreditCard, label: "Pagamenti" },
+];
+
+function NavItem({ href, icon: Icon, label, active }: { href: string; icon: React.ComponentType<{ className?: string }>; label: string; active: boolean }) {
+  return (
+    <Link href={href} className={cn(
+      "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-sm font-medium",
+      active
+        ? "bg-primary text-white shadow-sm"
+        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-white"
+    )}>
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className="truncate">{label}</span>
+    </Link>
+  );
+}
 
 export function Sidebar() {
   const [location] = useLocation();
-
-  const navItems = [
-    { href: "/", icon: LayoutDashboard, label: "Front Office" },
-    { href: "/orders", icon: Receipt, label: "Active Orders" },
-    { href: "/backoffice", icon: Settings, label: "Back Office" },
-  ];
-
-  const backOfficeItems = [
-    { href: "/backoffice/menu", icon: UtensilsCrossed, label: "Menu" },
-    { href: "/backoffice/tables", icon: LayoutGrid, label: "Tables" },
-    { href: "/backoffice/reports", icon: BarChart3, label: "Reports" },
-    { href: "/backoffice/payments", icon: CreditCard, label: "Payments" },
-  ];
-
   const isBackOffice = location.startsWith("/backoffice");
 
   return (
-    <div className="w-64 bg-sidebar border-r border-border h-screen flex flex-col shrink-0">
-      <div className="h-16 flex items-center px-6 border-b border-border shrink-0">
-        <div className="flex items-center gap-2 text-primary font-bold text-xl">
-          <UtensilsCrossed className="h-6 w-6" />
-          <span>RestoPOS</span>
+    <div className="w-56 bg-sidebar h-screen flex flex-col shrink-0 select-none">
+      {/* Logo */}
+      <div className="h-14 flex items-center gap-2.5 px-5 shrink-0 border-b border-sidebar-border">
+        <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
+          <UtensilsCrossed className="h-4 w-4 text-white" />
         </div>
+        <span className="font-bold text-white text-base tracking-tight">RestoPOS</span>
       </div>
-      
-      <div className="flex-1 overflow-y-auto py-4 flex flex-col gap-2 px-3">
-        <div className="space-y-1 mb-4">
-          <div className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Main</div>
-          {navItems.map((item) => (
-            <Link key={item.href} href={item.href} className={cn(
-              "flex items-center gap-3 px-3 py-3 rounded-md transition-colors font-medium hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-              location === item.href ? "bg-sidebar-accent text-sidebar-accent-foreground border-l-2 border-primary" : "text-muted-foreground"
-            )}>
-              <item.icon className="h-5 w-5" />
-              {item.label}
-            </Link>
-          ))}
-        </div>
 
-        {isBackOffice && (
-          <div className="space-y-1 mt-4">
-            <div className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Management</div>
-            {backOfficeItems.map((item) => (
-              <Link key={item.href} href={item.href} className={cn(
-                "flex items-center gap-3 px-3 py-3 rounded-md transition-colors font-medium hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                location === item.href ? "bg-sidebar-accent text-sidebar-accent-foreground border-l-2 border-primary" : "text-muted-foreground"
-              )}>
-                <item.icon className="h-5 w-5" />
-                {item.label}
-              </Link>
-            ))}
-          </div>
-        )}
+      {/* Nav */}
+      <div className="flex-1 overflow-y-auto py-3 px-3 space-y-0.5">
+        <div className="text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider px-3 mb-1.5">Cassa</div>
+        {mainItems.map((item) => (
+          <NavItem key={item.href} {...item} active={location === item.href} />
+        ))}
+
+        <div className="text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider px-3 mt-4 mb-1.5">Gestione</div>
+        {adminItems.map((item) => (
+          <NavItem key={item.href} {...item} active={location === item.href} />
+        ))}
       </div>
-      
-      <div className="p-4 border-t border-border shrink-0">
-        <div className="flex items-center gap-3 px-3 py-2">
-          <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
-            A
+
+      {/* Footer */}
+      <div className="p-3 border-t border-sidebar-border shrink-0">
+        <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-sidebar-accent cursor-pointer transition-colors">
+          <div className="h-8 w-8 rounded-full bg-primary/30 flex items-center justify-center shrink-0">
+            <Users className="h-4 w-4 text-primary" />
           </div>
-          <div>
-            <div className="font-medium text-sm text-foreground">Admin User</div>
-            <div className="text-xs text-muted-foreground">Manager</div>
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-white truncate">Admin</div>
+            <div className="text-xs text-sidebar-foreground/60 truncate">Manager</div>
           </div>
         </div>
       </div>

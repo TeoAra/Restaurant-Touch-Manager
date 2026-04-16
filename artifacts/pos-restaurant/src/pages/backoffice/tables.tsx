@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useListTables,
   useCreateTable,
@@ -14,13 +14,23 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, Users } from "lucide-react";
+import { Plus, Pencil, Trash2, Users, LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
-function TableForm({ initial, onSave, onClose }: {
+const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
+const API = `${BASE}/api`;
+
+type Room = { id: number; name: string };
+
+function useRooms() {
+  return useQuery<Room[]>({ queryKey: ["rooms"], queryFn: () => fetch(`${API}/rooms`).then(r => r.json()) });
+}
+
+function TableForm({ initial, rooms, onSave, onClose }: {
   initial?: Table;
-  onSave: (data: { number: number; name: string; seats: number; status: "free" | "occupied" | "reserved" }) => void;
+  rooms: Room[];
+  onSave: (data: { number: number; name: string; seats: number; status: "free" | "occupied" | "reserved"; roomId: number | null }) => void;
   onClose: () => void
 }) {
   const [number, setNumber] = useState(initial?.number ?? 1);
@@ -29,6 +39,7 @@ function TableForm({ initial, onSave, onClose }: {
   const [status, setStatus] = useState<"free" | "occupied" | "reserved">(
     (initial?.status as "free" | "occupied" | "reserved") ?? "free"
   );
+  const [roomId, setRoomId] = useState<number | null>((initial as Table & { roomId?: number })?.roomId ?? null);
 
   return (
     <div className="space-y-4">
@@ -43,21 +54,24 @@ function TableForm({ initial, onSave, onClose }: {
         </div>
       </div>
       <div>
-        <Label>Nome</Label>
+        <Label>Nome *</Label>
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Es. Tavolo 1, Bancone A" className="mt-1" />
+      </div>
+      <div>
+        <Label>Sala</Label>
+        <select value={roomId ?? ""} onChange={e => setRoomId(e.target.value ? Number(e.target.value) : null)}
+          className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+          <option value="">Nessuna sala</option>
+          {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
       </div>
       <div>
         <Label>Stato</Label>
         <div className="grid grid-cols-3 gap-2 mt-1">
           {(["free", "occupied", "reserved"] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatus(s)}
-              className={cn(
-                "py-2 rounded-lg text-sm font-medium border-2 transition-colors",
-                status === s ? "border-primary bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground"
-              )}
-            >
+            <button key={s} onClick={() => setStatus(s)}
+              className={cn("py-2 rounded-lg text-sm font-medium border-2 transition-colors",
+                status === s ? "border-primary bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground")}>
               {s === "free" ? "Libero" : s === "occupied" ? "Occupato" : "Riservato"}
             </button>
           ))}
@@ -65,7 +79,7 @@ function TableForm({ initial, onSave, onClose }: {
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Annulla</Button>
-        <Button onClick={() => onSave({ number, name, seats, status })} disabled={!name}>Salva</Button>
+        <Button onClick={() => onSave({ number, name, seats, status, roomId })} disabled={!name}>Salva</Button>
       </DialogFooter>
     </div>
   );
@@ -77,11 +91,12 @@ export default function TablesPage() {
   const queryClient = useQueryClient();
 
   const { data: tables = [] } = useListTables();
+  const { data: rooms = [] } = useRooms();
   const createTable = useCreateTable();
   const updateTable = useUpdateTable();
   const deleteTable = useDeleteTable();
 
-  const handleSave = (data: { number: number; name: string; seats: number; status: "free" | "occupied" | "reserved" }) => {
+  const handleSave = (data: { number: number; name: string; seats: number; status: "free" | "occupied" | "reserved"; roomId: number | null }) => {
     const opts = {
       onSuccess: () => {
         toast({ title: "Tavolo salvato" });
@@ -107,17 +122,23 @@ export default function TablesPage() {
   };
 
   const statusConfig = {
-    free: { label: "Libero", cls: "bg-green-500/20 text-green-400 border-green-500/30" },
-    occupied: { label: "Occupato", cls: "bg-amber-500/20 text-amber-400 border-amber-500/30" },
-    reserved: { label: "Riservato", cls: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
+    free: { label: "Libero", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+    occupied: { label: "Occupato", cls: "bg-orange-50 text-orange-700 border-orange-200" },
+    reserved: { label: "Riservato", cls: "bg-blue-50 text-blue-700 border-blue-200" },
   };
+
+  // Group by room
+  const roomMap = new Map(rooms.map(r => [r.id, r.name]));
 
   return (
     <div className="flex flex-col h-full">
       <div className="p-6 border-b border-border shrink-0 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Gestione Tavoli</h1>
-          <p className="text-muted-foreground text-sm mt-1">{tables.length} tavoli configurati</p>
+        <div className="flex items-center gap-2">
+          <LayoutGrid className="h-6 w-6 text-primary" />
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Gestione Tavoli</h1>
+            <p className="text-muted-foreground text-sm">{tables.length} tavoli configurati</p>
+          </div>
         </div>
         <Button className="gap-1" onClick={() => setDialog({ open: true })}>
           <Plus className="h-4 w-4" /> Nuovo Tavolo
@@ -129,19 +150,21 @@ export default function TablesPage() {
           {tables.map((t) => {
             const status = (t.status as "free" | "occupied" | "reserved") ?? "free";
             const cfg = statusConfig[status];
+            const roomId = (t as Table & { roomId?: number }).roomId;
             return (
-              <div key={t.id} className="bg-card border border-border rounded-xl p-4 flex items-center gap-4">
-                <div className="flex-1">
-                  <div className="font-bold text-foreground text-base">{t.name}</div>
-                  <div className="flex items-center gap-1 text-muted-foreground text-xs mt-1">
-                    <Users className="h-3 w-3" />
-                    <span>{t.seats} posti</span>
-                    <span className="ml-2 text-foreground/40">·</span>
-                    <span>N°{t.number}</span>
+              <div key={t.id} className="bg-card border border-border rounded-xl p-4 shadow-sm">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="font-bold text-foreground text-base">{t.name}</div>
+                    <div className="flex items-center gap-1 text-muted-foreground text-xs mt-0.5">
+                      <Users className="h-3 w-3" />
+                      <span>{t.seats} posti · N°{t.number}</span>
+                    </div>
+                    {roomId && <div className="text-xs text-primary/70 mt-1">{roomMap.get(roomId) ?? ""}</div>}
                   </div>
+                  <Badge variant="outline" className={cfg.cls}>{cfg.label}</Badge>
                 </div>
-                <Badge variant="outline" className={cfg.cls}>{cfg.label}</Badge>
-                <div className="flex gap-1">
+                <div className="flex gap-1 mt-3 justify-end">
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setDialog({ open: true, item: t })}>
                     <Pencil className="h-4 w-4" />
                   </Button>
@@ -162,6 +185,7 @@ export default function TablesPage() {
           </DialogHeader>
           <TableForm
             initial={dialog.item}
+            rooms={rooms}
             onSave={handleSave}
             onClose={() => setDialog({ open: false })}
           />

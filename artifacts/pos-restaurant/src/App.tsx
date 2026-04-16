@@ -8,7 +8,10 @@ import FrontOffice from "@/pages/front-office";
 import OrdersPage from "@/pages/orders";
 import BackOfficeIndex from "@/pages/backoffice/index";
 import MenuPage from "@/pages/backoffice/menu";
+import RoomsPage from "@/pages/backoffice/rooms";
 import TablesPage from "@/pages/backoffice/tables";
+import DepartmentsPage from "@/pages/backoffice/departments";
+import PrintersPage from "@/pages/backoffice/printers";
 import ReportsPage from "@/pages/backoffice/reports";
 import PaymentsPage from "@/pages/backoffice/payments";
 
@@ -29,7 +32,10 @@ function AppRouter() {
         <Route path="/orders" component={OrdersPage} />
         <Route path="/backoffice" component={BackOfficeIndex} />
         <Route path="/backoffice/menu" component={MenuPage} />
+        <Route path="/backoffice/rooms" component={RoomsPage} />
         <Route path="/backoffice/tables" component={TablesPage} />
+        <Route path="/backoffice/departments" component={DepartmentsPage} />
+        <Route path="/backoffice/printers" component={PrintersPage} />
         <Route path="/backoffice/reports" component={ReportsPage} />
         <Route path="/backoffice/payments" component={PaymentsPage} />
         <Route component={NotFound} />
