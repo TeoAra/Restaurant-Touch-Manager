@@ -1443,7 +1443,7 @@ export default function FrontOffice() {
       </div>
 
       {/* ══ MAIN ═════════════════════════════════════════════════════════════ */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden pb-14 md:pb-0">
 
         {/* ── Left: Categories + Products or Table Map ──────────────────── */}
         <div className={cn(
@@ -1767,7 +1767,7 @@ export default function FrontOffice() {
       </div>
 
       {/* ══ MOBILE BOTTOM TAB BAR (hidden on md+) ════════════════════════════ */}
-      <div className="md:hidden shrink-0 bg-white border-t border-slate-200 flex">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 flex" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
         <button
           onClick={() => setMobilePanel("menu")}
           className={cn(
