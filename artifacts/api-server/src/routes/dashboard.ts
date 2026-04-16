@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, ordersTable, orderItemsTable, tablesTable, paymentsTable } from "@workspace/db";
+import { db, ordersTable, orderItemsTable, tablesTable, paymentsTable, roomsTable } from "@workspace/db";
 import { eq, and, gte, sql } from "drizzle-orm";
 
 const router = Router();
@@ -90,9 +90,22 @@ router.get("/top-products", async (req, res) => {
 });
 
 router.get("/tables-status", async (req, res) => {
-  const tables = await db.select().from(tablesTable).orderBy(tablesTable.number);
-  const openOrders = await db.select().from(ordersTable).where(eq(ordersTable.status, "open"));
+  const tables = await db
+    .select({
+      id: tablesTable.id,
+      number: tablesTable.number,
+      name: tablesTable.name,
+      seats: tablesTable.seats,
+      status: tablesTable.status,
+      roomId: tablesTable.roomId,
+      sortOrder: tablesTable.sortOrder,
+      roomName: roomsTable.name,
+    })
+    .from(tablesTable)
+    .leftJoin(roomsTable, eq(tablesTable.roomId, roomsTable.id))
+    .orderBy(tablesTable.sortOrder, tablesTable.number);
 
+  const openOrders = await db.select().from(ordersTable).where(eq(ordersTable.status, "open"));
   const orderByTable = new Map(openOrders.map(o => [o.tableId, o]));
 
   const result = tables.map(t => {
@@ -103,6 +116,8 @@ router.get("/tables-status", async (req, res) => {
       name: t.name,
       seats: t.seats,
       status: t.status,
+      roomId: t.roomId ?? null,
+      roomName: t.roomName ?? null,
       activeOrderId: activeOrder?.id ?? null,
       activeOrderTotal: activeOrder?.total ?? null,
       activeOrderCreatedAt: activeOrder?.createdAt?.toISOString() ?? null,

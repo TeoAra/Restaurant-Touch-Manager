@@ -23,7 +23,8 @@ Full-stack POS (Point of Sale) system for restaurants, pubs, and breweries. Buil
 - **Light professional theme**: white cards, soft shadows, light gray background (#f5f5f5)
 - **Dark sidebar**: charcoal (#220e18) with orange/amber highlights
 - **Orange primary**: hsl(27 96% 51%) — consistent with restaurant brand feel
-- **Touch-optimized**: large buttons, min 48px targets, 3-panel POS layout
+- **Touch-optimized**: large buttons, min 48px targets, 2-panel POS layout (tables+order left, categories→products right)
+- **Drag-to-reorder**: @dnd-kit/sortable with touch sensor support in back-office tables/rooms
 - **All UI in Italian**
 
 ## Application Structure

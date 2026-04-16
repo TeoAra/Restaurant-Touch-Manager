@@ -6,8 +6,17 @@ import { CreateTableBody, UpdateTableBody, GetTableParams, UpdateTableParams, De
 const router = Router();
 
 router.get("/", async (req, res) => {
-  const tables = await db.select().from(tablesTable).orderBy(tablesTable.number);
+  const tables = await db.select().from(tablesTable).orderBy(tablesTable.sortOrder, tablesTable.number);
   res.json(tables);
+});
+
+// Reorder tables: receives array of {id, sortOrder}
+router.post("/reorder", async (req, res) => {
+  const items: { id: number; sortOrder: number }[] = req.body;
+  await Promise.all(items.map(({ id, sortOrder }) =>
+    db.update(tablesTable).set({ sortOrder }).where(eq(tablesTable.id, id))
+  ));
+  res.json({ success: true });
 });
 
 router.post("/", async (req, res) => {

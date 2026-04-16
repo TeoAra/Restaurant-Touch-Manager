@@ -10,6 +10,15 @@ router.get("/", async (_req, res) => {
   res.json(rows);
 });
 
+// Reorder rooms: receives array of {id, sortOrder}
+router.post("/reorder", async (req, res) => {
+  const items: { id: number; sortOrder: number }[] = req.body;
+  await Promise.all(items.map(({ id, sortOrder }) =>
+    db.update(roomsTable).set({ sortOrder }).where(eq(roomsTable.id, id))
+  ));
+  res.json({ success: true });
+});
+
 router.post("/", async (req, res) => {
   const parsed = insertRoomSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
