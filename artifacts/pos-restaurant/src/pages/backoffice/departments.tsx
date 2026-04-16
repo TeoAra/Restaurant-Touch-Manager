@@ -4,99 +4,130 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, ChefHat } from "lucide-react";
+import { ChefHat, Plus, Pencil, Trash2, Printer, Link2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
 
-type Department = { id: number; name: string; code: string; productionType: string };
-type DeptForm = { name: string; code: string; productionType: string };
+type Department = { id: number; name: string; code: string; productionType: string; printerId?: number | null };
+type Printer = { id: number; name: string; ipAddress?: string };
+type DeptForm = { name: string; code: string; productionType: string; printerId: number | null };
+const empty: DeptForm = { name: "", code: "", productionType: "kitchen", printerId: null };
 
-const empty: DeptForm = { name: "", code: "", productionType: "kitchen" };
-
-const prodTypes: Record<string, string> = { kitchen: "Cucina", bar: "Bar", pizza: "Pizzeria", other: "Altro" };
-
-async function fetchDepts(): Promise<Department[]> {
-  const res = await fetch(`${API}/departments`);
-  if (!res.ok) throw new Error("Errore");
-  return res.json();
-}
+const prodTypes = [
+  { value: "kitchen", label: "Cucina" },
+  { value: "bar", label: "Bar" },
+  { value: "other", label: "Altro" },
+];
 
 export default function DepartmentsPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { data: depts = [], isLoading } = useQuery({ queryKey: ["departments"], queryFn: fetchDepts });
+  const { data: departments = [], isLoading } = useQuery<Department[]>({
+    queryKey: ["departments"],
+    queryFn: () => fetch(`${API}/departments`).then(r => r.json()),
+  });
+  const { data: printers = [] } = useQuery<Printer[]>({
+    queryKey: ["printers"],
+    queryFn: () => fetch(`${API}/printers`).then(r => r.json()),
+  });
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Department | null>(null);
   const [form, setForm] = useState<DeptForm>(empty);
 
-  const create = useMutation({
-    mutationFn: (data: DeptForm) =>
-      fetch(`${API}/departments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }).then(r => r.json()),
+  const createDept = useMutation({
+    mutationFn: (data: DeptForm) => fetch(`${API}/departments`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    }).then(r => r.json()),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["departments"] }); setOpen(false); toast({ title: "Reparto creato" }); },
   });
-  const update = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: DeptForm }) =>
-      fetch(`${API}/departments/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }).then(r => r.json()),
+  const updateDept = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: DeptForm }) => fetch(`${API}/departments/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    }).then(r => r.json()),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["departments"] }); setOpen(false); toast({ title: "Reparto aggiornato" }); },
   });
-  const remove = useMutation({
+  const deleteDept = useMutation({
     mutationFn: (id: number) => fetch(`${API}/departments/${id}`, { method: "DELETE" }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["departments"] }); toast({ title: "Reparto eliminato" }); },
   });
 
   function openNew() { setEditing(null); setForm(empty); setOpen(true); }
-  function openEdit(d: Department) { setEditing(d); setForm({ name: d.name, code: d.code, productionType: d.productionType }); setOpen(true); }
+  function openEdit(d: Department) {
+    setEditing(d);
+    setForm({ name: d.name, code: d.code, productionType: d.productionType, printerId: d.printerId ?? null });
+    setOpen(true);
+  }
   function handleSave() {
-    if (editing) update.mutate({ id: editing.id, data: form });
-    else create.mutate(form);
+    if (editing) updateDept.mutate({ id: editing.id, data: form });
+    else createDept.mutate(form);
   }
 
+  const getPrinterName = (id?: number | null) => id ? printers.find(p => p.id === id)?.name ?? "—" : "Nessuna";
+
   return (
-    <div className="p-6 max-w-3xl">
+    <div className="p-6 max-w-2xl">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <ChefHat className="h-6 w-6 text-primary" />
-          <h1 className="text-2xl font-bold text-foreground">Reparti</h1>
+          <div>
+            <h1 className="text-2xl font-bold">Reparti</h1>
+            <p className="text-sm text-muted-foreground">Collega ogni reparto alla stampante di produzione</p>
+          </div>
         </div>
         <Button onClick={openNew} className="gap-2"><Plus className="h-4 w-4" /> Nuovo Reparto</Button>
       </div>
 
-      {isLoading ? (
-        <div className="text-muted-foreground">Caricamento...</div>
-      ) : (
-        <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 border-b border-border">
-              <tr>
-                <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Nome</th>
-                <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Codice</th>
-                <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Tipo produzione</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {depts.map((d, i) => (
-                <tr key={d.id} className={i % 2 === 0 ? "bg-card" : "bg-muted/20"}>
-                  <td className="px-4 py-3 font-medium text-foreground">{d.name}</td>
-                  <td className="px-4 py-3"><span className="bg-muted px-2 py-0.5 rounded font-mono text-xs">{d.code}</span></td>
-                  <td className="px-4 py-3 text-muted-foreground">{prodTypes[d.productionType] ?? d.productionType}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2 justify-end">
-                      <Button variant="ghost" size="sm" onClick={() => openEdit(d)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => remove.mutate(d.id)}><Trash2 className="h-4 w-4" /></Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {depts.length === 0 && (
-                <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">Nessun reparto configurato</td></tr>
-              )}
-            </tbody>
-          </table>
+      <div className="flex items-start gap-3 p-4 bg-orange-50 border border-orange-200 rounded-xl mb-5">
+        <Link2 className="h-5 w-5 text-primary mt-0.5 shrink-0" />
+        <div>
+          <div className="font-semibold text-slate-800 text-sm">Sincronizzazione Reparti-Stampanti</div>
+          <div className="text-xs text-slate-600 mt-0.5">
+            Ogni reparto riceve le comande tramite la sua stampante. I prodotti devono essere assegnati al reparto corretto per far arrivare la comanda al punto giusto (cucina, bar, ecc.).
+          </div>
+        </div>
+      </div>
+
+      {isLoading ? <p className="text-muted-foreground">Caricamento...</p> : (
+        <div className="space-y-2">
+          {departments.map(d => {
+            const printerName = getPrinterName(d.printerId);
+            const typeLabel = prodTypes.find(t => t.value === d.productionType)?.label ?? d.productionType;
+            return (
+              <div key={d.id} className="flex items-center gap-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
+                <div className="h-10 w-10 rounded-xl bg-orange-50 flex items-center justify-center shrink-0">
+                  <ChefHat className="h-5 w-5 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-slate-800">{d.name}</span>
+                    <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md font-mono">{d.code}</span>
+                    <span className="text-xs text-slate-500">{typeLabel}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <Printer className="h-3 w-3 text-slate-400" />
+                    <span className={cn("text-xs", d.printerId ? "text-emerald-600 font-medium" : "text-slate-400")}>
+                      {d.printerId ? `Stampante: ${printerName}` : "Nessuna stampante collegata"}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <button onClick={() => openEdit(d)}
+                    className="p-2 rounded-lg text-slate-500 hover:text-primary hover:bg-orange-50 transition-colors">
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => deleteDept.mutate(d.id)}
+                    className="p-2 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          {departments.length === 0 && <p className="text-center py-12 text-muted-foreground">Nessun reparto. Creane uno!</p>}
         </div>
       )}
 
@@ -104,22 +135,43 @@ export default function DepartmentsPage() {
         <DialogContent>
           <DialogHeader><DialogTitle>{editing ? "Modifica Reparto" : "Nuovo Reparto"}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="space-y-1">
-              <Label>Nome *</Label>
-              <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="es. Cucina" />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Nome *</Label>
+                <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Es. Cucina" className="mt-1" />
+              </div>
+              <div>
+                <Label>Codice *</Label>
+                <Input value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} placeholder="Es. KIT" className="mt-1" />
+              </div>
             </div>
-            <div className="space-y-1">
-              <Label>Codice *</Label>
-              <Input value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} placeholder="es. CUC" maxLength={6} />
-            </div>
-            <div className="space-y-1">
+            <div>
               <Label>Tipo produzione</Label>
-              <Select value={form.productionType} onValueChange={v => setForm(f => ({ ...f, productionType: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {Object.entries(prodTypes).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <div className="grid grid-cols-3 gap-2 mt-1">
+                {prodTypes.map(t => (
+                  <button key={t.value} onClick={() => setForm(f => ({ ...f, productionType: t.value }))}
+                    className={cn("py-2 rounded-lg text-sm font-medium border-2 transition-colors",
+                      form.productionType === t.value
+                        ? "border-primary bg-orange-50 text-primary"
+                        : "border-border text-muted-foreground")}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <Label className="flex items-center gap-2">
+                <Printer className="h-4 w-4" /> Stampante collegata
+              </Label>
+              <select value={form.printerId ?? ""}
+                onChange={e => setForm(f => ({ ...f, printerId: e.target.value ? Number(e.target.value) : null }))}
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                <option value="">Nessuna stampante</option>
+                {printers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              {printers.length === 0 && (
+                <p className="text-xs text-slate-400 mt-1">Nessuna stampante — aggiungila nella sezione Stampanti</p>
+              )}
             </div>
           </div>
           <DialogFooter>

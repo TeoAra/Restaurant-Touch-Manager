@@ -175,6 +175,10 @@ export const ListTablesResponseItem = zod.object({
   name: zod.string(),
   seats: zod.number(),
   status: zod.enum(["free", "occupied", "reserved"]),
+  roomId: zod.number().nullable().optional(),
+  sortOrder: zod.number().optional(),
+  posX: zod.number().optional(),
+  posY: zod.number().optional(),
   createdAt: zod.string(),
 });
 export const ListTablesResponse = zod.array(ListTablesResponseItem);
@@ -187,6 +191,10 @@ export const CreateTableBody = zod.object({
   name: zod.string(),
   seats: zod.number(),
   status: zod.enum(["free", "occupied", "reserved"]),
+  roomId: zod.number().nullable().optional(),
+  sortOrder: zod.number().optional(),
+  posX: zod.number().optional(),
+  posY: zod.number().optional(),
 });
 
 /**
@@ -217,6 +225,10 @@ export const UpdateTableBody = zod.object({
   name: zod.string().optional(),
   seats: zod.number().optional(),
   status: zod.enum(["free", "occupied", "reserved"]).optional(),
+  roomId: zod.number().nullable().optional(),
+  sortOrder: zod.number().optional(),
+  posX: zod.number().optional(),
+  posY: zod.number().optional(),
 });
 
 export const UpdateTableResponse = zod.object({

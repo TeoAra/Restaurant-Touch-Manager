@@ -1,6 +1,9 @@
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Settings2, ShoppingBag, Truck, Zap } from "lucide-react";
+import { Settings2, ShoppingBag, Truck, Zap, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
@@ -58,6 +61,18 @@ export default function SettingsPage() {
 
   const getBool = (key: string) => settings[key] === "true";
 
+  const [coverPrice, setCoverPrice] = useState("");
+  useEffect(() => { if (settings.cover_price !== undefined) setCoverPrice(settings.cover_price); }, [settings.cover_price]);
+
+  const saveCoverPrice = useMutation({
+    mutationFn: () => fetch(`${API}/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "cover_price", value: coverPrice }),
+    }).then(r => r.json()),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["settings"] }); toast({ title: "Prezzo coperto salvato" }); },
+  });
+
   const settingDefs = [
     {
       key: "enable_asporto",
@@ -80,6 +95,31 @@ export default function SettingsPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Impostazioni</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Configura le funzionalità opzionali del sistema</p>
+        </div>
+      </div>
+
+      {/* Cover charge */}
+      <div className="space-y-3 mb-8">
+        <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 px-1">Prezzi</h2>
+        <div className="p-5 bg-white rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="h-11 w-11 rounded-xl bg-blue-50 flex items-center justify-center">
+                <Users className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <div className="font-semibold text-slate-800">Prezzo Coperto</div>
+                <div className="text-sm text-slate-400 mt-0.5">Addebito per coperto aggiunto automaticamente al conto (0 = disabilitato)</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-slate-500 text-sm font-medium">€</span>
+              <Input type="number" min="0" step="0.50" value={coverPrice}
+                onChange={e => setCoverPrice(e.target.value)}
+                className="w-24 text-right font-mono" />
+              <Button size="sm" onClick={() => saveCoverPrice.mutate()}>Salva</Button>
+            </div>
+          </div>
         </div>
       </div>
 

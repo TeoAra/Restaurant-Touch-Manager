@@ -289,6 +289,102 @@ function PrecontoDialog({ open, onClose, order, items }: {
   );
 }
 
+// ─── Split Bill Dialog ─────────────────────────────────────────────────────────
+function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }: {
+  open: boolean; onClose: () => void;
+  items: Array<{ id: number; productName: string; quantity: number; unitPrice: string; subtotal: string }>;
+  onPay: (method: string, amount: number, itemIds: number[]) => void;
+  coverPrice: number;
+  coverCount: number;
+}) {
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [method, setMethod] = useState<"cash" | "card" | "other">("cash");
+
+  function toggleItem(id: number) {
+    setSelected(s => { const ns = new Set(s); ns.has(id) ? ns.delete(id) : ns.add(id); return ns; });
+  }
+  function selectAll() { setSelected(new Set(items.map(i => i.id))); }
+  function clearAll() { setSelected(new Set()); }
+
+  const selectedItems = items.filter(i => selected.has(i.id));
+  const itemsTotal = selectedItems.reduce((sum, i) => sum + parseFloat(i.subtotal), 0);
+  // Proportional cover distribution
+  const itemsFraction = items.length > 0 ? selectedItems.length / items.length : 0;
+  const splitCoverTotal = coverPrice > 0 ? Math.round(coverCount * coverPrice * itemsFraction * 100) / 100 : 0;
+  const splitTotal = itemsTotal + splitCoverTotal;
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader><DialogTitle className="flex items-center gap-2"><Divide className="h-4 w-4" /> Conto Separato</DialogTitle></DialogHeader>
+        <div className="space-y-3 py-1">
+          <div className="flex justify-between items-center text-xs text-slate-500">
+            <span>Seleziona gli articoli da pagare</span>
+            <div className="flex gap-2">
+              <button onClick={selectAll} className="text-primary hover:underline">Tutti</button>
+              <button onClick={clearAll} className="text-slate-400 hover:underline">Nessuno</button>
+            </div>
+          </div>
+          <div className="space-y-1.5 max-h-52 overflow-y-auto">
+            {items.map(item => (
+              <button key={item.id} onClick={() => toggleItem(item.id)}
+                className={cn("w-full flex items-center gap-2.5 p-2.5 rounded-lg border-2 text-left transition-all",
+                  selected.has(item.id) ? "border-primary bg-orange-50" : "border-slate-200 bg-white hover:border-slate-300")}>
+                <div className={cn("h-4 w-4 rounded border-2 flex items-center justify-center shrink-0",
+                  selected.has(item.id) ? "border-primary bg-primary" : "border-slate-300")}>
+                  {selected.has(item.id) && <span className="text-white text-[10px] font-bold">✓</span>}
+                </div>
+                <span className="flex-1 text-xs font-medium text-slate-800">{item.quantity}× {item.productName}</span>
+                <span className="text-xs font-bold text-slate-700 shrink-0">€ {parseFloat(item.subtotal).toFixed(2)}</span>
+              </button>
+            ))}
+          </div>
+          {selected.size > 0 && (
+            <div className="space-y-1 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+              <div className="flex justify-between text-slate-400">
+                <span>Prodotti</span><span>€ {itemsTotal.toFixed(2)}</span>
+              </div>
+              {splitCoverTotal > 0 && (
+                <div className="flex justify-between text-slate-400">
+                  <span>Coperti (quota)</span><span>€ {splitCoverTotal.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold text-slate-800 pt-1 border-t border-slate-200">
+                <span>Totale separato</span><span className="text-primary">€ {splitTotal.toFixed(2)}</span>
+              </div>
+            </div>
+          )}
+          {selected.size > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-slate-500 mb-2">Metodo di pagamento</div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(["cash", "card", "other"] as const).map(m => {
+                  const icons = { cash: <Banknote className="h-3.5 w-3.5" />, card: <CreditCard className="h-3.5 w-3.5" />, other: <Wallet className="h-3.5 w-3.5" /> };
+                  const labels = { cash: "Contanti", card: "Carta", other: "Altro" };
+                  return (
+                    <button key={m} onClick={() => setMethod(m)}
+                      className={cn("flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-semibold border-2 transition-colors",
+                        method === m ? "border-primary bg-orange-50 text-primary" : "border-slate-200 text-slate-600")}>
+                      {icons[m]} {labels[m]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Annulla</Button>
+          <Button onClick={() => { onPay(method, splitTotal, [...selected]); onClose(); }}
+            disabled={selected.size === 0}>
+            Incassa € {splitTotal.toFixed(2)}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Legend badge ─────────────────────────────────────────────────────────────
 function LegendDot({ color, label }: { color: string; label: string }) {
   return (
@@ -307,6 +403,7 @@ export default function FrontOffice() {
 
   const enableAsporto = settings["enable_asporto"] === "true";
   const enableDelivery = settings["enable_delivery"] === "true";
+  const coverPrice = parseFloat(settings["cover_price"] || "0");
 
   // State
   const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
@@ -321,6 +418,7 @@ export default function FrontOffice() {
   const [showCovers, setShowCovers] = useState(false);
   const [showRomana, setShowRomana] = useState(false);
   const [showPreconto, setShowPreconto] = useState(false);
+  const [showSplitBill, setShowSplitBill] = useState(false);
   const [pendingTableId, setPendingTableId] = useState<number | null>(null);
 
   // Auto-send comanda on table switch
@@ -338,7 +436,10 @@ export default function FrontOffice() {
 
   const { data: activeOrder } = useGetOrder(activeOrderId!, { query: { enabled: !!activeOrderId } });
   const items = activeOrder?.items ?? [];
-  const total = parseFloat(activeOrder?.total ?? "0");
+  const subtotal = parseFloat(activeOrder?.total ?? "0");
+  const coverCount = isQuickMode ? 0 : (activeOrder?.covers ?? 0);
+  const coverTotal = coverPrice > 0 && coverCount > 0 ? coverCount * coverPrice : 0;
+  const total = subtotal + coverTotal;
   const hasDraftItems = items.some(i => (i as never as { status: string }).status === "draft");
 
   const addItem = useAddOrderItem();
@@ -721,9 +822,24 @@ export default function FrontOffice() {
             {/* Order footer */}
             <div className="p-3 border-t border-slate-200 space-y-2 shrink-0">
               {items.length > 0 && (
-                <div className="flex justify-between items-center px-1 pb-1">
-                  <span className="text-sm font-semibold text-slate-600">Totale</span>
-                  <span className="text-xl font-bold text-primary">€ {total.toFixed(2)}</span>
+                <div className="space-y-1 px-1 pb-1">
+                  <div className="flex justify-between text-xs text-slate-400">
+                    <span>Prodotti</span>
+                    <span>€ {subtotal.toFixed(2)}</span>
+                  </div>
+                  {coverTotal > 0 && (
+                    <div className="flex justify-between text-xs text-slate-500">
+                      <span className="flex items-center gap-1">
+                        <Users className="h-3 w-3" />
+                        Coperti ({coverCount} × €{coverPrice.toFixed(2)})
+                      </span>
+                      <span>€ {coverTotal.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center pt-0.5 border-t border-slate-100">
+                    <span className="text-sm font-semibold text-slate-600">Totale</span>
+                    <span className="text-xl font-bold text-primary">€ {total.toFixed(2)}</span>
+                  </div>
                 </div>
               )}
               <button onClick={handleSendComanda} disabled={!hasDraftItems}
@@ -741,14 +857,18 @@ export default function FrontOffice() {
                   </span>
                 )}
               </button>
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-3 gap-1.5">
                 <button onClick={() => setShowPreconto(true)} disabled={items.length === 0}
                   className="flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 active:scale-95 transition-all disabled:opacity-40">
                   <FileText className="h-3.5 w-3.5" /> Preconto
                 </button>
+                <button onClick={() => setShowSplitBill(true)} disabled={items.length < 2}
+                  className="flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 active:scale-95 transition-all disabled:opacity-40">
+                  <Divide className="h-3.5 w-3.5" /> Separato
+                </button>
                 <button onClick={() => setShowRomana(true)} disabled={items.length === 0}
                   className="flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 active:scale-95 transition-all disabled:opacity-40">
-                  <Divide className="h-3.5 w-3.5" /> Romana
+                  <Users className="h-3.5 w-3.5" /> Romana
                 </button>
               </div>
               <button onClick={() => setShowPayment(true)} disabled={items.length === 0}
@@ -768,19 +888,26 @@ export default function FrontOffice() {
       <RomanaDialog open={showRomana} onClose={() => setShowRomana(false)} total={total} />
       <PrecontoDialog open={showPreconto} onClose={() => setShowPreconto(false)}
         order={activeOrder as never} items={items as never} />
+      <SplitBillDialog
+        open={showSplitBill}
+        onClose={() => setShowSplitBill(false)}
+        items={items as never}
+        coverPrice={coverPrice}
+        coverCount={coverCount}
+        onPay={(method, amount) => handlePay(method, amount)}
+      />
     </div>
   );
 }
 
 function ProductCard({ product, onAdd }: {
-  product: { id: number; name: string; description?: string | null; price: string; available: boolean };
+  product: { id: number; name: string; price: string; available: boolean };
   onAdd: (id: number) => void;
 }) {
   return (
     <button onClick={() => onAdd(product.id)}
       className="bg-white rounded-xl border-2 border-slate-200 p-4 text-left shadow-sm hover:border-primary hover:shadow-md active:scale-95 transition-all group min-h-[90px] flex flex-col justify-between">
       <div className="font-semibold text-sm text-slate-800 leading-tight group-hover:text-primary transition-colors">{product.name}</div>
-      {product.description && <div className="text-[11px] text-slate-400 truncate mt-0.5">{product.description}</div>}
       <div className="text-base font-bold text-primary mt-2">€ {parseFloat(product.price).toFixed(2)}</div>
     </button>
   );
