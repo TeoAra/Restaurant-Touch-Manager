@@ -159,13 +159,8 @@ function PositionEditor({ tables, rooms, onEdit, onDelete, onPositionChange }: {
     <div>
       {/* Room filter */}
       <div className="flex gap-1.5 mb-4 flex-wrap">
-        <button onClick={() => setRoomFilter(null)}
-          className={cn("px-3 py-1.5 rounded-full text-xs font-semibold transition-all",
-            roomFilter === null ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
-          Tutte
-        </button>
         {rooms.map(r => (
-          <button key={r.id} onClick={() => setRoomFilter(r.id)}
+          <button key={r.id} onClick={() => setRoomFilter(roomFilter === r.id ? null : r.id)}
             className={cn("px-3 py-1.5 rounded-full text-xs font-semibold transition-all",
               roomFilter === r.id ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
             {r.name}
@@ -407,13 +402,13 @@ export default function TablesPage() {
         </div>
 
         {/* Room filter tabs (for list view) */}
-        {view === "list" && (
+        {view === "list" && rooms.length > 0 && (
           <div className="flex gap-1.5 mt-4 overflow-x-auto">
-            {[null, ...rooms.map(r => r.id)].map(id => (
-              <button key={id ?? "all"} onClick={() => setRoomFilter(id ?? null)}
+            {rooms.map(r => (
+              <button key={r.id} onClick={() => setRoomFilter(roomFilter === r.id ? null : r.id)}
                 className={cn("px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all",
-                  roomFilter === id ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
-                {id === null ? "Tutte" : rooms.find(r => r.id === id)?.name}
+                  roomFilter === r.id ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
+                {r.name}
               </button>
             ))}
           </div>
