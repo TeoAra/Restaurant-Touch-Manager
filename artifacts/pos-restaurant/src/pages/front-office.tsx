@@ -25,8 +25,10 @@ import {
   Users, Plus, Minus, CreditCard, Banknote, Wallet,
   ShoppingBag, Truck, Clock, Send, FileText, Divide,
   ChevronLeft, Search, X, UtensilsCrossed, Zap, Map as MapIcon,
-  AlertTriangle, CheckCircle2,
+  AlertTriangle, CheckCircle2, User, LogOut, Building2,
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { Link } from "wouter";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
@@ -132,12 +134,11 @@ function FloorElement({ t, isSelected, onClick }: {
 }
 
 // ─── Table Map Modal ──────────────────────────────────────────────────────────
-function TableMapModal({ open, onClose, tablesStatus, selectedTableId, onTableClick }: {
-  open: boolean;
-  onClose: () => void;
+function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: {
   tablesStatus: FETable[];
   selectedTableId: number | null;
   onTableClick: (t: FETable) => void;
+  onBack: () => void;
 }) {
   const [roomFilter, setRoomFilter] = useState<string | null>(null);
 
@@ -155,61 +156,137 @@ function TableMapModal({ open, onClose, tablesStatus, selectedTableId, onTableCl
   const occupiedCount = filtered.filter(t => t.elementType !== "table" ? false : t.status === "occupied").length;
 
   return (
-    <Dialog open={open} onOpenChange={o => !o && onClose()}>
-      <DialogContent className="max-w-[95vw] w-[1100px] max-h-[90vh] flex flex-col p-0">
-        <DialogHeader className="px-5 py-4 border-b border-slate-200 shrink-0">
-          <div className="flex items-center justify-between">
-            <DialogTitle className="flex items-center gap-2">
-              <MapIcon className="h-5 w-5 text-primary" /> Mappa Tavoli
-            </DialogTitle>
-            <div className="flex items-center gap-4 text-sm">
-              <span className="flex items-center gap-1.5 text-emerald-600">
-                <div className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Liberi: {freeCount}
-              </span>
-              <span className="flex items-center gap-1.5 text-orange-600">
-                <div className="h-2.5 w-2.5 rounded-full bg-orange-500" /> Occupati: {occupiedCount}
-              </span>
+    <div className="flex flex-col h-full">
+      {/* Panel header */}
+      <div className="px-4 py-3 bg-white border-b border-slate-200 shrink-0">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <button onClick={onBack}
+              className="h-9 w-9 rounded-lg border-2 border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-colors">
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <div className="flex items-center gap-2">
+              <MapIcon className="h-4 w-4 text-primary" />
+              <span className="font-bold text-slate-800 text-sm">Mappa Tavoli</span>
             </div>
           </div>
-          {rooms.length > 0 && (
-            <div className="flex gap-1.5 mt-3 flex-wrap">
-              {rooms.map(r => (
-                <button key={r} onClick={() => setRoomFilter(roomFilter === r ? null : r)}
-                  className={cn("px-3 py-1.5 rounded-full text-xs font-semibold transition-all",
-                    roomFilter === r ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
-                  {r}
-                </button>
-              ))}
-            </div>
-          )}
-        </DialogHeader>
-
-        <div className="flex-1 overflow-auto p-4">
-          <div className="overflow-auto border border-slate-200 rounded-2xl bg-[#f8fafc] inline-block">
-            <div className="relative select-none" style={{ width: COLS * CELL, height: ROWS * CELL }}>
-              {/* Grid lines */}
-              {Array.from({ length: ROWS + 1 }).map((_, i) => (
-                <div key={`h${i}`} className="absolute left-0 right-0 border-b border-slate-200/60" style={{ top: i * CELL }} />
-              ))}
-              {Array.from({ length: COLS + 1 }).map((_, i) => (
-                <div key={`v${i}`} className="absolute top-0 bottom-0 border-r border-slate-200/60" style={{ left: i * CELL }} />
-              ))}
-
-              {/* Elements */}
-              {filtered.map(t => (
-                <div key={t.id} className="absolute" style={{ left: (t.posX ?? 0) * CELL + 3, top: (t.posY ?? 0) * CELL + 3 }}>
-                  <FloorElement
-                    t={t}
-                    isSelected={t.id === selectedTableId}
-                    onClick={() => { onTableClick(t); }}
-                  />
-                </div>
-              ))}
-            </div>
+          <div className="flex items-center gap-3 text-xs shrink-0">
+            <span className="flex items-center gap-1 text-emerald-600 font-semibold">
+              <div className="h-2 w-2 rounded-full bg-emerald-500" /> {freeCount} liberi
+            </span>
+            <span className="flex items-center gap-1 text-orange-500 font-semibold">
+              <div className="h-2 w-2 rounded-full bg-orange-500" /> {occupiedCount} occupati
+            </span>
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+        {rooms.length > 0 && (
+          <div className="flex gap-1.5 mt-2.5 overflow-x-auto pb-0.5">
+            <button onClick={() => setRoomFilter(null)}
+              className={cn("px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all",
+                roomFilter === null ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
+              Tutte
+            </button>
+            {rooms.map(r => (
+              <button key={r} onClick={() => setRoomFilter(roomFilter === r ? null : r)}
+                className={cn("px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all",
+                  roomFilter === r ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
+                {r}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Floor plan */}
+      <div className="flex-1 overflow-auto p-4 bg-[#f4f6fa]">
+        <div className="overflow-auto border border-slate-200 rounded-2xl bg-[#f8fafc] inline-block min-w-full">
+          <div className="relative select-none" style={{ width: COLS * CELL, height: ROWS * CELL }}>
+            {Array.from({ length: ROWS + 1 }).map((_, i) => (
+              <div key={`h${i}`} className="absolute left-0 right-0 border-b border-slate-200/60" style={{ top: i * CELL }} />
+            ))}
+            {Array.from({ length: COLS + 1 }).map((_, i) => (
+              <div key={`v${i}`} className="absolute top-0 bottom-0 border-r border-slate-200/60" style={{ left: i * CELL }} />
+            ))}
+            {filtered.map(t => (
+              <div key={t.id} className="absolute" style={{ left: (t.posX ?? 0) * CELL + 3, top: (t.posY ?? 0) * CELL + 3 }}>
+                <FloorElement t={t} isSelected={t.id === selectedTableId} onClick={() => onTableClick(t)} />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── User Menu Button ─────────────────────────────────────────────────────────
+function UserMenuButton({ showUserMenu, setShowUserMenu }: {
+  showUserMenu: boolean;
+  setShowUserMenu: (v: boolean) => void;
+}) {
+  const { user, logout } = useAuth();
+  const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setShowUserMenu(!showUserMenu)}
+        className={cn(
+          "h-9 w-9 rounded-xl border-2 flex items-center justify-center transition-all",
+          showUserMenu
+            ? "border-primary bg-primary/10 text-primary"
+            : "border-slate-200 bg-white text-slate-500 hover:border-primary hover:text-primary"
+        )}
+        title={user?.name}
+      >
+        <User className="h-4 w-4" />
+      </button>
+
+      {showUserMenu && (
+        <>
+          {/* Backdrop */}
+          <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
+          {/* Dropdown */}
+          <div className="absolute right-0 top-11 z-50 w-52 bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
+            {/* User info */}
+            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
+              <div className="flex items-center gap-2.5">
+                <div className="h-9 w-9 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+                  <User className="h-4 w-4 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-bold text-slate-800 text-sm truncate">{user?.name}</div>
+                  <div className="text-xs text-slate-400">
+                    {user?.role === "admin" ? "Amministratore" : "Cassiere"}
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* Actions */}
+            <div className="p-1.5">
+              {user?.role === "admin" && (
+                <Link href={`${BASE}/backoffice`}>
+                  <button
+                    onClick={() => setShowUserMenu(false)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-700 hover:bg-primary/10 hover:text-primary transition-colors"
+                  >
+                    <Building2 className="h-4 w-4" />
+                    Back Office
+                  </button>
+                </Link>
+              )}
+              <button
+                onClick={() => { setShowUserMenu(false); logout(); }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <LogOut className="h-4 w-4" />
+                Esci
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -554,7 +631,8 @@ export default function FrontOffice() {
   const [showRomana, setShowRomana] = useState(false);
   const [showPreconto, setShowPreconto] = useState(false);
   const [showSplitBill, setShowSplitBill] = useState(false);
-  const [showTableMap, setShowTableMap] = useState(false);
+  const [leftView, setLeftView] = useState<"categories" | "tablemap">("categories");
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const [pendingTableId, setPendingTableId] = useState<number | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ itemId: number; name: string } | null>(null);
 
@@ -633,7 +711,7 @@ export default function FrontOffice() {
     if (et !== "table") return;
     setIsQuickMode(null);
     setQuickOrderId(null);
-    setShowTableMap(false);
+    setLeftView("categories");
     if (!table.activeOrderId) {
       setPendingTableId(table.id);
       setShowCovers(true);
@@ -685,7 +763,7 @@ export default function FrontOffice() {
 
   async function handleAddProduct(productId: number) {
     if (!activeOrderId) {
-      setShowTableMap(true);
+      setLeftView("tablemap");
       toast({ title: "Prima seleziona un tavolo", variant: "destructive" });
       return;
     }
@@ -758,20 +836,22 @@ export default function FrontOffice() {
         <button
           onClick={() => {
             if (isQuickMode) { handleExitOrder(); return; }
-            setShowTableMap(true);
+            setLeftView(leftView === "tablemap" ? "categories" : "tablemap");
           }}
           className={cn(
             "flex items-center gap-2 px-3 py-2 rounded-xl border-2 text-sm font-semibold transition-all",
-            activeOrderId || isQuickMode
-              ? "border-primary bg-orange-50 text-primary hover:bg-orange-100"
-              : "border-slate-200 text-slate-500 hover:border-primary hover:text-primary"
+            leftView === "tablemap"
+              ? "border-primary bg-primary/10 text-primary"
+              : activeOrderId || isQuickMode
+                ? "border-primary bg-orange-50 text-primary hover:bg-orange-100"
+                : "border-slate-200 text-slate-500 hover:border-primary hover:text-primary"
           )}
         >
           {ModeIcon ? <ModeIcon className="h-4 w-4" /> : <MapIcon className="h-4 w-4" />}
           {activeOrderId || isQuickMode ? (
-            <span>{orderLabel}{coverCount > 0 ? ` · ${coverCount} cop.` : ""}</span>
+            <span className="hidden xs:inline">{orderLabel}{coverCount > 0 ? ` · ${coverCount} cop.` : ""}</span>
           ) : (
-            <span>Mappa Tavoli</span>
+            <span className="hidden xs:inline">Mappa Tavoli</span>
           )}
         </button>
 
@@ -800,16 +880,31 @@ export default function FrontOffice() {
             </button>
           )}
         </div>
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* User menu */}
+        <UserMenuButton showUserMenu={showUserMenu} setShowUserMenu={setShowUserMenu} />
       </div>
 
       {/* ══ MAIN ═════════════════════════════════════════════════════════════ */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
-        {/* ── Left: Categories + Products ───────────────────────────────── */}
+        {/* ── Left: Categories + Products or Table Map ──────────────────── */}
         <div className={cn(
           "flex-1 flex flex-col min-w-0 overflow-hidden border-r border-slate-200",
           mobilePanel === "order" ? "hidden md:flex" : "flex"
         )}>
+          {leftView === "tablemap" ? (
+            <TableMapPanel
+              tablesStatus={tablesStatus as FETable[]}
+              selectedTableId={selectedTableId}
+              onTableClick={handleTableClick}
+              onBack={() => setLeftView("categories")}
+            />
+          ) : (
+          <>
           {/* Search + breadcrumb */}
           <div className="flex items-center gap-3 px-4 py-3 bg-white border-b border-slate-100 shrink-0">
             {selectedCategoryId && (
@@ -878,6 +973,8 @@ export default function FrontOffice() {
               </div>
             )}
           </ScrollArea>
+          </>
+          )}
         </div>
 
         {/* ── Right: Order panel ────────────────────────────────────────── */}
@@ -892,7 +989,7 @@ export default function FrontOffice() {
           {/* Table / order header */}
           <div className="px-4 py-3 border-b border-slate-100 shrink-0">
             <button
-              onClick={() => !isQuickMode && setShowTableMap(true)}
+              onClick={() => !isQuickMode && setLeftView("tablemap")}
               className={cn(
                 "w-full flex items-center justify-between p-2.5 rounded-xl border-2 transition-all text-left",
                 activeOrderId
@@ -1073,15 +1170,6 @@ export default function FrontOffice() {
       </div>
 
       {/* ══ MODALS ═══════════════════════════════════════════════════════════ */}
-
-      {/* Table map modal */}
-      <TableMapModal
-        open={showTableMap}
-        onClose={() => setShowTableMap(false)}
-        tablesStatus={tablesStatus as FETable[]}
-        selectedTableId={selectedTableId}
-        onTableClick={handleTableClick}
-      />
 
       {/* Covers dialog */}
       <CoversDialog
