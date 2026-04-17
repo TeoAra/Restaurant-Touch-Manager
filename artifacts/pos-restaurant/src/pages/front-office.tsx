@@ -864,6 +864,17 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
 
 // ─── Item Edit Dialog (note + modifica prezzo + variazioni) ───────────────────
 type EditableItem = { id: number; productName: string; quantity: number; unitPrice: string; notes?: string | null; status: string };
+const QUICK_MODS = [
+  { label: "Senza cipolla", val: "- Senza cipolla", price: 0 },
+  { label: "Senza glutine", val: "- Senza glutine", price: 0 },
+  { label: "+ Salsa extra", val: "+ Salsa extra", price: 0.5 },
+  { label: "+ Extra formaggio", val: "+ Extra formaggio", price: 1.0 },
+  { label: "+ Doppio", val: "+ Doppio", price: 2.0 },
+  { label: "Ben cotto", val: "· Ben cotto", price: 0 },
+  { label: "Al sangue", val: "· Al sangue", price: 0 },
+  { label: "Senza ghiaccio", val: "- Senza ghiaccio", price: 0 },
+];
+
 function ItemEditDialog({ open, onClose, item, onSave }: {
   open: boolean; onClose: () => void;
   item: EditableItem | null;
@@ -884,17 +895,6 @@ function ItemEditDialog({ open, onClose, item, onSave }: {
   const originalPrice = parseFloat(item.unitPrice);
   const currentPrice = parseFloat(price) || 0;
   const priceDiff = currentPrice - originalPrice;
-
-  const QUICK_MODS = [
-    { label: "Senza cipolla", val: "- Senza cipolla", price: 0 },
-    { label: "Senza glutine", val: "- Senza glutine", price: 0 },
-    { label: "+ Salsa extra", val: "+ Salsa extra", price: 0.5 },
-    { label: "+ Extra formaggio", val: "+ Extra formaggio", price: 1.0 },
-    { label: "+ Doppio", val: "+ Doppio", price: 2.0 },
-    { label: "Ben cotto", val: "· Ben cotto", price: 0 },
-    { label: "Al sangue", val: "· Al sangue", price: 0 },
-    { label: "Senza ghiaccio", val: "- Senza ghiaccio", price: 0 },
-  ];
 
   function addMod(mod: { val: string; price: number }) {
     setNotes(n => n ? `${n}, ${mod.val}` : mod.val);
@@ -1123,7 +1123,7 @@ export default function FrontOffice() {
   // MOito-style state
   const [numBuffer, setNumBuffer] = useState(""); // numpad buffer
   const [activePriceList, setActivePriceList] = useState(0); // 0=Servito 1=Asporto 2=Fidelity 3=Staff
-  const [rightTab, setRightTab] = useState<"grp" | "art" | "var" | "tavl" | "clnt" | "tot">("grp");
+  const [rightTab, setRightTab] = useState<"grp" | "art" | "var" | "tavl" | "clnt" | "tot">("tavl");
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [mobilePanel, setMobilePanel] = useState<"left" | "right">("right");
 
@@ -1228,7 +1228,7 @@ export default function FrontOffice() {
 
     setIsQuickMode(null);
     setQuickOrderId(null);
-    setLeftView("categories");
+    setRightTab("grp");
     if (!table.activeOrderId) {
       setPendingTableId(table.id);
       setShowCovers(true);
@@ -1258,8 +1258,8 @@ export default function FrontOffice() {
       setIsAssigningTable(false);
       setAssignPendingTableId(null);
       setPendingTableId(null);
-      setLeftView("categories");
-      setMobilePanel("order");
+      setRightTab("grp");
+      setMobilePanel("left");
       refresh();
       toast({ title: "Ordine assegnato al tavolo" });
     } catch {
@@ -1280,8 +1280,8 @@ export default function FrontOffice() {
       if (!res.ok) throw new Error();
       setSelectedTableId(pendingTableId);
       setSelectedCategoryId(null);
-      setLeftView("categories");
-      setMobilePanel("order");
+      setRightTab("grp");
+      setMobilePanel("left");
       refresh();
     } catch { toast({ title: "Errore apertura tavolo", variant: "destructive" }); }
     finally { setPendingTableId(null); }
@@ -1466,7 +1466,7 @@ export default function FrontOffice() {
     : products).filter(p => p.available);
 
   // ── Price list labels ────────────────────────────────────────────────────────
-  const priceListLabels = ["F0 Servito", "F1 Asporto", "F2 Fidelity", "F3 Staff"];
+  const phaseLabels = ["F1", "F2", "F3", "F4"];
 
   // ── Numpad keys ─────────────────────────────────────────────────────────────
   const numpadKeys = ["7","8","9","4","5","6","1","2","3","X","0","."];
@@ -1476,31 +1476,45 @@ export default function FrontOffice() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-900">
+    <div className="flex h-screen overflow-hidden bg-slate-100">
 
-      {/* ══ LEFT PANEL ═══════════════════════════════════════════════════════ */}
+      {/* ══ LEFT PANEL — CHIARO ═══════════════════════════════════════════════ */}
       <div className={cn(
-        "flex-col bg-slate-900 shrink-0 border-r border-slate-700/50",
-        "w-full sm:w-[360px] lg:w-[390px]",
+        "flex-col bg-white shrink-0 border-r border-slate-200",
+        "w-full sm:w-[340px] lg:w-[370px]",
         mobilePanel === "left" ? "flex" : "hidden sm:flex"
       )}>
 
-        {/* Header: logo + operator */}
-        <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-700/50 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <span className="font-black text-primary text-base tracking-tight">Resto<span className="text-white">POS</span></span>
-            {activeOrderId && (
-              <span className={cn(
-                "text-xs px-2 py-0.5 rounded-full font-semibold",
-                isQuickMode ? "bg-blue-900/50 text-blue-300" : "bg-primary/20 text-primary"
-              )}>
-                {ModeIcon ? <ModeIcon className="h-3 w-3 inline mr-0.5" /> : "🍽"} {orderLabel}{coverCount > 0 ? ` · ${coverCount} cop.` : ""}
+        {/* Header: tavolo / logo + operatore */}
+        <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200 shrink-0 bg-white">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {activeOrderId ? (
+              <div className="min-w-0">
+                <div className={cn(
+                  "font-black text-base truncate",
+                  isQuickMode ? "text-blue-600" : "text-primary"
+                )}>
+                  {ModeIcon ? <ModeIcon className="h-4 w-4 inline mr-1" /> : null}
+                  {orderLabel}
+                </div>
+                {coverCount > 0 && (
+                  <div className="text-[10px] text-slate-500 font-semibold">{coverCount} coperti</div>
+                )}
+              </div>
+            ) : (
+              <span className="font-black text-slate-800 text-base tracking-tight">
+                Resto<span className="text-primary">POS</span>
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 shrink-0">
             <button onClick={() => { setRightTab("tavl"); setMobilePanel("right"); }}
-              className="h-8 w-8 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+              className={cn(
+                "h-8 w-8 rounded-lg flex items-center justify-center transition-colors",
+                rightTab === "tavl"
+                  ? "bg-primary text-white"
+                  : "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700"
+              )}
               title="Mappa Tavoli">
               <MapIcon className="h-4 w-4" />
             </button>
@@ -1510,25 +1524,25 @@ export default function FrontOffice() {
 
         {/* Total display */}
         <div className="px-3 pt-2.5 pb-1 shrink-0">
-          <div className="bg-slate-800 rounded-xl px-4 py-2.5 flex items-center justify-between">
+          <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 flex items-center justify-between">
             <div>
               {numBuffer ? (
                 <div className="text-2xl font-bold text-primary leading-none">{numBuffer}×</div>
               ) : (
-                <div className="text-xs text-slate-500 font-semibold">
-                  {activeOrderId ? "Ordine aperto" : "Nessun ordine"}
+                <div className="text-xs text-slate-400 font-semibold">
+                  {activeOrderId ? "Ordine in corso" : "Nessun ordine"}
                 </div>
               )}
               {coverTotal > 0 && (
-                <div className="text-[10px] text-slate-500 mt-0.5">
+                <div className="text-[10px] text-slate-400 mt-0.5">
                   +€{coverTotal.toFixed(2)} coperti
                 </div>
               )}
             </div>
             <div className="text-right">
-              <div className="text-3xl font-bold text-white font-mono">€{total.toFixed(2)}</div>
+              <div className="text-3xl font-bold text-slate-900 font-mono">€{total.toFixed(2)}</div>
               {hasDraftItems && (
-                <div className="text-[10px] text-primary font-semibold">
+                <div className="text-[10px] text-orange-500 font-semibold">
                   {items.filter(i => (i as never as { status: string }).status === "draft").length} da inviare
                 </div>
               )}
@@ -1536,15 +1550,15 @@ export default function FrontOffice() {
           </div>
         </div>
 
-        {/* Price list tabs F0–F3 */}
+        {/* Fasi F1–F4 */}
         <div className="px-3 py-1 flex gap-1 shrink-0">
-          {priceListLabels.map((label, i) => (
+          {phaseLabels.map((label, i) => (
             <button key={i} onClick={() => setActivePriceList(i)}
               className={cn(
-                "flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all",
+                "flex-1 py-1.5 rounded-lg text-xs font-bold transition-all",
                 activePriceList === i
-                  ? "bg-primary text-white shadow"
-                  : "bg-slate-800 text-slate-500 hover:bg-slate-700 hover:text-slate-300"
+                  ? "bg-primary text-white shadow-sm"
+                  : "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700"
               )}>
               {label}
             </button>
@@ -1553,14 +1567,14 @@ export default function FrontOffice() {
 
         {/* Order items */}
         <ScrollArea className="flex-1 min-h-0">
-          <div className="px-3 pb-2 space-y-1.5 pt-1">
+          <div className="px-3 pb-2 space-y-1 pt-1">
             {items.length === 0 ? (
-              <div className="text-center py-10 text-slate-600">
-                <UtensilsCrossed className="h-8 w-8 mx-auto mb-2 opacity-25" />
+              <div className="text-center py-10 text-slate-400">
+                <UtensilsCrossed className="h-8 w-8 mx-auto mb-2 opacity-30" />
                 <div className="text-xs leading-relaxed">
                   {activeOrderId
                     ? "Seleziona prodotti dal menu"
-                    : "Apri un tavolo o usa la modalità Rapida"}
+                    : "Seleziona un tavolo dalla mappa"}
                 </div>
               </div>
             ) : (
@@ -1573,40 +1587,40 @@ export default function FrontOffice() {
                   <div key={item.id}
                     onClick={() => { setSelectedItemId(isSelected ? null : item.id); setRightTab("var"); }}
                     className={cn(
-                      "rounded-xl px-3 py-2 cursor-pointer transition-all select-none",
+                      "rounded-xl px-3 py-2 cursor-pointer transition-all select-none border",
                       isDraft
-                        ? "bg-orange-900/25 border border-orange-700/35"
-                        : "bg-slate-800/50 border border-slate-700/35",
-                      isSelected && "ring-2 ring-primary ring-offset-1 ring-offset-slate-900"
+                        ? "bg-orange-50 border-orange-200"
+                        : "bg-white border-slate-200",
+                      isSelected && "ring-2 ring-primary ring-offset-1"
                     )}>
                     {/* Row 1: name + total */}
                     <div className="flex items-center gap-2">
-                      <span className="flex-1 text-xs font-semibold text-white truncate">{item.productName}</span>
-                      {!isDraft && <span className="text-[9px] text-emerald-400 shrink-0">✓</span>}
+                      <span className="flex-1 text-xs font-semibold text-slate-800 truncate">{item.productName}</span>
+                      {!isDraft && <span className="text-[9px] text-emerald-500 shrink-0">✓</span>}
                       <span className="text-sm font-bold text-primary shrink-0 font-mono">€{parseFloat(item.subtotal).toFixed(2)}</span>
                     </div>
                     {/* Row 2: unit + edit + qty */}
                     <div className="flex items-center gap-1.5 mt-1">
-                      <span className="text-[10px] text-slate-500 flex-1">€{parseFloat(item.unitPrice).toFixed(2)} cad.</span>
+                      <span className="text-[10px] text-slate-400 flex-1">€{parseFloat(item.unitPrice).toFixed(2)} cad.</span>
                       <button
                         onClick={e => { e.stopPropagation(); setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus }); }}
-                        className="h-5 w-5 rounded bg-slate-700 flex items-center justify-center hover:bg-primary/30 transition-colors shrink-0">
-                        <Pencil className="h-2.5 w-2.5 text-slate-300" />
+                        className="h-5 w-5 rounded bg-slate-100 flex items-center justify-center hover:bg-primary/20 transition-colors shrink-0">
+                        <Pencil className="h-2.5 w-2.5 text-slate-500" />
                       </button>
                       <div className="flex items-center gap-0.5 shrink-0">
                         <button onClick={e => { e.stopPropagation(); handleQty(item.id, item.quantity - 1); }}
-                          className="h-5 w-5 rounded bg-slate-700 flex items-center justify-center hover:bg-red-900/50 transition-colors">
-                          <Minus className="h-2.5 w-2.5 text-slate-300" />
+                          className="h-5 w-5 rounded bg-slate-100 flex items-center justify-center hover:bg-red-100 transition-colors">
+                          <Minus className="h-2.5 w-2.5 text-slate-600" />
                         </button>
-                        <span className="w-5 text-center text-xs font-bold text-white">{item.quantity}</span>
+                        <span className="w-5 text-center text-xs font-bold text-slate-800">{item.quantity}</span>
                         <button onClick={e => { e.stopPropagation(); handleQty(item.id, item.quantity + 1); }}
-                          className="h-5 w-5 rounded bg-slate-700 flex items-center justify-center hover:bg-emerald-900/50 transition-colors">
-                          <Plus className="h-2.5 w-2.5 text-slate-300" />
+                          className="h-5 w-5 rounded bg-slate-100 flex items-center justify-center hover:bg-emerald-100 transition-colors">
+                          <Plus className="h-2.5 w-2.5 text-slate-600" />
                         </button>
                       </div>
                     </div>
                     {itemNotes && (
-                      <div className="mt-1 text-[9px] text-orange-300 italic truncate">{itemNotes}</div>
+                      <div className="mt-1 text-[9px] text-orange-500 italic truncate">{itemNotes}</div>
                     )}
                   </div>
                 );
@@ -1616,13 +1630,13 @@ export default function FrontOffice() {
         </ScrollArea>
 
         {/* Quick actions */}
-        <div className="px-3 pt-1 grid grid-cols-2 gap-1.5 shrink-0">
+        <div className="px-3 pt-1 pb-1 grid grid-cols-2 gap-1.5 shrink-0">
           <button onClick={handleSendComanda} disabled={!hasDraftItems}
             className={cn(
               "flex items-center justify-center gap-1 py-2 rounded-xl text-xs font-bold transition-all col-span-2",
               hasDraftItems
-                ? "bg-primary/20 text-primary border border-primary/40 hover:bg-primary/30 active:scale-95"
-                : "bg-slate-800/50 text-slate-600 border border-slate-700/30 cursor-not-allowed"
+                ? "bg-primary/10 text-primary border border-primary/30 hover:bg-primary/20 active:scale-95"
+                : "bg-slate-50 text-slate-400 border border-slate-200 cursor-not-allowed"
             )}>
             <Send className="h-3.5 w-3.5" /> Invia Comanda
             {hasDraftItems && (
@@ -1632,25 +1646,25 @@ export default function FrontOffice() {
             )}
           </button>
           <button onClick={() => setShowPreconto(true)} disabled={items.length === 0}
-            className="flex items-center justify-center gap-1 py-1.5 rounded-xl text-xs font-bold bg-slate-800/50 text-slate-400 border border-slate-700/30 hover:text-white hover:border-slate-600 transition-all disabled:opacity-40 active:scale-95">
+            className="flex items-center justify-center gap-1 py-1.5 rounded-xl text-xs font-bold bg-slate-50 text-slate-500 border border-slate-200 hover:bg-slate-100 hover:text-slate-700 transition-all disabled:opacity-40 active:scale-95">
             <FileText className="h-3 w-3" /> Preconto
           </button>
           <button onClick={() => setShowSplitBill(true)} disabled={items.length < 2}
-            className="flex items-center justify-center gap-1 py-1.5 rounded-xl text-xs font-bold bg-slate-800/50 text-slate-400 border border-slate-700/30 hover:text-white hover:border-slate-600 transition-all disabled:opacity-40 active:scale-95">
+            className="flex items-center justify-center gap-1 py-1.5 rounded-xl text-xs font-bold bg-slate-50 text-slate-500 border border-slate-200 hover:bg-slate-100 hover:text-slate-700 transition-all disabled:opacity-40 active:scale-95">
             <Divide className="h-3 w-3" /> Separato
           </button>
           <button onClick={() => setShowRomana(true)} disabled={items.length === 0}
-            className="flex items-center justify-center gap-1 py-1.5 rounded-xl text-xs font-bold bg-slate-800/50 text-slate-400 border border-slate-700/30 hover:text-white hover:border-slate-600 transition-all disabled:opacity-40 active:scale-95">
+            className="flex items-center justify-center gap-1 py-1.5 rounded-xl text-xs font-bold bg-slate-50 text-slate-500 border border-slate-200 hover:bg-slate-100 hover:text-slate-700 transition-all disabled:opacity-40 active:scale-95">
             <Users className="h-3 w-3" /> Alla Romana
           </button>
           {activeOrderId ? (
             <button onClick={() => setShowCancelConfirm(true)}
-              className="flex items-center justify-center gap-1 py-1.5 rounded-xl text-xs font-bold bg-red-900/30 text-red-400 border border-red-800/40 hover:bg-red-900/50 transition-all active:scale-95">
+              className="flex items-center justify-center gap-1 py-1.5 rounded-xl text-xs font-bold bg-red-50 text-red-500 border border-red-200 hover:bg-red-100 transition-all active:scale-95">
               <X className="h-3 w-3" /> Annulla Ordine
             </button>
           ) : (
             <button onClick={() => handleQuickMode("rapida")}
-              className="flex items-center justify-center gap-1 py-1.5 rounded-xl text-xs font-bold bg-slate-800/50 text-slate-400 border border-slate-700/30 hover:text-white hover:border-slate-600 transition-all active:scale-95">
+              className="flex items-center justify-center gap-1 py-1.5 rounded-xl text-xs font-bold bg-slate-50 text-slate-500 border border-slate-200 hover:bg-slate-100 hover:text-slate-700 transition-all active:scale-95">
               <Zap className="h-3 w-3" /> Scontrino Rapido
             </button>
           )}
@@ -1662,10 +1676,10 @@ export default function FrontOffice() {
             {numpadKeys.map(k => (
               <button key={k} onClick={() => handleNumpadKey(k)}
                 className={cn(
-                  "h-11 rounded-xl font-bold text-lg transition-all active:scale-90 select-none",
+                  "h-11 rounded-xl font-bold text-lg transition-all active:scale-90 select-none border",
                   k === "X"
-                    ? "bg-red-900/50 text-red-300 hover:bg-red-800/60"
-                    : "bg-slate-700/60 text-white hover:bg-slate-600/70"
+                    ? "bg-red-50 text-red-500 border-red-200 hover:bg-red-100"
+                    : "bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100"
                 )}>
                 {k}
               </button>
@@ -1673,12 +1687,12 @@ export default function FrontOffice() {
           </div>
         </div>
 
-        {/* PAGA button */}
+        {/* CASSA button */}
         <div className="px-3 pb-3 shrink-0">
           <button
             onClick={() => { setRightTab("tot"); setMobilePanel("right"); }}
             disabled={items.length === 0}
-            className="w-full py-3.5 rounded-2xl bg-primary text-white font-black text-base tracking-wide shadow-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+            className="w-full py-3.5 rounded-2xl bg-primary text-white font-black text-base tracking-wide shadow-md hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
             CASSA  ·  €{total.toFixed(2)}
           </button>
         </div>
@@ -1838,20 +1852,22 @@ export default function FrontOffice() {
           </ScrollArea>
         )}
 
-        {/* ── TAVL: table map */}
+        {/* ── TAVL: table map — occupa tutto lo spazio */}
         {rightTab === "tavl" && (
-          <TableMapPanel
-            tablesStatus={tablesStatus as FETable[]}
-            selectedTableId={selectedTableId}
-            onTableClick={(t) => {
-              handleTableClick(t);
-              if (t.activeOrderId) {
-                setRightTab("art");
-                setMobilePanel("left");
-              }
-            }}
-            onBack={() => setRightTab("grp")}
-          />
+          <div className="flex-1 overflow-hidden">
+            <TableMapPanel
+              tablesStatus={tablesStatus as FETable[]}
+              selectedTableId={selectedTableId}
+              onTableClick={(t) => {
+                handleTableClick(t);
+                if (t.activeOrderId) {
+                  setRightTab("grp");
+                  setMobilePanel("left");
+                }
+              }}
+              onBack={() => setRightTab("grp")}
+            />
+          </div>
         )}
 
         {/* ── CLNT: clients (placeholder) */}
