@@ -984,16 +984,34 @@ function ItemEditDialog({ open, onClose, item, onSave }: {
   );
 }
 
-// ─── Product Card ─────────────────────────────────────────────────────────────
-function ProductCard({ product, onAdd }: {
-  product: { id: number; name: string; price: string; available: boolean };
+// ─── Category Button (MOito-style large colored tile) ─────────────────────────
+type PosCategory = { id: number; name: string; color?: string | null };
+function CategoryButton({ cat, onClick }: { cat: PosCategory; onClick: () => void }) {
+  const bg = cat.color ?? "#64748b";
+  return (
+    <button onClick={onClick}
+      className="rounded-xl flex flex-col items-center justify-center p-3 min-h-[80px] active:scale-95 transition-all shadow-sm select-none"
+      style={{ backgroundColor: bg }}>
+      <span className="text-white font-bold text-sm text-center leading-tight uppercase tracking-wide drop-shadow">{cat.name}</span>
+    </button>
+  );
+}
+
+// ─── Product Card (MOito-style dark tile) ──────────────────────────────────────
+type PosProduct = { id: number; name: string; price: string; price2?: string; price3?: string; price4?: string; available: boolean };
+function ProductCard({ product, onAdd, activePriceList }: {
+  product: PosProduct;
+  activePriceList: number;
   onAdd: (id: number) => void;
 }) {
+  const priceFields: (keyof PosProduct)[] = ["price", "price2", "price3", "price4"];
+  const rawPrice = (product[priceFields[activePriceList]] as string | undefined) || product.price;
+  const displayPrice = parseFloat(rawPrice || "0");
   return (
     <button onClick={() => onAdd(product.id)}
-      className="bg-white rounded-xl border-2 border-slate-200 p-4 text-left shadow-sm hover:border-primary hover:shadow-md active:scale-95 transition-all group min-h-[90px] flex flex-col justify-between">
-      <div className="font-semibold text-sm text-slate-800 leading-tight group-hover:text-primary transition-colors">{product.name}</div>
-      <div className="text-base font-bold text-primary mt-2">€ {parseFloat(product.price).toFixed(2)}</div>
+      className="bg-white rounded-xl border-2 border-slate-200 p-3 text-left hover:border-primary hover:shadow-lg active:scale-95 transition-all group min-h-[72px] flex flex-col justify-between">
+      <div className="font-semibold text-xs text-slate-800 leading-tight group-hover:text-primary transition-colors line-clamp-2">{product.name}</div>
+      <div className="text-sm font-bold text-primary mt-1">€ {displayPrice.toFixed(2)}</div>
     </button>
   );
 }
@@ -1007,41 +1025,78 @@ function EmptyState({ label }: { label: string }) {
   );
 }
 
-// ─── Phase Indicator ──────────────────────────────────────────────────────────
-function PhaseIndicator({ phase }: { phase: 1 | 2 | 3 | 4 }) {
-  const phases = [
-    { n: 1, label: "Tavolo" },
-    { n: 2, label: "Prodotti" },
-    { n: 3, label: "Comanda" },
-    { n: 4, label: "Cassa" },
-  ];
+// ─── Inline Payment Panel (TOT tab) ────────────────────────────────────────────
+const DENOMINATIONS = [200, 100, 50, 20, 10, 5, 2, 1, 0.5];
+function InlinePaymentPanel({ total, onPay, disabled }: {
+  total: number;
+  disabled: boolean;
+  onPay: (method: string, amountGiven?: number) => void;
+}) {
+  const [method, setMethod] = useState<"cash" | "card" | "other">("cash");
+  const [given, setGiven] = useState("");
+  const givenNum = parseFloat(given) || 0;
+  const change = method === "cash" && givenNum >= total ? givenNum - total : 0;
+  const canPay = !disabled && total > 0 && (method !== "cash" || givenNum >= total);
+
   return (
-    <div className="flex items-center px-3 py-2 bg-slate-50 border-b border-slate-100 shrink-0 gap-1">
-      {phases.map((p, i) => (
-        <Fragment key={p.n}>
-          <div className="flex flex-col items-center gap-0.5 shrink-0">
-            <div className={cn(
-              "h-6 w-6 rounded-full border-2 flex items-center justify-center",
-              p.n < phase  ? "border-emerald-500 bg-emerald-50"
-              : p.n === phase ? "border-primary bg-orange-50"
-              : "border-slate-300 bg-white"
-            )}>
-              {p.n < phase
-                ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                : <span className={cn("text-[10px] font-bold",
-                    p.n === phase ? "text-primary" : "text-slate-300")}>{p.n}</span>
-              }
+    <div className="flex-1 overflow-auto bg-[#f4f6fa] p-4 space-y-4">
+      {/* Total */}
+      <div className="bg-slate-800 rounded-2xl px-6 py-5 text-center">
+        <div className="text-xs text-slate-400 uppercase tracking-widest mb-1">Totale da pagare</div>
+        <div className="text-5xl font-bold text-white font-mono">€ {total.toFixed(2)}</div>
+      </div>
+
+      {/* Method selector */}
+      <div className="grid grid-cols-3 gap-3">
+        {([["cash","CONTANTI","text-emerald-500"],["card","BANCOMAT","text-blue-500"],["other","ALTRO","text-purple-500"]] as const).map(([id, label, col]) => (
+          <button key={id} onClick={() => setMethod(id as typeof method)}
+            className={cn("py-5 rounded-2xl font-bold text-base border-2 transition-all active:scale-95",
+              method === id ? "border-primary bg-primary text-white shadow-lg" : "border-slate-200 bg-white text-slate-700 hover:border-primary")}>
+            <div className={cn("text-2xl mb-1", method === id ? "text-white" : col)}>
+              {id === "cash" ? "💵" : id === "card" ? "💳" : "💼"}
             </div>
-            <span className={cn(
-              "text-[9px] font-semibold leading-none",
-              p.n < phase ? "text-emerald-600" : p.n === phase ? "text-primary" : "text-slate-300"
-            )}>{p.label}</span>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Cash input */}
+      {method === "cash" && (
+        <>
+          <div className="bg-white rounded-2xl border-2 border-slate-200 p-4">
+            <div className="text-xs text-slate-500 mb-2 font-semibold uppercase tracking-wide">Importo ricevuto</div>
+            <Input type="number" step="0.01" placeholder="0.00" value={given}
+              onChange={e => setGiven(e.target.value)}
+              className="text-3xl font-bold text-center h-14 border-0 bg-slate-50 rounded-xl" />
           </div>
-          {i < phases.length - 1 && (
-            <div className={cn("flex-1 h-px", p.n < phase ? "bg-emerald-300" : "bg-slate-200")} />
+          {/* Denomination buttons */}
+          <div className="grid grid-cols-5 gap-2">
+            {DENOMINATIONS.map(d => (
+              <button key={d} onClick={() => setGiven(d.toString())}
+                className="py-3 rounded-xl bg-white border-2 border-slate-200 text-sm font-bold text-slate-700 hover:border-primary hover:text-primary active:scale-90 transition-all">
+                {d >= 1 ? `€${d}` : `${(d * 100).toFixed(0)}¢`}
+              </button>
+            ))}
+          </div>
+          {givenNum >= total && total > 0 && (
+            <div className="flex justify-between items-center p-4 bg-emerald-50 border-2 border-emerald-200 rounded-2xl">
+              <span className="text-base font-semibold text-emerald-700">Resto</span>
+              <span className="text-3xl font-bold text-emerald-700 font-mono">€ {change.toFixed(2)}</span>
+            </div>
           )}
-        </Fragment>
-      ))}
+        </>
+      )}
+
+      {/* Confirm */}
+      <button
+        disabled={!canPay}
+        onClick={() => onPay(method, method === "cash" ? givenNum : undefined)}
+        className={cn(
+          "w-full py-5 rounded-2xl text-xl font-bold transition-all active:scale-95",
+          canPay ? "bg-primary text-white shadow-lg hover:bg-primary/90" : "bg-slate-200 text-slate-400 cursor-not-allowed"
+        )}>
+        {disabled ? "Nessun ordine aperto" : canPay ? `INCASSA  € ${total.toFixed(2)}` : "Inserire importo"}
+      </button>
     </div>
   );
 }
@@ -1065,8 +1120,12 @@ export default function FrontOffice() {
   const [isAssigningTable, setIsAssigningTable] = useState(false);
   const [assignPendingTableId, setAssignPendingTableId] = useState<number | null>(null);
 
-  // Mobile panel toggle ("menu" | "order")
-  const [mobilePanel, setMobilePanel] = useState<"menu" | "order">("menu");
+  // MOito-style state
+  const [numBuffer, setNumBuffer] = useState(""); // numpad buffer
+  const [activePriceList, setActivePriceList] = useState(0); // 0=Servito 1=Asporto 2=Fidelity 3=Staff
+  const [rightTab, setRightTab] = useState<"grp" | "art" | "var" | "tavl" | "clnt" | "tot">("grp");
+  const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<"left" | "right">("right");
 
   // Dialog state
   const [showPayment, setShowPayment] = useState(false);
@@ -1075,7 +1134,6 @@ export default function FrontOffice() {
   const [showRomana, setShowRomana] = useState(false);
   const [showPreconto, setShowPreconto] = useState(false);
   const [showSplitBill, setShowSplitBill] = useState(false);
-  const [leftView, setLeftView] = useState<"categories" | "tablemap">("categories");
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [pendingTableId, setPendingTableId] = useState<number | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ itemId: number; name: string } | null>(null);
@@ -1280,7 +1338,15 @@ export default function FrontOffice() {
     handleExitOrder();
   }
 
+  function handleNumpadKey(key: string) {
+    if (key === "X") { setNumBuffer(""); return; }
+    if (key === ".") { if (!numBuffer.includes(".")) setNumBuffer(b => b + "."); return; }
+    setNumBuffer(b => (b.length < 5 ? b + key : b));
+  }
+
   async function handleAddProduct(productId: number) {
+    const qty = numBuffer ? Math.max(1, parseInt(numBuffer) || 1) : 1;
+    setNumBuffer("");
     let orderId = activeOrderId;
     if (!orderId) {
       const res = await fetch(`${API}/orders`, {
@@ -1292,16 +1358,17 @@ export default function FrontOffice() {
       setIsQuickMode("rapida");
       setQuickOrderId(order.id);
       setSelectedTableId(null);
-      setMobilePanel("order");
+      setMobilePanel("left");
       orderId = order.id;
     }
     const existing = items.find(i => i.productId === productId);
-    if (existing && orderId === activeOrderId) {
+    if (existing && orderId === activeOrderId && qty === 1) {
       await updateItem.mutateAsync({ orderId, itemId: existing.id, data: { quantity: existing.quantity + 1 } });
     } else {
-      await addItem.mutateAsync({ orderId, data: { productId, quantity: 1 } });
+      await addItem.mutateAsync({ orderId, data: { productId, quantity: qty } });
     }
     refresh();
+    setMobilePanel("left"); // show order after adding
   }
 
   async function handleQty(itemId: number, qty: number) {
@@ -1394,420 +1461,426 @@ export default function FrontOffice() {
     toast({ title: "Pagamento registrato", description: `€ ${total.toFixed(2)} — ${method}` });
   }
 
-  const visibleProducts = productSearch
+  const visibleProducts = (productSearch
     ? products.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()))
-    : products;
+    : products).filter(p => p.available);
+
+  // ── Price list labels ────────────────────────────────────────────────────────
+  const priceListLabels = ["F0 Servito", "F1 Asporto", "F2 Fidelity", "F3 Staff"];
+
+  // ── Numpad keys ─────────────────────────────────────────────────────────────
+  const numpadKeys = ["7","8","9","4","5","6","1","2","3","X","0","."];
+
+  // ── VAR panel: quick modifiers for selected item ─────────────────────────────
+  const selectedItem = selectedItemId ? items.find(i => i.id === selectedItemId) : null;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-[#f4f6fa]">
+    <div className="flex h-screen overflow-hidden bg-slate-900">
 
-      {/* ══ TOP BAR ══════════════════════════════════════════════════════════ */}
-      <div className="h-14 bg-white border-b border-slate-200 flex items-center gap-3 px-4 shrink-0">
+      {/* ══ LEFT PANEL ═══════════════════════════════════════════════════════ */}
+      <div className={cn(
+        "flex-col bg-slate-900 shrink-0 border-r border-slate-700/50",
+        "w-full sm:w-[360px] lg:w-[390px]",
+        mobilePanel === "left" ? "flex" : "hidden sm:flex"
+      )}>
 
-        {/* Table / mode indicator button */}
-        <button
-          onClick={() => {
-            if (isQuickMode) { handleExitOrder(); return; }
-            setLeftView(leftView === "tablemap" ? "categories" : "tablemap");
-          }}
-          className={cn(
-            "flex items-center gap-2 px-3 py-2 rounded-xl border-2 text-sm font-semibold transition-all",
-            leftView === "tablemap"
-              ? "border-primary bg-primary/10 text-primary"
-              : activeOrderId || isQuickMode
-                ? "border-primary bg-orange-50 text-primary hover:bg-orange-100"
-                : "border-slate-200 text-slate-500 hover:border-primary hover:text-primary"
-          )}
-        >
-          {ModeIcon ? <ModeIcon className="h-4 w-4" /> : <MapIcon className="h-4 w-4" />}
-          {activeOrderId || isQuickMode ? (
-            <span className="hidden xs:inline">{orderLabel}{coverCount > 0 ? ` · ${coverCount} cop.` : ""}</span>
-          ) : (
-            <span className="hidden xs:inline">Mappa Tavoli</span>
-          )}
-        </button>
-
-        {/* Divider */}
-        <div className="h-6 w-px bg-slate-200" />
-
-        {/* Quick actions */}
-        <div className="flex items-center gap-1.5 md:gap-2">
-          {enableAsporto && (
-            <button onClick={() => handleQuickMode("asporto")}
-              className="flex items-center gap-1.5 px-2.5 md:px-3 py-2 rounded-lg bg-orange-50 text-primary text-sm font-semibold border border-orange-200 hover:bg-orange-100 active:scale-95 transition-all">
-              <ShoppingBag className="h-4 w-4" />
-              <span className="hidden sm:inline">Asporto</span>
-            </button>
-          )}
-          {enableDelivery && (
-            <button onClick={() => handleQuickMode("delivery")}
-              className="flex items-center gap-1.5 px-2.5 md:px-3 py-2 rounded-lg bg-blue-50 text-blue-700 text-sm font-semibold border border-blue-200 hover:bg-blue-100 active:scale-95 transition-all">
-              <Truck className="h-4 w-4" />
-              <span className="hidden sm:inline">Delivery</span>
-            </button>
-          )}
-        </div>
-
-        {/* Spacer */}
-        <div className="flex-1" />
-
-        {/* User menu */}
-        <UserMenuButton showUserMenu={showUserMenu} setShowUserMenu={setShowUserMenu} />
-      </div>
-
-      {/* ══ MAIN ═════════════════════════════════════════════════════════════ */}
-      <div className="flex flex-1 min-h-0 overflow-hidden pb-14 lg:pb-0">
-
-        {/* ── Left: Categories + Products or Table Map ──────────────────── */}
-        <div className={cn(
-          "flex-1 flex flex-col min-w-0 overflow-hidden border-r border-slate-200",
-          mobilePanel === "order" ? "hidden lg:flex" : "flex"
-        )}>
-          {leftView === "tablemap" ? (
-            <>
-              {isAssigningTable && (
-                <div className="flex items-center justify-between px-4 py-2 bg-amber-50 border-b border-amber-200 shrink-0">
-                  <div className="flex items-center gap-2 text-amber-700 text-sm font-semibold">
-                    <ArrowRightFromLine className="h-4 w-4" />
-                    Seleziona il tavolo a cui assegnare l'ordine
-                  </div>
-                  <button
-                    onClick={() => { setIsAssigningTable(false); setLeftView("categories"); }}
-                    className="text-xs text-amber-600 hover:text-amber-800 font-medium px-2 py-1 rounded hover:bg-amber-100 transition-colors"
-                  >
-                    Annulla
-                  </button>
-                </div>
-              )}
-              <TableMapPanel
-                tablesStatus={tablesStatus as FETable[]}
-                selectedTableId={selectedTableId}
-                onTableClick={handleTableClick}
-                onBack={() => { setIsAssigningTable(false); setLeftView("categories"); }}
-              />
-            </>
-          ) : (
-          <>
-          {/* Search + breadcrumb */}
-          <div className="flex items-center gap-3 px-4 py-3 bg-white border-b border-slate-100 shrink-0">
-            {selectedCategoryId && (
-              <button onClick={() => setSelectedCategoryId(null)}
-                className="flex items-center gap-1 text-primary hover:text-primary/80 shrink-0">
-                <ChevronLeft className="h-5 w-5" />
-                <span className="text-sm font-semibold">Categorie</span>
-              </button>
-            )}
-            {selectedCategoryId && <div className="h-5 w-px bg-slate-200 shrink-0" />}
-            {selectedCategoryId && (
-              <span className="font-bold text-slate-700 text-sm shrink-0">
-                {categories.find(c => c.id === selectedCategoryId)?.name}
+        {/* Header: logo + operator */}
+        <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-700/50 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <span className="font-black text-primary text-base tracking-tight">Resto<span className="text-white">POS</span></span>
+            {activeOrderId && (
+              <span className={cn(
+                "text-xs px-2 py-0.5 rounded-full font-semibold",
+                isQuickMode ? "bg-blue-900/50 text-blue-300" : "bg-primary/20 text-primary"
+              )}>
+                {ModeIcon ? <ModeIcon className="h-3 w-3 inline mr-0.5" /> : "🍽"} {orderLabel}{coverCount > 0 ? ` · ${coverCount} cop.` : ""}
               </span>
             )}
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <input value={productSearch} onChange={e => setProductSearch(e.target.value)}
-                placeholder={selectedCategoryId ? "Cerca prodotto..." : "Cerca nel menu..."}
-                className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" />
-              {productSearch && (
-                <button onClick={() => setProductSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2">
-                  <X className="h-3.5 w-3.5 text-slate-400" />
-                </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => { setRightTab("tavl"); setMobilePanel("right"); }}
+              className="h-8 w-8 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+              title="Mappa Tavoli">
+              <MapIcon className="h-4 w-4" />
+            </button>
+            <UserMenuButton showUserMenu={showUserMenu} setShowUserMenu={setShowUserMenu} />
+          </div>
+        </div>
+
+        {/* Total display */}
+        <div className="px-3 pt-2.5 pb-1 shrink-0">
+          <div className="bg-slate-800 rounded-xl px-4 py-2.5 flex items-center justify-between">
+            <div>
+              {numBuffer ? (
+                <div className="text-2xl font-bold text-primary leading-none">{numBuffer}×</div>
+              ) : (
+                <div className="text-xs text-slate-500 font-semibold">
+                  {activeOrderId ? "Ordine aperto" : "Nessun ordine"}
+                </div>
+              )}
+              {coverTotal > 0 && (
+                <div className="text-[10px] text-slate-500 mt-0.5">
+                  +€{coverTotal.toFixed(2)} coperti
+                </div>
+              )}
+            </div>
+            <div className="text-right">
+              <div className="text-3xl font-bold text-white font-mono">€{total.toFixed(2)}</div>
+              {hasDraftItems && (
+                <div className="text-[10px] text-primary font-semibold">
+                  {items.filter(i => (i as never as { status: string }).status === "draft").length} da inviare
+                </div>
               )}
             </div>
           </div>
+        </div>
 
-          <ScrollArea className="flex-1">
-            {productSearch ? (
-              <div className="p-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-3 gap-2.5">
-                {visibleProducts.filter(p => p.available).map(p => (
-                  <ProductCard key={p.id} product={p} onAdd={handleAddProduct} />
-                ))}
-                {visibleProducts.length === 0 && <EmptyState label="Nessun prodotto trovato" />}
-              </div>
-            ) : !selectedCategoryId ? (
-              <div className="p-3 grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))" }}>
-                {categories.map(cat => (
-                  <button key={cat.id} onClick={() => setSelectedCategoryId(cat.id)}
-                    className="bg-white rounded-2xl border-2 border-slate-200 p-4 text-left shadow-sm hover:border-primary hover:shadow-md active:scale-95 transition-all group min-h-[100px] flex flex-col justify-between">
-                    <div className="h-10 w-10 rounded-xl flex items-center justify-center mb-2.5"
-                      style={{ backgroundColor: cat.color ? `${cat.color}22` : "#f59e0b22" }}>
-                      <UtensilsCrossed className="h-5 w-5" style={{ color: cat.color || "#f59e0b" }} />
-                    </div>
-                    <div>
-                      <div className="font-bold text-slate-800 text-sm group-hover:text-primary transition-colors">{cat.name}</div>
-                    </div>
-                  </button>
-                ))}
-                {categories.length === 0 && (
-                  <div className="col-span-full flex flex-col items-center justify-center h-40 text-slate-400">
-                    <UtensilsCrossed className="h-8 w-8 mb-2 opacity-25" />
-                    <p className="text-sm">Nessuna categoria disponibile</p>
-                  </div>
-                )}
+        {/* Price list tabs F0–F3 */}
+        <div className="px-3 py-1 flex gap-1 shrink-0">
+          {priceListLabels.map((label, i) => (
+            <button key={i} onClick={() => setActivePriceList(i)}
+              className={cn(
+                "flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all",
+                activePriceList === i
+                  ? "bg-primary text-white shadow"
+                  : "bg-slate-800 text-slate-500 hover:bg-slate-700 hover:text-slate-300"
+              )}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Order items */}
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="px-3 pb-2 space-y-1.5 pt-1">
+            {items.length === 0 ? (
+              <div className="text-center py-10 text-slate-600">
+                <UtensilsCrossed className="h-8 w-8 mx-auto mb-2 opacity-25" />
+                <div className="text-xs leading-relaxed">
+                  {activeOrderId
+                    ? "Seleziona prodotti dal menu"
+                    : "Apri un tavolo o usa la modalità Rapida"}
+                </div>
               </div>
             ) : (
-              <div className="p-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-3 gap-2.5">
-                {visibleProducts.filter(p => p.available).map(p => (
-                  <ProductCard key={p.id} product={p} onAdd={handleAddProduct} />
-                ))}
-                {visibleProducts.filter(p => p.available).length === 0 && (
-                  <EmptyState label="Nessun prodotto in questa categoria" />
-                )}
-              </div>
+              items.map(item => {
+                const isDraft = (item as never as { status: string }).status === "draft";
+                const itemNotes = (item as never as { notes?: string | null }).notes;
+                const itemStatus = (item as never as { status: string }).status;
+                const isSelected = item.id === selectedItemId;
+                return (
+                  <div key={item.id}
+                    onClick={() => { setSelectedItemId(isSelected ? null : item.id); setRightTab("var"); }}
+                    className={cn(
+                      "rounded-xl px-3 py-2 cursor-pointer transition-all select-none",
+                      isDraft
+                        ? "bg-orange-900/25 border border-orange-700/35"
+                        : "bg-slate-800/50 border border-slate-700/35",
+                      isSelected && "ring-2 ring-primary ring-offset-1 ring-offset-slate-900"
+                    )}>
+                    {/* Row 1: name + total */}
+                    <div className="flex items-center gap-2">
+                      <span className="flex-1 text-xs font-semibold text-white truncate">{item.productName}</span>
+                      {!isDraft && <span className="text-[9px] text-emerald-400 shrink-0">✓</span>}
+                      <span className="text-sm font-bold text-primary shrink-0 font-mono">€{parseFloat(item.subtotal).toFixed(2)}</span>
+                    </div>
+                    {/* Row 2: unit + edit + qty */}
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className="text-[10px] text-slate-500 flex-1">€{parseFloat(item.unitPrice).toFixed(2)} cad.</span>
+                      <button
+                        onClick={e => { e.stopPropagation(); setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus }); }}
+                        className="h-5 w-5 rounded bg-slate-700 flex items-center justify-center hover:bg-primary/30 transition-colors shrink-0">
+                        <Pencil className="h-2.5 w-2.5 text-slate-300" />
+                      </button>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button onClick={e => { e.stopPropagation(); handleQty(item.id, item.quantity - 1); }}
+                          className="h-5 w-5 rounded bg-slate-700 flex items-center justify-center hover:bg-red-900/50 transition-colors">
+                          <Minus className="h-2.5 w-2.5 text-slate-300" />
+                        </button>
+                        <span className="w-5 text-center text-xs font-bold text-white">{item.quantity}</span>
+                        <button onClick={e => { e.stopPropagation(); handleQty(item.id, item.quantity + 1); }}
+                          className="h-5 w-5 rounded bg-slate-700 flex items-center justify-center hover:bg-emerald-900/50 transition-colors">
+                          <Plus className="h-2.5 w-2.5 text-slate-300" />
+                        </button>
+                      </div>
+                    </div>
+                    {itemNotes && (
+                      <div className="mt-1 text-[9px] text-orange-300 italic truncate">{itemNotes}</div>
+                    )}
+                  </div>
+                );
+              })
             )}
-          </ScrollArea>
-          </>
+          </div>
+        </ScrollArea>
+
+        {/* Quick actions */}
+        <div className="px-3 pt-1 grid grid-cols-2 gap-1.5 shrink-0">
+          <button onClick={handleSendComanda} disabled={!hasDraftItems}
+            className={cn(
+              "flex items-center justify-center gap-1 py-2 rounded-xl text-xs font-bold transition-all col-span-2",
+              hasDraftItems
+                ? "bg-primary/20 text-primary border border-primary/40 hover:bg-primary/30 active:scale-95"
+                : "bg-slate-800/50 text-slate-600 border border-slate-700/30 cursor-not-allowed"
+            )}>
+            <Send className="h-3.5 w-3.5" /> Invia Comanda
+            {hasDraftItems && (
+              <span className="ml-1 bg-primary text-white text-[9px] px-1.5 rounded-full">
+                {items.filter(i => (i as never as { status: string }).status === "draft").length}
+              </span>
+            )}
+          </button>
+          <button onClick={() => setShowPreconto(true)} disabled={items.length === 0}
+            className="flex items-center justify-center gap-1 py-1.5 rounded-xl text-xs font-bold bg-slate-800/50 text-slate-400 border border-slate-700/30 hover:text-white hover:border-slate-600 transition-all disabled:opacity-40 active:scale-95">
+            <FileText className="h-3 w-3" /> Preconto
+          </button>
+          <button onClick={() => setShowSplitBill(true)} disabled={items.length < 2}
+            className="flex items-center justify-center gap-1 py-1.5 rounded-xl text-xs font-bold bg-slate-800/50 text-slate-400 border border-slate-700/30 hover:text-white hover:border-slate-600 transition-all disabled:opacity-40 active:scale-95">
+            <Divide className="h-3 w-3" /> Separato
+          </button>
+          <button onClick={() => setShowRomana(true)} disabled={items.length === 0}
+            className="flex items-center justify-center gap-1 py-1.5 rounded-xl text-xs font-bold bg-slate-800/50 text-slate-400 border border-slate-700/30 hover:text-white hover:border-slate-600 transition-all disabled:opacity-40 active:scale-95">
+            <Users className="h-3 w-3" /> Alla Romana
+          </button>
+          {activeOrderId ? (
+            <button onClick={() => setShowCancelConfirm(true)}
+              className="flex items-center justify-center gap-1 py-1.5 rounded-xl text-xs font-bold bg-red-900/30 text-red-400 border border-red-800/40 hover:bg-red-900/50 transition-all active:scale-95">
+              <X className="h-3 w-3" /> Annulla Ordine
+            </button>
+          ) : (
+            <button onClick={() => handleQuickMode("rapida")}
+              className="flex items-center justify-center gap-1 py-1.5 rounded-xl text-xs font-bold bg-slate-800/50 text-slate-400 border border-slate-700/30 hover:text-white hover:border-slate-600 transition-all active:scale-95">
+              <Zap className="h-3 w-3" /> Scontrino Rapido
+            </button>
           )}
         </div>
 
-        {/* ── Right: Order panel ────────────────────────────────────────── */}
-        <div className={cn(
-          "w-full lg:w-80 flex flex-col bg-white shrink-0",
-          mobilePanel === "menu" ? "hidden lg:flex" : "flex"
-        )}>
-
-          {/* Phase indicator */}
-          <PhaseIndicator phase={currentPhase} />
-
-          {/* Table / order header */}
-          <div className="px-4 py-3 border-b border-slate-100 shrink-0">
-            <div
-              role="button" tabIndex={0}
-              onClick={() => {
-                if (!isQuickMode && !activeOrderId) {
-                  setLeftView("tablemap");
-                  setMobilePanel("menu");
-                }
-              }}
-              onKeyDown={e => {
-                if (e.key === "Enter" && !isQuickMode && !activeOrderId) {
-                  setLeftView("tablemap");
-                  setMobilePanel("menu");
-                }
-              }}
-              className={cn(
-                "w-full flex items-center justify-between p-2.5 rounded-xl border-2 transition-all cursor-pointer",
-                activeOrderId
-                  ? "border-primary bg-orange-50"
-                  : "border-dashed border-slate-300 hover:border-primary hover:bg-orange-50/50"
-              )}
-            >
-              <div className="flex items-center gap-2">
-                {ModeIcon ? <ModeIcon className="h-4 w-4 text-primary" /> : <MapIcon className="h-4 w-4 text-slate-400" />}
-                <div>
-                  {activeOrderId ? (
-                    <>
-                      <div className="text-sm font-bold text-primary">{orderLabel}</div>
-                      <div className="text-xs text-slate-500 flex items-center gap-1">
-                        <Users className="h-3 w-3" /> {coverCount} coperti
-                        {!isQuickMode && (
-                          <button
-                            onClick={e => { e.stopPropagation(); setShowEditCovers(true); }}
-                            className="ml-0.5 h-4 w-4 flex items-center justify-center rounded hover:bg-orange-200 transition-colors"
-                            title="Modifica coperti"
-                          >
-                            <Pencil className="h-2.5 w-2.5 text-primary" />
-                          </button>
-                        )}
-                        
-                        <span className="font-mono ml-1 text-slate-400">#{activeOrderId}</span>
-                      </div>
-                    </>
-                  ) : (
-                    <span className="text-sm font-semibold text-slate-400">Seleziona tavolo dalla mappa</span>
-                  )}
-                </div>
-              </div>
-              {activeOrderId && (
-                <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                  <button
-                    title="Annulla tutto l'ordine"
-                    onClick={e => { e.stopPropagation(); setShowCancelConfirm(true); }}
-                    className="h-7 w-7 flex items-center justify-center rounded hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                  <button onClick={e => { e.stopPropagation(); handleExitOrder(); }}
-                    className="h-7 w-7 flex items-center justify-center rounded text-slate-400 hover:text-red-500 transition-colors hover:bg-red-50">
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              )}
-            </div>
+        {/* Numpad */}
+        <div className="px-3 py-2 shrink-0">
+          <div className="grid grid-cols-3 gap-1.5">
+            {numpadKeys.map(k => (
+              <button key={k} onClick={() => handleNumpadKey(k)}
+                className={cn(
+                  "h-11 rounded-xl font-bold text-lg transition-all active:scale-90 select-none",
+                  k === "X"
+                    ? "bg-red-900/50 text-red-300 hover:bg-red-800/60"
+                    : "bg-slate-700/60 text-white hover:bg-slate-600/70"
+                )}>
+                {k}
+              </button>
+            ))}
           </div>
+        </div>
 
-          {/* Assegna a Tavolo — banner visibile in quick mode */}
-          {isQuickMode === "rapida" && activeOrderId && (
-            <div className="px-4 py-2 shrink-0">
-              <button
-                onClick={() => {
-                  setIsAssigningTable(true);
-                  setLeftView("tablemap");
-                  setMobilePanel("menu");
-                }}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-primary text-primary font-semibold text-sm hover:bg-orange-50 active:scale-95 transition-all"
-              >
-                <ArrowRightFromLine className="h-4 w-4" />
-                Assegna a un Tavolo
-              </button>
-            </div>
-          )}
-
-          {/* Items list */}
-          <ScrollArea className="flex-1 min-h-0">
-            {items.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full py-12 text-slate-400">
-                <UtensilsCrossed className="h-10 w-10 mb-3 opacity-25" />
-                <p className="text-sm text-center text-slate-400">
-                  {activeOrderId
-                    ? "Seleziona una categoria\ne aggiungi prodotti"
-                    : "Apri un tavolo o seleziona\nuna modalità rapida"}
-                </p>
-              </div>
-            ) : (
-              <div className="p-3 space-y-2">
-                {items.map(item => {
-                  const isDraft = (item as never as { status: string }).status === "draft";
-                  const itemNotes = (item as never as { notes?: string | null }).notes;
-                  const itemStatus = (item as never as { status: string }).status;
-                  return (
-                    <div key={item.id} className={cn(
-                      "rounded-xl border",
-                      isDraft ? "bg-orange-50 border-orange-200" : "bg-slate-50 border-slate-200"
-                    )}>
-                      {/* Row 1: name + total */}
-                      <div className="flex items-center gap-2 px-3 pt-2.5 pb-1">
-                        <span className="flex-1 min-w-0 text-xs font-semibold text-slate-800 truncate">{item.productName}</span>
-                        {!isDraft && <span className="shrink-0 text-[10px] px-1 rounded-full bg-emerald-100 text-emerald-700">✓</span>}
-                        <span className="shrink-0 text-sm font-bold text-slate-800">
-                          €{parseFloat(item.subtotal).toFixed(2)}
-                        </span>
-                      </div>
-                      {/* Row 2: unit price + edit + qty controls */}
-                      <div className="flex items-center gap-1.5 px-3 pb-2">
-                        <span className="flex-1 text-[10px] text-slate-400">€{parseFloat(item.unitPrice).toFixed(2)} cad.</span>
-                        <button
-                          onClick={() => setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus })}
-                          className="h-6 w-6 rounded-md bg-white border border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-colors shrink-0"
-                          title="Modifica riga"
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </button>
-                        <div className="flex items-center gap-0.5 shrink-0">
-                          <button onClick={() => handleQty(item.id, item.quantity - 1)}
-                            className="h-6 w-6 rounded-md bg-white border border-slate-200 flex items-center justify-center hover:bg-red-50 hover:border-red-200 transition-colors active:scale-90">
-                            <Minus className="h-3 w-3" />
-                          </button>
-                          <span className="w-6 text-center text-xs font-bold">{item.quantity}</span>
-                          <button onClick={() => handleQty(item.id, item.quantity + 1)}
-                            className="h-6 w-6 rounded-md bg-white border border-slate-200 flex items-center justify-center hover:bg-emerald-50 hover:border-emerald-200 transition-colors active:scale-90">
-                            <Plus className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </div>
-                      {/* Notes display */}
-                      {itemNotes && (
-                        <div className="px-3 pb-2 -mt-1">
-                          <span className="text-[10px] text-slate-500 italic bg-white/70 px-2 py-0.5 rounded-full border border-slate-200">
-                            {itemNotes}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </ScrollArea>
-
-          {/* Order footer */}
-          <div className="p-3 border-t border-slate-200 space-y-2 shrink-0">
-            {items.length > 0 && (
-              <div className="space-y-1 px-1 pb-1">
-                <div className="flex justify-between text-xs text-slate-400">
-                  <span>Prodotti</span>
-                  <span>€ {subtotal.toFixed(2)}</span>
-                </div>
-                {coverTotal > 0 && (
-                  <div className="flex justify-between text-xs text-slate-500">
-                    <span className="flex items-center gap-1">
-                      <Users className="h-3 w-3" />
-                      Coperti ({coverCount} × €{coverPrice.toFixed(2)})
-                    </span>
-                    <span>€ {coverTotal.toFixed(2)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between items-center pt-0.5 border-t border-slate-100">
-                  <span className="text-sm font-semibold text-slate-600">Totale</span>
-                  <span className="text-xl font-bold text-primary">€ {total.toFixed(2)}</span>
-                </div>
-              </div>
-            )}
-
-            {/* Send comanda */}
-            <button onClick={handleSendComanda} disabled={!hasDraftItems}
-              className={cn(
-                "w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold border-2 transition-all",
-                hasDraftItems
-                  ? "border-primary text-primary hover:bg-primary hover:text-white active:scale-95"
-                  : "border-slate-200 text-slate-300 cursor-not-allowed"
-              )}>
-              <Send className="h-4 w-4" />
-              Invia Comanda
-              {hasDraftItems && (
-                <span className="ml-1 bg-primary text-white text-[10px] px-1.5 rounded-full">
-                  {items.filter(i => (i as never as { status: string }).status === "draft").length}
-                </span>
-              )}
-            </button>
-
-            {/* Secondary actions */}
-            <div className="grid grid-cols-3 gap-1.5">
-              <button onClick={() => setShowPreconto(true)} disabled={items.length === 0}
-                className="flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 active:scale-95 transition-all disabled:opacity-40">
-                <FileText className="h-3.5 w-3.5" /> Preconto
-              </button>
-              <button onClick={() => setShowSplitBill(true)}
-                disabled={(items.length + (coverPrice > 0 && coverCount > 0 ? coverCount : 0)) < 2}
-                className="flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 active:scale-95 transition-all disabled:opacity-40">
-                <Divide className="h-3.5 w-3.5" /> Separato
-              </button>
-              <button onClick={() => setShowRomana(true)} disabled={items.length === 0}
-                className="flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 active:scale-95 transition-all disabled:opacity-40">
-                <Users className="h-3.5 w-3.5" /> Romana
-              </button>
-            </div>
-
-            {/* Pay */}
-            <button onClick={() => setShowPayment(true)} disabled={items.length === 0}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-primary text-white text-base font-bold shadow-md hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-40">
-              <CreditCard className="h-5 w-5" />
-              {items.length > 0 ? `Paga € ${total.toFixed(2)}` : "Paga"}
-            </button>
-          </div>
+        {/* PAGA button */}
+        <div className="px-3 pb-3 shrink-0">
+          <button
+            onClick={() => { setRightTab("tot"); setMobilePanel("right"); }}
+            disabled={items.length === 0}
+            className="w-full py-3.5 rounded-2xl bg-primary text-white font-black text-base tracking-wide shadow-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+            CASSA  ·  €{total.toFixed(2)}
+          </button>
         </div>
       </div>
 
-      {/* ══ MOBILE BOTTOM TAB BAR (hidden on lg+) ════════════════════════════ */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 flex" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-        <button
-          onClick={() => setMobilePanel("menu")}
-          className={cn(
-            "flex-1 flex flex-col items-center justify-center gap-1 py-3 text-xs font-semibold transition-colors",
-            mobilePanel === "menu" ? "text-primary" : "text-slate-400"
-          )}
-        >
-          <UtensilsCrossed className="h-5 w-5" />
-          <span>Menu</span>
-        </button>
-        <button
-          onClick={() => setMobilePanel("order")}
-          className={cn(
-            "flex-1 flex flex-col items-center justify-center gap-1 py-3 text-xs font-semibold transition-colors relative",
-            mobilePanel === "order" ? "text-primary" : "text-slate-400"
-          )}
-        >
+      {/* ══ RIGHT PANEL ═══════════════════════════════════════════════════════ */}
+      <div className={cn(
+        "flex-1 flex flex-col overflow-hidden",
+        mobilePanel === "right" ? "flex" : "hidden sm:flex"
+      )}>
+
+        {/* Tab bar: GRP | ART | VAR | TAVL | CLNT | TOT */}
+        <div className="flex bg-slate-800 border-b border-slate-700/50 shrink-0">
+          {(["grp","art","var","tavl","clnt","tot"] as const).map((tab, i) => {
+            const icons = ["⊞", "≡", "✦", "⊡", "☺", "€"];
+            const labels = ["GRP", "ART", "VAR", "TAVL", "CLNT", "TOT"];
+            return (
+              <button key={tab} onClick={() => setRightTab(tab)}
+                className={cn(
+                  "flex-1 py-3 flex flex-col items-center gap-0.5 text-xs font-bold tracking-widest transition-all",
+                  rightTab === tab
+                    ? "bg-primary text-white shadow-inner"
+                    : "text-slate-400 hover:text-white hover:bg-slate-700/50"
+                )}>
+                <span className="text-base leading-none">{icons[i]}</span>
+                <span className="text-[10px]">{labels[i]}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── GRP: category grid */}
+        {rightTab === "grp" && (
+          <ScrollArea className="flex-1 bg-[#f0f2f7]">
+            <div className="p-4 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))" }}>
+              {categories.map(cat => (
+                <CategoryButton key={cat.id} cat={cat} onClick={() => {
+                  setSelectedCategoryId(cat.id);
+                  setRightTab("art");
+                  setProductSearch("");
+                }} />
+              ))}
+              {categories.length === 0 && (
+                <div className="col-span-full text-center py-16 text-slate-400">
+                  <UtensilsCrossed className="h-10 w-10 mx-auto mb-3 opacity-20" />
+                  <div className="text-sm">Nessuna categoria nel menu</div>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        )}
+
+        {/* ── ART: products grid */}
+        {rightTab === "art" && (
+          <div className="flex-1 flex flex-col overflow-hidden bg-[#f0f2f7]">
+            {/* Sub-header */}
+            <div className="px-4 py-2.5 bg-white border-b border-slate-200 flex items-center gap-2 shrink-0">
+              <button onClick={() => { setSelectedCategoryId(null); setRightTab("grp"); }}
+                className="h-9 w-9 rounded-xl border-2 border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-colors text-slate-500 shrink-0">
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              {selectedCategoryId && (
+                <span className="font-bold text-slate-800 text-sm shrink-0" style={{
+                  color: categories.find(c => c.id === selectedCategoryId)?.color ?? undefined
+                }}>
+                  {categories.find(c => c.id === selectedCategoryId)?.name}
+                </span>
+              )}
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                <input value={productSearch} onChange={e => setProductSearch(e.target.value)}
+                  placeholder="Cerca prodotto…"
+                  className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-primary" />
+              </div>
+              {numBuffer && (
+                <div className="px-3 py-1.5 rounded-xl bg-primary text-white font-bold text-sm shrink-0 animate-pulse">
+                  {numBuffer}×
+                </div>
+              )}
+            </div>
+            <ScrollArea className="flex-1">
+              <div className="p-3 grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))" }}>
+                {visibleProducts.map(p => (
+                  <ProductCard key={p.id} product={p as PosProduct} activePriceList={activePriceList} onAdd={handleAddProduct} />
+                ))}
+                {visibleProducts.length === 0 && (
+                  <div className="col-span-full text-center py-16 text-slate-400">
+                    <UtensilsCrossed className="h-8 w-8 mx-auto mb-2 opacity-25" />
+                    <div className="text-sm">Nessun prodotto disponibile</div>
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+        )}
+
+        {/* ── VAR: variations for selected order item */}
+        {rightTab === "var" && (
+          <ScrollArea className="flex-1 bg-[#f0f2f7]">
+            <div className="p-4">
+              {!selectedItem ? (
+                <div className="text-center py-20 text-slate-400">
+                  <div className="text-5xl mb-3">✦</div>
+                  <div className="text-sm font-semibold text-slate-500">Seleziona un articolo dall'ordine</div>
+                  <div className="text-xs text-slate-400 mt-1">Le varianti e modificatori appariranno qui</div>
+                </div>
+              ) : (
+                <>
+                  <div className="mb-4 px-4 py-3 bg-white rounded-2xl border-2 border-primary/30 shadow-sm">
+                    <div className="font-bold text-slate-800 text-sm">{selectedItem.productName}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      {selectedItem.quantity}× · €{parseFloat(selectedItem.unitPrice).toFixed(2)} cad.
+                      {(selectedItem as never as { notes?: string | null }).notes && (
+                        <span className="ml-2 italic text-orange-500">
+                          {(selectedItem as never as { notes?: string | null }).notes}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-500 font-semibold mb-3 uppercase tracking-wide">Modificatori rapidi</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {QUICK_MODS.map(mod => (
+                      <button key={mod.val}
+                        onClick={async () => {
+                          const curNotes = (selectedItem as never as { notes?: string | null }).notes ?? "";
+                          const newNotes = curNotes ? `${curNotes}, ${mod.val}` : mod.val;
+                          if (activeOrderId) {
+                            await updateItem.mutateAsync({ orderId: activeOrderId, itemId: selectedItem.id, data: { notes: newNotes } as never });
+                            refresh();
+                          }
+                        }}
+                        className={cn(
+                          "py-3 px-2 rounded-xl font-bold text-sm active:scale-90 transition-all shadow-sm",
+                          mod.price > 0
+                            ? "bg-emerald-500 text-white hover:bg-emerald-600"
+                            : mod.price < 0
+                              ? "bg-red-500 text-white hover:bg-red-600"
+                              : "bg-white text-slate-700 border-2 border-slate-200 hover:border-primary"
+                        )}>
+                        {mod.label}
+                        {mod.price !== 0 && (
+                          <div className="text-[10px] font-normal mt-0.5 opacity-80">
+                            {mod.price > 0 ? `+€${mod.price.toFixed(2)}` : `-€${Math.abs(mod.price).toFixed(2)}`}
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setEditingItem({ id: selectedItem.id, productName: selectedItem.productName, quantity: selectedItem.quantity, unitPrice: selectedItem.unitPrice, notes: (selectedItem as never as { notes?: string | null }).notes, status: (selectedItem as never as { status: string }).status })}
+                    className="mt-4 w-full py-3 rounded-2xl border-2 border-dashed border-primary/40 text-primary font-semibold text-sm hover:bg-primary/5 transition-all active:scale-95">
+                    ✎ Modifica completa…
+                  </button>
+                </>
+              )}
+            </div>
+          </ScrollArea>
+        )}
+
+        {/* ── TAVL: table map */}
+        {rightTab === "tavl" && (
+          <TableMapPanel
+            tablesStatus={tablesStatus as FETable[]}
+            selectedTableId={selectedTableId}
+            onTableClick={(t) => {
+              handleTableClick(t);
+              if (t.activeOrderId) {
+                setRightTab("art");
+                setMobilePanel("left");
+              }
+            }}
+            onBack={() => setRightTab("grp")}
+          />
+        )}
+
+        {/* ── CLNT: clients (placeholder) */}
+        {rightTab === "clnt" && (
+          <div className="flex-1 flex items-center justify-center bg-[#f0f2f7]">
+            <div className="text-center text-slate-400">
+              <div className="text-5xl mb-3">☺</div>
+              <div className="font-semibold text-slate-500">Clienti</div>
+              <div className="text-xs text-slate-400 mt-1">Prossimamente</div>
+            </div>
+          </div>
+        )}
+
+        {/* ── TOT: inline payment */}
+        {rightTab === "tot" && (
+          <InlinePaymentPanel
+            total={total}
+            disabled={items.length === 0}
+            onPay={(method, amountGiven) => handlePay(method, amountGiven)}
+          />
+        )}
+      </div>
+
+      {/* ══ MOBILE BOTTOM TAB BAR ═════════════════════════════════════════════ */}
+      <div className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900 border-t border-slate-700 flex"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+        <button onClick={() => setMobilePanel("left")}
+          className={cn("flex-1 flex flex-col items-center gap-1 py-3 text-xs font-bold transition-colors",
+            mobilePanel === "left" ? "text-primary" : "text-slate-500")}>
           <div className="relative">
             <FileText className="h-5 w-5" />
             {items.length > 0 && (
@@ -1816,13 +1889,18 @@ export default function FrontOffice() {
               </span>
             )}
           </div>
-          <span>Ordine{total > 0 ? ` · €${total.toFixed(2)}` : ""}</span>
+          Ordine{total > 0 ? ` · €${total.toFixed(2)}` : ""}
+        </button>
+        <button onClick={() => setMobilePanel("right")}
+          className={cn("flex-1 flex flex-col items-center gap-1 py-3 text-xs font-bold transition-colors",
+            mobilePanel === "right" ? "text-primary" : "text-slate-500")}>
+          <UtensilsCrossed className="h-5 w-5" />
+          Menu
         </button>
       </div>
 
-      {/* ══ MODALS ═══════════════════════════════════════════════════════════ */}
+      {/* ══ MODALS ════════════════════════════════════════════════════════════ */}
 
-      {/* Item edit dialog */}
       <ItemEditDialog
         open={!!editingItem}
         onClose={() => setEditingItem(null)}
@@ -1830,7 +1908,6 @@ export default function FrontOffice() {
         onSave={handleSaveItemEdit}
       />
 
-      {/* Covers dialog — open table */}
       <CoversDialog
         open={showCovers}
         onClose={() => { setShowCovers(false); setPendingTableId(null); }}
@@ -1839,7 +1916,6 @@ export default function FrontOffice() {
         mode="open"
       />
 
-      {/* Covers dialog — edit existing order */}
       <CoversDialog
         open={showEditCovers}
         onClose={() => setShowEditCovers(false)}
@@ -1849,7 +1925,6 @@ export default function FrontOffice() {
         mode="edit"
       />
 
-      {/* Delete sent item confirmation */}
       <Dialog open={!!deleteConfirm} onOpenChange={o => !o && setDeleteConfirm(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
@@ -1859,7 +1934,7 @@ export default function FrontOffice() {
           </DialogHeader>
           <div className="py-2 text-sm text-slate-600">
             <strong>"{deleteConfirm?.name}"</strong> è già stato inviato al reparto.
-            <br />Vuoi inviare un avviso di cancellazione al reparto?
+            <br />Vuoi inviare un avviso di cancellazione?
           </div>
           <DialogFooter className="flex flex-col gap-2">
             <Button variant="outline" onClick={() => confirmDelete(false)} className="w-full">
@@ -1872,7 +1947,6 @@ export default function FrontOffice() {
         </DialogContent>
       </Dialog>
 
-      {/* Payment dialog */}
       <PaymentDialog
         open={showPayment}
         onClose={() => setShowPayment(false)}
@@ -1882,7 +1956,6 @@ export default function FrontOffice() {
         onPay={handlePay}
       />
 
-      {/* Other dialogs */}
       <RomanaDialog open={showRomana} onClose={() => setShowRomana(false)} total={total} />
       <PrecontoDialog open={showPreconto} onClose={() => setShowPreconto(false)}
         order={activeOrder as never} items={items as never} />
@@ -1895,7 +1968,6 @@ export default function FrontOffice() {
         onPay={(method, amount) => handlePay(method, amount)}
       />
 
-      {/* Annulla tutto — conferma */}
       <AlertDialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1905,7 +1977,7 @@ export default function FrontOffice() {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {items.length > 0
-                ? `Verranno eliminati ${items.length} prodott${items.length === 1 ? "o" : "i"} e il tavolo verrà liberato. L'azione non è reversibile.`
+                ? `Verranno eliminati ${items.length} prodott${items.length === 1 ? "o" : "i"} e il tavolo verrà liberato.`
                 : "Il tavolo verrà liberato. L'azione non è reversibile."}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1923,3 +1995,4 @@ export default function FrontOffice() {
     </div>
   );
 }
+
