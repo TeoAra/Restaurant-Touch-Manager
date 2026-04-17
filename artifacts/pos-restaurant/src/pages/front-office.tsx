@@ -1531,23 +1531,23 @@ export default function FrontOffice() {
 
         {/* Totale */}
         <div className="px-3 pt-2 pb-1 shrink-0">
-          <div className="bg-slate-50 rounded-lg px-3 py-2 flex items-center justify-between">
+          <div className="bg-slate-100 rounded-xl px-3 py-2.5 flex items-center justify-between border border-slate-200">
             <div>
               {numBuffer ? (
-                <div className="text-xl font-semibold text-primary leading-none">{numBuffer}×</div>
+                <div className="text-xl font-bold text-primary leading-none">{numBuffer}×</div>
               ) : (
-                <div className="text-[10px] text-slate-400">
+                <div className="text-[11px] font-medium text-slate-500">
                   {activeOrderId ? "Ordine in corso" : "Nessun ordine"}
                 </div>
               )}
               {coverTotal > 0 && (
-                <div className="text-[9px] text-slate-400 mt-0.5">+€{coverTotal.toFixed(2)} cop.</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">+€{coverTotal.toFixed(2)} cop.</div>
               )}
             </div>
             <div className="text-right">
-              <div className="text-2xl font-semibold text-slate-800 font-mono tabular-nums">€{total.toFixed(2)}</div>
+              <div className="text-2xl font-bold text-slate-900 font-mono tabular-nums">€{total.toFixed(2)}</div>
               {hasDraftItems && (
-                <div className="text-[9px] text-orange-400">
+                <div className="text-[10px] font-medium text-orange-600">
                   {items.filter(i => (i as never as { status: string }).status === "draft").length} da inviare
                 </div>
               )}
@@ -1560,10 +1560,10 @@ export default function FrontOffice() {
           {phaseLabels.map((label, i) => (
             <button key={i} onClick={() => setActivePriceList(i)}
               className={cn(
-                "flex-1 py-1 rounded-md text-[10px] font-medium transition-all",
+                "flex-1 py-1.5 rounded-md text-[11px] font-semibold transition-all",
                 activePriceList === i
-                  ? "bg-primary/10 text-primary"
-                  : "text-slate-400 hover:text-slate-600"
+                  ? "bg-primary text-white shadow-sm"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
               )}>
               {label}
             </button>
@@ -1592,17 +1592,17 @@ export default function FrontOffice() {
                     className={cn(
                       "rounded-lg px-2.5 py-1.5 cursor-pointer transition-all select-none border",
                       isDraft
-                        ? "bg-orange-50 border-orange-100"
-                        : "bg-white border-slate-100",
-                      isSelected && "border-primary/40 bg-primary/5"
+                        ? "bg-orange-50 border-orange-200"
+                        : "bg-white border-slate-200",
+                      isSelected && "border-primary/60 bg-primary/8 ring-1 ring-primary/20"
                     )}>
                     <div className="flex items-center gap-1.5">
-                      <span className="flex-1 text-[11px] font-medium text-slate-700 truncate">{item.productName}</span>
-                      {!isDraft && <span className="text-[9px] text-emerald-400 shrink-0">✓</span>}
-                      <span className="text-xs font-semibold text-slate-700 shrink-0 tabular-nums">€{parseFloat(item.subtotal).toFixed(2)}</span>
+                      <span className="flex-1 text-[12px] font-semibold text-slate-800 truncate">{item.productName}</span>
+                      {!isDraft && <span className="text-[10px] text-emerald-600 shrink-0 font-bold">✓</span>}
+                      <span className="text-xs font-bold text-slate-900 shrink-0 tabular-nums">€{parseFloat(item.subtotal).toFixed(2)}</span>
                     </div>
                     <div className="flex items-center gap-1 mt-0.5">
-                      <span className="text-[9px] text-slate-400 flex-1">€{parseFloat(item.unitPrice).toFixed(2)} cad.</span>
+                      <span className="text-[10px] text-slate-500 flex-1">€{parseFloat(item.unitPrice).toFixed(2)} cad.</span>
                       <button
                         onClick={e => { e.stopPropagation(); setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus }); }}
                         className="h-4 w-4 rounded flex items-center justify-center hover:bg-slate-100 transition-colors shrink-0">
@@ -1631,17 +1631,17 @@ export default function FrontOffice() {
         </ScrollArea>
 
         {/* Invia Comanda — piena larghezza */}
-        <div className="px-2.5 pt-1 pb-0.5 shrink-0">
+        <div className="px-2.5 pt-1.5 pb-0.5 shrink-0">
           <button onClick={handleSendComanda} disabled={!hasDraftItems}
             className={cn(
-              "w-full flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] font-medium transition-all",
+              "w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-bold transition-all",
               hasDraftItems
-                ? "bg-primary/8 text-primary border border-primary/20 hover:bg-primary/15 active:scale-95"
-                : "text-slate-300 border border-slate-100 cursor-not-allowed"
+                ? "bg-primary text-white hover:bg-primary/90 active:scale-95 shadow-sm"
+                : "text-slate-400 bg-slate-100 border border-slate-200 cursor-not-allowed"
             )}>
-            <Send className="h-3 w-3" /> Invia Comanda
+            <Send className="h-4 w-4" /> Invia Comanda
             {hasDraftItems && (
-              <span className="ml-1 bg-primary text-white text-[8px] px-1 rounded-full">
+              <span className="ml-1 bg-white/30 text-white text-[10px] font-bold px-1.5 rounded-full">
                 {items.filter(i => (i as never as { status: string }).status === "draft").length}
               </span>
             )}
@@ -1652,14 +1652,14 @@ export default function FrontOffice() {
         <div className="px-2.5 pb-1 shrink-0 flex gap-1">
 
           {/* Numpad compatto 3×4 */}
-          <div className="flex-1 grid grid-cols-3 gap-0.5">
+          <div className="flex-1 grid grid-cols-3 gap-1">
             {numpadKeys.map(k => (
               <button key={k} onClick={() => handleNumpadKey(k)}
                 className={cn(
-                  "h-7 rounded-md font-medium text-sm transition-all active:scale-90 select-none",
+                  "h-10 rounded-lg font-semibold text-base transition-all active:scale-90 select-none",
                   k === "X"
-                    ? "text-red-400 hover:bg-red-50"
-                    : "text-slate-600 hover:bg-slate-50"
+                    ? "bg-red-100 text-red-600 hover:bg-red-200"
+                    : "bg-slate-100 text-slate-800 hover:bg-slate-200"
                 )}>
                 {k === "X" ? "⌫" : k}
               </button>
@@ -1667,8 +1667,8 @@ export default function FrontOffice() {
           </div>
 
           {/* Bottoni rapidi verticali — stile MOito */}
-          <div className="flex flex-col gap-0.5 w-[52px]">
-            {/* Sconto % — applica sconto all'articolo selezionato */}
+          <div className="flex flex-col gap-1 w-20">
+            {/* Sconto % */}
             <button
               disabled={!selectedItemId}
               onClick={() => selectedItem && setEditingItem({
@@ -1679,61 +1679,54 @@ export default function FrontOffice() {
                 notes: (selectedItem as never as { notes?: string | null }).notes,
                 status: (selectedItem as never as { status: string }).status,
               })}
-              className="flex-1 rounded-md flex flex-col items-center justify-center gap-px bg-slate-50 hover:bg-amber-50 hover:text-amber-600 text-slate-500 transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
-              <BadgePercent className="h-3 w-3" />
-              <span className="text-[8px] font-medium">Sconto</span>
+              className="flex-1 rounded-lg flex items-center justify-center bg-amber-100 text-amber-800 hover:bg-amber-200 text-[11px] font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              Sconto
             </button>
 
-            {/* Nota — vai al tab VAR per modificare l'articolo selezionato */}
+            {/* Nota */}
             <button
               disabled={!selectedItemId}
               onClick={() => { setRightTab("var"); setMobilePanel("right"); }}
-              className="flex-1 rounded-md flex flex-col items-center justify-center gap-px bg-slate-50 hover:bg-blue-50 hover:text-blue-600 text-slate-500 transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
-              <StickyNote className="h-3 w-3" />
-              <span className="text-[8px] font-medium">Nota</span>
+              className="flex-1 rounded-lg flex items-center justify-center bg-blue-100 text-blue-800 hover:bg-blue-200 text-[11px] font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              Nota
             </button>
 
             {/* Preconto */}
             <button
               disabled={items.length === 0}
               onClick={() => setShowPreconto(true)}
-              className="flex-1 rounded-md flex flex-col items-center justify-center gap-px bg-slate-50 hover:bg-slate-100 text-slate-500 transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
-              <FileText className="h-3 w-3" />
-              <span className="text-[8px] font-medium">Prec.</span>
+              className="flex-1 rounded-lg flex items-center justify-center bg-slate-200 text-slate-700 hover:bg-slate-300 text-[11px] font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              Prec.
             </button>
 
             {/* Separa conto */}
             <button
               disabled={items.length < 2}
               onClick={() => setShowSplitBill(true)}
-              className="flex-1 rounded-md flex flex-col items-center justify-center gap-px bg-slate-50 hover:bg-slate-100 text-slate-500 transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
-              <Divide className="h-3 w-3" />
-              <span className="text-[8px] font-medium">Separa</span>
+              className="flex-1 rounded-lg flex items-center justify-center bg-purple-100 text-purple-800 hover:bg-purple-200 text-[11px] font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              Separa
             </button>
 
             {/* Alla Romana */}
             <button
               disabled={items.length === 0}
               onClick={() => setShowRomana(true)}
-              className="flex-1 rounded-md flex flex-col items-center justify-center gap-px bg-slate-50 hover:bg-slate-100 text-slate-500 transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
-              <Users className="h-3 w-3" />
-              <span className="text-[8px] font-medium">Romana</span>
+              className="flex-1 rounded-lg flex items-center justify-center bg-green-100 text-green-800 hover:bg-green-200 text-[11px] font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              Romana
             </button>
 
             {/* Annulla ordine / Scontrino rapido */}
             {activeOrderId ? (
               <button
                 onClick={() => setShowCancelConfirm(true)}
-                className="flex-1 rounded-md flex flex-col items-center justify-center gap-px bg-red-50 hover:bg-red-100 text-red-400 transition-all active:scale-95">
-                <X className="h-3 w-3" />
-                <span className="text-[8px] font-medium">Annulla</span>
+                className="flex-1 rounded-lg flex items-center justify-center bg-red-100 text-red-800 hover:bg-red-200 text-[11px] font-semibold transition-all active:scale-95">
+                Annulla
               </button>
             ) : (
               <button
                 onClick={() => handleQuickMode("rapida")}
-                className="flex-1 rounded-md flex flex-col items-center justify-center gap-px bg-slate-50 hover:bg-slate-100 text-slate-500 transition-all active:scale-95">
-                <Zap className="h-3 w-3" />
-                <span className="text-[8px] font-medium">Rapida</span>
+                className="flex-1 rounded-lg flex items-center justify-center bg-orange-100 text-orange-800 hover:bg-orange-200 text-[11px] font-semibold transition-all active:scale-95">
+                Rapida
               </button>
             )}
           </div>
@@ -1756,21 +1749,20 @@ export default function FrontOffice() {
         mobilePanel === "right" ? "flex" : "hidden sm:flex"
       )}>
 
-        {/* Tab bar: GRP | ART | VAR | TAVL | CLNT | TOT — stessa altezza dell'header sinistra */}
-        <div className="flex bg-white border-b border-slate-100 shrink-0">
-          {(["grp","art","var","tavl","clnt","tot"] as const).map((tab, i) => {
-            const labels  = ["GRP",  "ART",  "VAR",  "TAVL", "CLNT", "TOT"];
-            const icons   = ["⊞",    "≡",    "✦",    "⊡",   "☺",    "€"];
+        {/* Tab bar: GRP | ART | VAR | TAVL | CLNT | TOT */}
+        <div className="flex bg-white border-b border-slate-200 shrink-0">
+          {(["grp","art","var","tavl","clnt","tot"] as const).map((tab) => {
+            const labels: Record<string, string> = { grp:"GRP", art:"ART", var:"VAR", tavl:"TAVL", clnt:"CLNT", tot:"TOT" };
+            const active = rightTab === tab;
             return (
               <button key={tab} onClick={() => setRightTab(tab)}
                 className={cn(
-                  "flex-1 h-11 flex flex-col items-center justify-center gap-px transition-all border-b-2",
-                  rightTab === tab
-                    ? "text-primary border-primary"
-                    : "text-slate-400 border-transparent hover:text-slate-600"
+                  "flex-1 h-14 flex items-center justify-center transition-all border-b-2 text-xs tracking-wide",
+                  active
+                    ? "font-bold text-primary border-primary bg-primary/5"
+                    : "font-medium text-slate-600 border-transparent hover:text-slate-900 hover:bg-slate-50"
                 )}>
-                <span className="text-[11px] leading-none">{icons[i]}</span>
-                <span className="text-[9px] font-medium tracking-wide">{labels[i]}</span>
+                {labels[tab]}
               </button>
             );
           })}
