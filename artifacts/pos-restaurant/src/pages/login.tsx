@@ -39,7 +39,7 @@ export default function LoginPage() {
             <UtensilsCrossed className="h-7 w-7 text-white" />
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-slate-800">RestoPOS</div>
+            <div className="text-2xl font-bold text-slate-800">Hello<span className="text-primary">Table</span></div>
             <div className="text-sm text-slate-400 mt-0.5">Inserisci il tuo PIN</div>
           </div>
         </div>

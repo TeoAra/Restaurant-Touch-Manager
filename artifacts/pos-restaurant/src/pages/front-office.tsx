@@ -28,7 +28,7 @@ import {
   ShoppingBag, Truck, Clock, Send, FileText, Divide,
   ChevronLeft, Search, X, UtensilsCrossed, Zap, Map as MapIcon,
   AlertTriangle, CheckCircle2, User, LogOut, Building2, Pencil,
-  ArrowRightFromLine, ReceiptText, Trash2,
+  ArrowRightFromLine, ReceiptText, Trash2, BadgePercent, StickyNote,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link } from "wouter";
@@ -1511,7 +1511,7 @@ export default function FrontOffice() {
               </>
             ) : (
               <span className="font-semibold text-slate-700 text-sm">
-                Resto<span className="text-primary">POS</span>
+                Hello<span className="text-primary">Table</span>
               </span>
             )}
           </div>
@@ -1630,11 +1630,11 @@ export default function FrontOffice() {
           </div>
         </ScrollArea>
 
-        {/* Azioni rapide */}
-        <div className="px-2.5 pt-1 pb-1 grid grid-cols-2 gap-1 shrink-0">
+        {/* Invia Comanda — piena larghezza */}
+        <div className="px-2.5 pt-1 pb-0.5 shrink-0">
           <button onClick={handleSendComanda} disabled={!hasDraftItems}
             className={cn(
-              "flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] font-medium transition-all col-span-2",
+              "w-full flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] font-medium transition-all",
               hasDraftItems
                 ? "bg-primary/8 text-primary border border-primary/20 hover:bg-primary/15 active:scale-95"
                 : "text-slate-300 border border-slate-100 cursor-not-allowed"
@@ -1646,38 +1646,17 @@ export default function FrontOffice() {
               </span>
             )}
           </button>
-          <button onClick={() => setShowPreconto(true)} disabled={items.length === 0}
-            className="flex items-center justify-center gap-1 py-1 rounded-lg text-[10px] font-medium text-slate-500 border border-slate-100 hover:bg-slate-50 transition-all disabled:opacity-30 active:scale-95">
-            <FileText className="h-2.5 w-2.5" /> Preconto
-          </button>
-          <button onClick={() => setShowSplitBill(true)} disabled={items.length < 2}
-            className="flex items-center justify-center gap-1 py-1 rounded-lg text-[10px] font-medium text-slate-500 border border-slate-100 hover:bg-slate-50 transition-all disabled:opacity-30 active:scale-95">
-            <Divide className="h-2.5 w-2.5" /> Separato
-          </button>
-          <button onClick={() => setShowRomana(true)} disabled={items.length === 0}
-            className="flex items-center justify-center gap-1 py-1 rounded-lg text-[10px] font-medium text-slate-500 border border-slate-100 hover:bg-slate-50 transition-all disabled:opacity-30 active:scale-95">
-            <Users className="h-2.5 w-2.5" /> Alla Romana
-          </button>
-          {activeOrderId ? (
-            <button onClick={() => setShowCancelConfirm(true)}
-              className="flex items-center justify-center gap-1 py-1 rounded-lg text-[10px] font-medium text-red-400 border border-red-100 hover:bg-red-50 transition-all active:scale-95">
-              <X className="h-2.5 w-2.5" /> Annulla
-            </button>
-          ) : (
-            <button onClick={() => handleQuickMode("rapida")}
-              className="flex items-center justify-center gap-1 py-1 rounded-lg text-[10px] font-medium text-slate-500 border border-slate-100 hover:bg-slate-50 transition-all active:scale-95">
-              <Zap className="h-2.5 w-2.5" /> Rapida
-            </button>
-          )}
         </div>
 
-        {/* Tastierino numerico — compatto */}
-        <div className="px-2.5 pb-1.5 shrink-0">
-          <div className="grid grid-cols-3 gap-1">
+        {/* Tastierino + bottoni rapidi laterali (stile MOito) */}
+        <div className="px-2.5 pb-1 shrink-0 flex gap-1">
+
+          {/* Numpad compatto 3×4 */}
+          <div className="flex-1 grid grid-cols-3 gap-0.5">
             {numpadKeys.map(k => (
               <button key={k} onClick={() => handleNumpadKey(k)}
                 className={cn(
-                  "h-8 rounded-lg font-medium text-sm transition-all active:scale-90 select-none",
+                  "h-7 rounded-md font-medium text-sm transition-all active:scale-90 select-none",
                   k === "X"
                     ? "text-red-400 hover:bg-red-50"
                     : "text-slate-600 hover:bg-slate-50"
@@ -1685,6 +1664,78 @@ export default function FrontOffice() {
                 {k === "X" ? "⌫" : k}
               </button>
             ))}
+          </div>
+
+          {/* Bottoni rapidi verticali — stile MOito */}
+          <div className="flex flex-col gap-0.5 w-[52px]">
+            {/* Sconto % — applica sconto all'articolo selezionato */}
+            <button
+              disabled={!selectedItemId}
+              onClick={() => selectedItem && setEditingItem({
+                id: selectedItem.id,
+                productName: selectedItem.productName,
+                quantity: selectedItem.quantity,
+                unitPrice: selectedItem.unitPrice,
+                notes: (selectedItem as never as { notes?: string | null }).notes,
+                status: (selectedItem as never as { status: string }).status,
+              })}
+              className="flex-1 rounded-md flex flex-col items-center justify-center gap-px bg-slate-50 hover:bg-amber-50 hover:text-amber-600 text-slate-500 transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              <BadgePercent className="h-3 w-3" />
+              <span className="text-[8px] font-medium">Sconto</span>
+            </button>
+
+            {/* Nota — vai al tab VAR per modificare l'articolo selezionato */}
+            <button
+              disabled={!selectedItemId}
+              onClick={() => { setRightTab("var"); setMobilePanel("right"); }}
+              className="flex-1 rounded-md flex flex-col items-center justify-center gap-px bg-slate-50 hover:bg-blue-50 hover:text-blue-600 text-slate-500 transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              <StickyNote className="h-3 w-3" />
+              <span className="text-[8px] font-medium">Nota</span>
+            </button>
+
+            {/* Preconto */}
+            <button
+              disabled={items.length === 0}
+              onClick={() => setShowPreconto(true)}
+              className="flex-1 rounded-md flex flex-col items-center justify-center gap-px bg-slate-50 hover:bg-slate-100 text-slate-500 transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              <FileText className="h-3 w-3" />
+              <span className="text-[8px] font-medium">Prec.</span>
+            </button>
+
+            {/* Separa conto */}
+            <button
+              disabled={items.length < 2}
+              onClick={() => setShowSplitBill(true)}
+              className="flex-1 rounded-md flex flex-col items-center justify-center gap-px bg-slate-50 hover:bg-slate-100 text-slate-500 transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              <Divide className="h-3 w-3" />
+              <span className="text-[8px] font-medium">Separa</span>
+            </button>
+
+            {/* Alla Romana */}
+            <button
+              disabled={items.length === 0}
+              onClick={() => setShowRomana(true)}
+              className="flex-1 rounded-md flex flex-col items-center justify-center gap-px bg-slate-50 hover:bg-slate-100 text-slate-500 transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              <Users className="h-3 w-3" />
+              <span className="text-[8px] font-medium">Romana</span>
+            </button>
+
+            {/* Annulla ordine / Scontrino rapido */}
+            {activeOrderId ? (
+              <button
+                onClick={() => setShowCancelConfirm(true)}
+                className="flex-1 rounded-md flex flex-col items-center justify-center gap-px bg-red-50 hover:bg-red-100 text-red-400 transition-all active:scale-95">
+                <X className="h-3 w-3" />
+                <span className="text-[8px] font-medium">Annulla</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => handleQuickMode("rapida")}
+                className="flex-1 rounded-md flex flex-col items-center justify-center gap-px bg-slate-50 hover:bg-slate-100 text-slate-500 transition-all active:scale-95">
+                <Zap className="h-3 w-3" />
+                <span className="text-[8px] font-medium">Rapida</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -1705,19 +1756,21 @@ export default function FrontOffice() {
         mobilePanel === "right" ? "flex" : "hidden sm:flex"
       )}>
 
-        {/* Tab bar: GRP | ART | VAR | TAVL | CLNT | TOT */}
+        {/* Tab bar: GRP | ART | VAR | TAVL | CLNT | TOT — stessa altezza dell'header sinistra */}
         <div className="flex bg-white border-b border-slate-100 shrink-0">
           {(["grp","art","var","tavl","clnt","tot"] as const).map((tab, i) => {
-            const labels = ["GRP", "ART", "VAR", "TAVL", "CLNT", "TOT"];
+            const labels  = ["GRP",  "ART",  "VAR",  "TAVL", "CLNT", "TOT"];
+            const icons   = ["⊞",    "≡",    "✦",    "⊡",   "☺",    "€"];
             return (
               <button key={tab} onClick={() => setRightTab(tab)}
                 className={cn(
-                  "flex-1 py-2 flex items-center justify-center text-[11px] font-medium transition-all border-b-2",
+                  "flex-1 h-11 flex flex-col items-center justify-center gap-px transition-all border-b-2",
                   rightTab === tab
                     ? "text-primary border-primary"
                     : "text-slate-400 border-transparent hover:text-slate-600"
                 )}>
-                {labels[i]}
+                <span className="text-[11px] leading-none">{icons[i]}</span>
+                <span className="text-[9px] font-medium tracking-wide">{labels[i]}</span>
               </button>
             );
           })}

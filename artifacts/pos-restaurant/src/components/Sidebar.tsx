@@ -55,7 +55,7 @@ export function Sidebar() {
         <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
           <UtensilsCrossed className="h-4 w-4 text-white" />
         </div>
-        <span className="font-bold text-white text-base tracking-tight">RestoPOS</span>
+        <span className="font-bold text-white text-base tracking-tight">Hello<span className="text-orange-200">Table</span></span>
       </div>
 
       {/* Nav */}
