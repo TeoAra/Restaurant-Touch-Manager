@@ -385,6 +385,8 @@ export const AddOrderItemBody = zod.object({
   productId: zod.number(),
   quantity: zod.number(),
   notes: zod.string().nullish(),
+  unitPrice: zod.string().optional(),
+  phase: zod.number().int().min(0).max(3).optional(),
 });
 
 /**

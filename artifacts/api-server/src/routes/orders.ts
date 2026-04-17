@@ -164,7 +164,8 @@ router.post("/:orderId/items", async (req, res) => {
   const [product] = await db.select().from(pt).where(eq(pt.id, body.productId));
   if (!product) return res.status(404).json({ error: "Product not found" });
 
-  const unitPrice = product.price;
+  // Use client-supplied price (for phase pricing) or fall back to base price
+  const unitPrice = body.unitPrice ?? product.price;
   const subtotal = (parseFloat(unitPrice) * body.quantity).toFixed(2);
 
   const [item] = await db.insert(orderItemsTable).values({
@@ -176,6 +177,7 @@ router.post("/:orderId/items", async (req, res) => {
     unitPrice,
     subtotal,
     notes: body.notes ?? null,
+    phase: body.phase ?? 0,
   }).returning();
 
   await recalcOrderTotal(orderId);
@@ -227,21 +229,33 @@ router.delete("/:orderId/items/:itemId", async (req, res) => {
   res.status(204).end();
 });
 
-// Send comanda: change all draft items to sent
+// Send comanda: change all draft items to sent, grouped by phase for category printers
 router.post("/:id/send-comanda", async (req, res) => {
   const id = Number(req.params.id);
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
   if (!order) return res.status(404).json({ error: "Order not found" });
+
+  const phaseLabels = ["F1", "F2", "F3", "F4"];
 
   const result = await db.update(orderItemsTable)
     .set({ status: "sent" })
     .where(and(eq(orderItemsTable.orderId, id), eq(orderItemsTable.status, "draft")))
     .returning();
 
-  // TODO: trigger print-engine for kitchen/bar printers
-  console.log(`[PRINT] Comanda inviata per ordine ${id}: ${result.length} righe`);
+  // Group by phase for category (reparto) printers — fiscal printer never receives comanda
+  const byPhase: Record<string, { phase: string; items: typeof result }> = {};
+  for (const item of result) {
+    const phaseKey = phaseLabels[(item as unknown as { phase: number }).phase ?? 0] ?? "F1";
+    if (!byPhase[phaseKey]) byPhase[phaseKey] = { phase: phaseKey, items: [] };
+    byPhase[phaseKey].items.push(item);
+  }
 
-  res.json({ success: true, sentItems: result.length });
+  const phases = Object.values(byPhase);
+  for (const g of phases) {
+    console.log(`[COMANDA][Reparto] Ordine ${id} — Fase ${g.phase}: ${g.items.map(i => `${i.quantity}× ${i.productName}`).join(", ")}`);
+  }
+
+  res.json({ success: true, sentItems: result.length, phases: phases.map(g => ({ phase: g.phase, count: g.items.length })) });
 });
 
 // Update covers (0 allowed)

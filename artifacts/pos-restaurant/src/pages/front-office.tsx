@@ -997,18 +997,20 @@ function CategoryButton({ cat, onClick }: { cat: PosCategory; onClick: () => voi
   );
 }
 
-// ─── Product Card (MOito-style dark tile) ──────────────────────────────────────
+// ─── Product Card ──────────────────────────────────────────────────────────────
 type PosProduct = { id: number; name: string; price: string; price2?: string; price3?: string; price4?: string; available: boolean };
 function ProductCard({ product, onAdd, activePriceList }: {
   product: PosProduct;
   activePriceList: number;
-  onAdd: (id: number) => void;
+  onAdd: (id: number, unitPrice: string) => void;
 }) {
-  const priceFields: (keyof PosProduct)[] = ["price", "price2", "price3", "price4"];
-  const rawPrice = (product[priceFields[activePriceList]] as string | undefined) || product.price;
+  const priceFields = ["price", "price2", "price3", "price4"] as const;
+  const fieldVal = product[priceFields[activePriceList]];
+  // Fall back to base price if phase price is unset or zero
+  const rawPrice = (fieldVal && parseFloat(fieldVal) > 0) ? fieldVal : product.price;
   const displayPrice = parseFloat(rawPrice || "0");
   return (
-    <button onClick={() => onAdd(product.id)}
+    <button onClick={() => onAdd(product.id, rawPrice)}
       className="bg-white rounded-xl border-2 border-slate-200 p-3 text-left hover:border-primary hover:shadow-lg active:scale-95 transition-all group min-h-[72px] flex flex-col justify-between">
       <div className="font-semibold text-xs text-slate-800 leading-tight group-hover:text-primary transition-colors line-clamp-2">{product.name}</div>
       <div className="text-sm font-bold text-primary mt-1">€ {displayPrice.toFixed(2)}</div>
@@ -1212,10 +1214,10 @@ export default function FrontOffice() {
     const et = (table as FETable).elementType ?? "table";
     if (et !== "table") return;
 
-    // "Assegna Tavolo" mode: move quick order to a real table
-    if (isAssigningTable && quickOrderId) {
+    // "Assegna Tavolo" mode OR quick mode with active order → move order to table
+    if ((isAssigningTable || isQuickMode) && quickOrderId) {
       if (table.activeOrderId) {
-        toast({ title: "Tavolo occupato", description: "Scegli un tavolo libero", variant: "destructive" });
+        toast({ title: "Tavolo occupato", description: "Scegli un tavolo libero per spostare l'ordine", variant: "destructive" });
         return;
       }
       setAssignPendingTableId(table.id);
@@ -1342,7 +1344,7 @@ export default function FrontOffice() {
     setNumBuffer(b => (b.length < 5 ? b + key : b));
   }
 
-  async function handleAddProduct(productId: number) {
+  async function handleAddProduct(productId: number, unitPrice: string) {
     const qty = numBuffer ? Math.max(1, parseInt(numBuffer) || 1) : 1;
     setNumBuffer("");
     let orderId = activeOrderId;
@@ -1359,14 +1361,19 @@ export default function FrontOffice() {
       setMobilePanel("left");
       orderId = order.id;
     }
-    const existing = items.find(i => i.productId === productId);
+    // Check for existing item with same product AND same phase AND same unit price
+    const existing = items.find(i =>
+      i.productId === productId &&
+      (i as never as { phase: number }).phase === activePriceList &&
+      i.unitPrice === unitPrice
+    );
     if (existing && orderId === activeOrderId && qty === 1) {
       await updateItem.mutateAsync({ orderId, itemId: existing.id, data: { quantity: existing.quantity + 1 } });
     } else {
-      await addItem.mutateAsync({ orderId, data: { productId, quantity: qty } });
+      await addItem.mutateAsync({ orderId, data: { productId, quantity: qty, unitPrice, phase: activePriceList } as never });
     }
     refresh();
-    setMobilePanel("left"); // show order after adding
+    setMobilePanel("left");
   }
 
   async function handleQty(itemId: number, qty: number) {
@@ -1409,9 +1416,12 @@ export default function FrontOffice() {
   async function handleSendComanda() {
     if (!activeOrderId) return;
     const res = await fetch(`${API}/orders/${activeOrderId}/send-comanda`, { method: "POST" });
-    const data = await res.json();
+    const data = await res.json() as { sentItems: number; phases?: Array<{ phase: string; count: number }> };
     refresh();
-    toast({ title: "Comanda inviata", description: `${data.sentItems} righe inviate ai reparti` });
+    const phaseDesc = data.phases && data.phases.length > 0
+      ? data.phases.map(p => `${p.phase}: ${p.count} art.`).join(" · ")
+      : `${data.sentItems} articoli`;
+    toast({ title: "Comanda inviata ai reparti", description: phaseDesc });
   }
 
   async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number) {
