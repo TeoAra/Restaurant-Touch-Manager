@@ -148,17 +148,25 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
   useEffect(() => {
     function updateScale() {
       if (!containerRef.current) return;
-      const w = containerRef.current.clientWidth - 8;
-      const h = containerRef.current.clientHeight - 8;
-      const canvasW = COLS * CELL;
-      const canvasH = ROWS * CELL;
-      setScale(Math.min(w / canvasW, h / canvasH));
+      const w = containerRef.current.clientWidth - 16;
+      const h = containerRef.current.clientHeight - 16;
+      // Fit to actual table bounding box, not full grid
+      const allElements = tablesStatus;
+      const maxX = allElements.length
+        ? Math.max(...allElements.map(t => (t.posX ?? 0) + (getElementSize(t).w))) + 1
+        : 6;
+      const maxY = allElements.length
+        ? Math.max(...allElements.map(t => (t.posY ?? 0) + (getElementSize(t).h))) + 1
+        : 5;
+      const canvasW = Math.max(maxX, 4) * CELL;
+      const canvasH = Math.max(maxY, 3) * CELL;
+      setScale(Math.min(w / canvasW, h / canvasH, 1.2));
     }
     updateScale();
     const ro = new ResizeObserver(updateScale);
     if (containerRef.current) ro.observe(containerRef.current);
     return () => ro.disconnect();
-  }, []);
+  }, [tablesStatus.length]);
 
   const rooms = Array.from(new Map(
     tablesStatus
@@ -221,28 +229,37 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
       </div>
 
       {/* Floor plan */}
-      <div ref={containerRef} className="flex-1 overflow-hidden p-1 bg-[#f4f6fa] flex items-center justify-center">
-        <div
-          className="border border-slate-200 rounded-2xl bg-[#f8fafc] overflow-hidden shrink-0"
-          style={{ width: COLS * CELL * scale, height: ROWS * CELL * scale }}
-        >
-          <div
-            className="relative select-none origin-top-left"
-            style={{ width: COLS * CELL, height: ROWS * CELL, transform: `scale(${scale})` }}
-          >
-            {Array.from({ length: ROWS + 1 }).map((_, i) => (
-              <div key={`h${i}`} className="absolute left-0 right-0 border-b border-slate-200/60" style={{ top: i * CELL }} />
-            ))}
-            {Array.from({ length: COLS + 1 }).map((_, i) => (
-              <div key={`v${i}`} className="absolute top-0 bottom-0 border-r border-slate-200/60" style={{ left: i * CELL }} />
-            ))}
-            {filtered.map(t => (
-              <div key={t.id} className="absolute" style={{ left: (t.posX ?? 0) * CELL + 3, top: (t.posY ?? 0) * CELL + 3 }}>
-                <FloorElement t={t} isSelected={t.id === selectedTableId} onClick={() => onTableClick(t)} />
+      <div ref={containerRef} className="flex-1 overflow-hidden p-2 bg-[#f4f6fa] flex items-center justify-center">
+        {(() => {
+          const allEl = filtered;
+          const maxX = allEl.length ? Math.max(...allEl.map(t => (t.posX ?? 0) + getElementSize(t).w)) + 1 : 6;
+          const maxY = allEl.length ? Math.max(...allEl.map(t => (t.posY ?? 0) + getElementSize(t).h)) + 1 : 5;
+          const canvasW = Math.max(maxX, 4) * CELL;
+          const canvasH = Math.max(maxY, 3) * CELL;
+          return (
+            <div
+              className="border border-slate-200 rounded-2xl bg-[#f8fafc] overflow-hidden shrink-0 shadow-sm"
+              style={{ width: canvasW * scale, height: canvasH * scale }}
+            >
+              <div
+                className="relative select-none origin-top-left"
+                style={{ width: canvasW, height: canvasH, transform: `scale(${scale})` }}
+              >
+                {Array.from({ length: maxY + 1 }).map((_, i) => (
+                  <div key={`h${i}`} className="absolute left-0 right-0 border-b border-slate-200/60" style={{ top: i * CELL }} />
+                ))}
+                {Array.from({ length: maxX + 1 }).map((_, i) => (
+                  <div key={`v${i}`} className="absolute top-0 bottom-0 border-r border-slate-200/60" style={{ left: i * CELL }} />
+                ))}
+                {filtered.map(t => (
+                  <div key={t.id} className="absolute" style={{ left: (t.posX ?? 0) * CELL + 3, top: (t.posY ?? 0) * CELL + 3 }}>
+                    <FloorElement t={t} isSelected={t.id === selectedTableId} onClick={() => onTableClick(t)} />
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -1011,9 +1028,9 @@ function ProductCard({ product, onAdd, activePriceList }: {
   const displayPrice = parseFloat(rawPrice || "0");
   return (
     <button onClick={() => onAdd(product.id, rawPrice)}
-      className="bg-white rounded-xl border-2 border-slate-200 p-3 text-left hover:border-primary hover:shadow-lg active:scale-95 transition-all group min-h-[72px] flex flex-col justify-between">
-      <div className="font-semibold text-xs text-slate-800 leading-tight group-hover:text-primary transition-colors line-clamp-2">{product.name}</div>
-      <div className="text-sm font-bold text-primary mt-1">€ {displayPrice.toFixed(2)}</div>
+      className="bg-white rounded-xl border-2 border-slate-200 p-3 text-left hover:border-primary hover:shadow-lg active:scale-95 transition-all group min-h-[88px] flex flex-col justify-between">
+      <div className="font-semibold text-sm text-slate-800 leading-snug group-hover:text-primary transition-colors line-clamp-3">{product.name}</div>
+      <div className="text-base font-bold text-primary mt-2">€ {displayPrice.toFixed(2)}</div>
     </button>
   );
 }
@@ -1471,7 +1488,7 @@ export default function FrontOffice() {
 
   const visibleProducts = (productSearch
     ? products.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()))
-    : products).filter(p => p.available);
+    : products).filter(p => p.available !== false);
 
   // ── Price list labels ────────────────────────────────────────────────────────
   const phaseLabels = ["F1", "F2", "F3", "F4"];
@@ -1818,7 +1835,7 @@ export default function FrontOffice() {
               )}
             </div>
             <ScrollArea className="flex-1">
-              <div className="p-3 grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))" }}>
+              <div className="p-3 grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))" }}>
                 {visibleProducts.map(p => (
                   <ProductCard key={p.id} product={p as PosProduct} activePriceList={activePriceList} onAdd={handleAddProduct} />
                 ))}
