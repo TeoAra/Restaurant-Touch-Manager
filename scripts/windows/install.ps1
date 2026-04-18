@@ -13,6 +13,9 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference    = "SilentlyContinue"
 
+# Fix TLS 1.2 per Windows Server 2016 / Windows 10 vecchi (GitHub richiede TLS 1.2)
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
 # ─── Configurazione ─────────────────────────────────────────────────────────
 $APP_NAME    = "HelloTable"
 $INSTALL_DIR = "C:\HelloTable"

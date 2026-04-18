@@ -5,6 +5,7 @@
 #>
 
 $ErrorActionPreference = "Stop"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $INSTALL_DIR = "C:\HelloTable"
 $SVC_NAME    = "HelloTable"
 $PORT        = 8080
