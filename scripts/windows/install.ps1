@@ -18,7 +18,7 @@ $APP_NAME    = "HelloTable"
 $INSTALL_DIR = "C:\HelloTable"
 $PORT        = 8080
 $SVC_NAME    = "HelloTable"
-$REPO_URL    = "https://github.com/TUO_UTENTE/TUO_REPO.git"   # <-- cambia qui
+$REPO_URL    = "https://github.com/TeoAra/Restaurant-Touch-Manager.git"
 $NSSM_URL    = "https://nssm.cc/release/nssm-2.24.zip"
 
 # ─── Colori e output ────────────────────────────────────────────────────────
