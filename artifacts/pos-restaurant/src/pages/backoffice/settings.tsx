@@ -1,6 +1,6 @@
 import { useState, useEffect, memo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Settings2, ShoppingBag, Truck, Zap, Users, Building2, Printer, Wifi } from "lucide-react";
+import { Settings2, ShoppingBag, Truck, Zap, Users, Building2 } from "lucide-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
@@ -93,18 +93,6 @@ export default function SettingsPage() {
     }
   }, [settings]);
 
-  const [printerForm, setPrinterForm] = useState({ dtr_ip: "", dtr_matricola: "", sewoo_ip: "", sewoo_port: "9100" });
-  useEffect(() => {
-    if (Object.keys(settings).length > 0) {
-      setPrinterForm(f => ({
-        dtr_ip: settings.dtr_ip ?? f.dtr_ip,
-        dtr_matricola: settings.dtr_matricola ?? f.dtr_matricola,
-        sewoo_ip: settings.sewoo_ip ?? f.sewoo_ip,
-        sewoo_port: settings.sewoo_port ?? "9100",
-      }));
-    }
-  }, [settings]);
-
   async function saveMultiple(pairs: Record<string, string>) {
     for (const [key, value] of Object.entries(pairs)) {
       await fetch(`${API}/settings`, {
@@ -114,17 +102,6 @@ export default function SettingsPage() {
       });
     }
     qc.invalidateQueries({ queryKey: ["settings"] });
-  }
-
-  async function testPrinters() {
-    const resp = await fetch(`${API}/fiscal/printer-test`);
-    const data = await resp.json();
-    const dtrOk = data.dtr?.ok;
-    const sewooOk = data.sewoo?.ok;
-    toast({
-      title: "Test stampanti",
-      description: `DTR: ${dtrOk ? "✓ Raggiunta" : "✗ " + (data.dtr?.error ?? "Non configurata")} | Sewoo: ${sewooOk ? "✓ Raggiunta" : "✗ " + (data.sewoo?.error ?? "Non configurata")}`,
-    });
   }
 
   const saveCoverPrice = useMutation({
@@ -193,53 +170,6 @@ export default function SettingsPage() {
           <div className="flex justify-end pt-1">
             <Button size="sm" onClick={async () => { await saveMultiple(ditaForm); toast({ title: "Dati azienda salvati" }); }}>
               Salva Dati Azienda
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* Stampanti fiscali */}
-      <div className="space-y-3">
-        <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 px-1 flex items-center gap-2">
-          <Printer className="h-3.5 w-3.5" /> Stampanti Fiscali & Comande
-        </h2>
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-5">
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <div className="h-8 w-8 bg-red-50 rounded-lg flex items-center justify-center">
-                <Printer className="h-4 w-4 text-red-600" />
-              </div>
-              <div>
-                <div className="font-semibold text-sm text-slate-800">DTR DFront RT</div>
-                <div className="text-xs text-slate-400">Stampante fiscale (RT) — collegamento IP</div>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <DField label="Indirizzo IP" val={printerForm.dtr_ip} setVal={v => setPrinterForm(f => ({ ...f, dtr_ip: v }))} placeholder="192.168.1.100" />
-              <DField label="Matricola fiscale" val={printerForm.dtr_matricola} setVal={v => setPrinterForm(f => ({ ...f, dtr_matricola: v }))} placeholder="RT-XXXXXXXXXX" />
-            </div>
-          </div>
-          <div className="border-t border-slate-100 pt-4">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="h-8 w-8 bg-blue-50 rounded-lg flex items-center justify-center">
-                <Printer className="h-4 w-4 text-blue-600" />
-              </div>
-              <div>
-                <div className="font-semibold text-sm text-slate-800">Sewoo SLK-TS400EB</div>
-                <div className="text-xs text-slate-400">Stampante comande — collegamento IP/Ethernet</div>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <DField label="Indirizzo IP" val={printerForm.sewoo_ip} setVal={v => setPrinterForm(f => ({ ...f, sewoo_ip: v }))} placeholder="192.168.1.101" />
-              <DField label="Porta TCP (ESC/POS)" val={printerForm.sewoo_port} setVal={v => setPrinterForm(f => ({ ...f, sewoo_port: v }))} placeholder="9100" />
-            </div>
-          </div>
-          <div className="flex gap-2 justify-end pt-1">
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={testPrinters}>
-              <Wifi className="h-4 w-4" /> Test connessione
-            </Button>
-            <Button size="sm" onClick={async () => { await saveMultiple(printerForm); toast({ title: "Impostazioni stampanti salvate" }); }}>
-              Salva Stampanti
             </Button>
           </div>
         </div>
