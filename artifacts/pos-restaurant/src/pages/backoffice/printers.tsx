@@ -142,6 +142,25 @@ export default function PrintersPage() {
   const [directResult, setDirectResult] = useState<{ ok: boolean; ms?: number; error?: string } | null>(null);
   const [directTesting, setDirectTesting] = useState(false);
 
+  // Test CGI RT fiscale
+  const [cgiResults, setCgiResults] = useState<Map<number, { ok: boolean; ms?: number; error?: string; url?: string; body?: string } | null>>(new Map());
+  const [cgiTestingId, setCgiTestingId] = useState<number | null>(null);
+
+  async function runCgiTest(printer: PrinterT) {
+    setCgiTestingId(printer.id);
+    setCgiResults(prev => new Map(prev).set(printer.id, null));
+    try {
+      const resp = await fetch(`${API}/fiscal/diagnostica`);
+      const data = await resp.json() as { testConnessioneRt?: { ok: boolean; ms?: number; error?: string; url?: string; body?: string } };
+      const r = data.testConnessioneRt ?? { ok: false, error: "Nessun risultato" };
+      setCgiResults(prev => new Map(prev).set(printer.id, r));
+    } catch {
+      setCgiResults(prev => new Map(prev).set(printer.id, { ok: false, error: "Errore di rete" }));
+    } finally {
+      setCgiTestingId(null);
+    }
+  }
+
   async function runTestAll() {
     setTesting(true);
     setTestResults(new Map());
@@ -268,26 +287,62 @@ export default function PrintersPage() {
                         <div className="text-xs text-red-600 font-mono mt-0.5">Matricola: {p.matricola}</div>
                       )}
 
-                      {/* Test result badge */}
+                      {/* Test TCP result badge */}
                       {result && (
                         <div className="mt-1.5">
                           {result.ok ? (
                             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
                               <CheckCircle2 className="h-3 w-3" />
-                              Raggiunta {result.ms != null ? `(${result.ms}ms)` : ""}
+                              TCP OK {result.ms != null ? `(${result.ms}ms)` : ""}
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
                               <XCircle className="h-3 w-3" />
-                              Non raggiunta: {result.error ?? "errore"}
+                              TCP KO: {result.error ?? "errore"}
                             </span>
                           )}
+                        </div>
+                      )}
+
+                      {/* Test CGI RT result */}
+                      {p.isFiscale && cgiResults.has(p.id) && (
+                        <div className="mt-1.5">
+                          {(() => {
+                            const cr = cgiResults.get(p.id);
+                            if (!cr) return <span className="text-[11px] text-slate-400">CGI in corso...</span>;
+                            return cr.ok ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                                <CheckCircle2 className="h-3 w-3" />
+                                CGI RT OK {cr.ms != null ? `(${cr.ms}ms)` : ""}
+                              </span>
+                            ) : (
+                              <div className="space-y-0.5">
+                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
+                                  <XCircle className="h-3 w-3" />
+                                  CGI KO: {cr.error ?? "errore"}
+                                </span>
+                                {cr.url && <div className="text-[10px] text-slate-400 font-mono pl-1">{cr.url}</div>}
+                              </div>
+                            );
+                          })()}
                         </div>
                       )}
                     </div>
 
                     {/* Actions */}
                     <div className="flex items-center gap-1 shrink-0">
+                      {p.isFiscale && (
+                        <button
+                          onClick={() => runCgiTest(p)}
+                          disabled={cgiTestingId === p.id}
+                          title="Testa CGI RT (porta 80)"
+                          className="h-8 px-2 flex items-center gap-1 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors disabled:opacity-40 text-[11px] font-semibold">
+                          {cgiTestingId === p.id
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Receipt className="h-3.5 w-3.5" />}
+                          CGI
+                        </button>
+                      )}
                       <button
                         onClick={() => runTestSingle(p.id)}
                         disabled={testingId === p.id}
@@ -453,7 +508,11 @@ export default function PrintersPage() {
               <Checkbox
                 id="fiscale"
                 checked={form.isFiscale}
-                onCheckedChange={v => setForm(f => ({ ...f, isFiscale: v === true }))}
+                onCheckedChange={v => setForm(f => ({
+                  ...f,
+                  isFiscale: v === true,
+                  port: v === true ? 80 : (f.port === 80 ? 9100 : f.port),
+                }))}
               />
               <Label htmlFor="fiscale" className="cursor-pointer font-medium text-sm">
                 Stampante fiscale (RT)

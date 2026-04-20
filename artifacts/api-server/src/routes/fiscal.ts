@@ -236,20 +236,26 @@ router.get("/diagnostica", async (req, res) => {
 
   const fiscalPrinter = await getFiscalPrinter();
 
-  let rtTest: { ok: boolean; ms?: number; error?: string; body?: string } | null = null;
+  let rtTest: { ok: boolean; ms?: number; error?: string; body?: string; url?: string } | null = null;
   if (fiscalPrinter) {
+    const rtPort = fiscalPrinter.port && fiscalPrinter.port !== 9100 ? fiscalPrinter.port : 80;
+    const portStr = rtPort !== 80 ? `:${rtPort}` : "";
+    const cgiUrl = `http://${fiscalPrinter.ip}${portStr}/cgi-bin/fpmate.cgi`;
     const t0 = Date.now();
     try {
-      const resp = await fetch(`http://${fiscalPrinter.ip}/cgi-bin/fpmate.cgi`, {
+      const resp = await fetch(cgiUrl, {
         method: "POST",
         headers: { "Content-Type": "text/xml; charset=utf-8" },
-        body: `<?xml version="1.0" encoding="utf-8"?><printerFiscalReceipt><queryPrinterStatus operator="1" statusType="0"/></printerFiscalReceipt>`,
-        signal: AbortSignal.timeout(3000),
+        body: `<?xml version="1.0" encoding="utf-8"?><printerCommand><queryPrinterStatus operator="1" statusType="0"/></printerCommand>`,
+        signal: AbortSignal.timeout(5000),
       });
       const body = await resp.text();
-      rtTest = { ok: resp.ok, ms: Date.now() - t0, body: body.substring(0, 300) };
-    } catch (e) {
-      rtTest = { ok: false, ms: Date.now() - t0, error: e instanceof Error ? e.message : String(e) };
+      rtTest = { ok: resp.ok, ms: Date.now() - t0, body: body.substring(0, 400), url: cgiUrl };
+    } catch (e: unknown) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      const cause = (err as unknown as { cause?: { code?: string; message?: string } }).cause;
+      const detail = cause?.code ?? cause?.message ?? err.message;
+      rtTest = { ok: false, ms: Date.now() - t0, error: detail, url: cgiUrl };
     }
   }
 

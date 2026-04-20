@@ -104,8 +104,9 @@ export async function sendCgiCommand(
 }
 
 // ── Invia XML Protocol 7.0 a /cgi-bin/fpmate.cgi ───────────────────────────
-async function sendXmlCommand(ip: string, xml: string, timeoutMs = 12000): Promise<CgiResult> {
-  const url = `http://${ip}/cgi-bin/fpmate.cgi`;
+async function sendXmlCommand(ip: string, xml: string, timeoutMs = 12000, port = 80): Promise<CgiResult> {
+  const portStr = port && port !== 80 ? `:${port}` : "";
+  const url = `http://${ip}${portStr}/cgi-bin/fpmate.cgi`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   const t0 = Date.now();
@@ -178,7 +179,7 @@ function buildReceiptXml(opts: {
 // Protocollo XML 7.0: usa un documento vuoto con solo la tag lotteria
 // NOTA: nella maggior parte delle RT il codice va incluso al momento della stampa.
 // Questa funzione serve per validare la raggiungibilità e il codice prima del pagamento.
-export async function inviaLotteriaRt(ip: string, codice: string): Promise<CgiResult> {
+export async function inviaLotteriaRt(ip: string, codice: string, port = 80): Promise<CgiResult> {
   const xml = [
     `<?xml version="1.0" encoding="utf-8"?>`,
     `<printerCommand>`,
@@ -186,7 +187,7 @@ export async function inviaLotteriaRt(ip: string, codice: string): Promise<CgiRe
     `</printerCommand>`,
   ].join("\n");
   // Verifichiamo la connettività alla RT; il codice viene applicato al momento della stampa
-  const result = await sendXmlCommand(ip, xml, 6000);
+  const result = await sendXmlCommand(ip, xml, 6000, port);
   return { ...result, ok: result.ok };
 }
 
@@ -229,8 +230,9 @@ export async function emettiFiscalReceipt(opts: {
   // ── Chiama la RT con XML Protocol 7.0 ────────────────────────────────────
   let rt: CgiResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
   if (printer) {
+    const rtPort = printer.port && printer.port !== 9100 ? printer.port : 80;
     const xml = buildReceiptXml({ righe, importo, metodoPagamento, lotteria });
-    rt = await sendXmlCommand(printer.ip, xml, 12000);
+    rt = await sendXmlCommand(printer.ip, xml, 12000, rtPort);
   }
 
   return { receipt, rt };
