@@ -1116,6 +1116,8 @@ export default function FrontOffice() {
   const [kpSaving, setKpSaving] = useState(false);
   const [modifierPicker, setModifierPicker] = useState<{ productId: number; productName: string; unitPrice: string } | null>(null);
   const [selectedModifierIds, setSelectedModifierIds] = useState<Set<number>>(new Set());
+  const [pickerKpNote, setPickerKpNote] = useState("");
+  const [pickerModFilter, setPickerModFilter] = useState<"all" | "plus" | "minus">("all");
   const [selectedItemCategoryId, setSelectedItemCategoryId] = useState<number | null>(null);
 
   const { data: tablesStatus = [] } = useGetTablesStatus();
@@ -1354,7 +1356,7 @@ export default function FrontOffice() {
     setNumBuffer(b => (b.length < 5 ? b + key : b));
   }
 
-  async function doAddProduct(productId: number, unitPrice: string, mods: FEModifier[]) {
+  async function doAddProduct(productId: number, unitPrice: string, mods: FEModifier[], notes?: string) {
     const qty = numBuffer ? Math.max(1, parseInt(numBuffer) || 1) : 1;
     setNumBuffer("");
     let orderId = activeOrderId;
@@ -1374,36 +1376,36 @@ export default function FrontOffice() {
     const modJson = JSON.stringify(mods.map(m => ({ id: m.id, label: m.label, type: m.type, priceExtra: m.priceExtra })));
     const effectivePrice = mods.reduce((acc, m) => acc + parseFloat(m.priceExtra || "0"), parseFloat(unitPrice));
     const finalPrice = effectivePrice.toFixed(2);
-    // Only merge into existing item if no modifiers applied
-    const existing = mods.length === 0 ? items.find(i =>
+    const kpNote = notes?.trim() || undefined;
+    // Only merge into existing item if no modifiers and no KP note
+    const existing = (mods.length === 0 && !kpNote) ? items.find(i =>
       i.productId === productId &&
       (i as never as { phase: number }).phase === activePriceList &&
       i.unitPrice === unitPrice &&
-      ((i as never as { modifiers?: string }).modifiers ?? "[]") === "[]"
+      ((i as never as { modifiers?: string }).modifiers ?? "[]") === "[]" &&
+      !(i as never as { notes?: string }).notes
     ) : null;
     if (existing && orderId === activeOrderId && qty === 1) {
       await updateItem.mutateAsync({ orderId, itemId: existing.id, data: { quantity: existing.quantity + 1 } });
     } else {
-      await addItem.mutateAsync({ orderId, data: { productId, quantity: qty, unitPrice: finalPrice, phase: activePriceList, modifiers: modJson } as never });
+      await addItem.mutateAsync({ orderId, data: { productId, quantity: qty, unitPrice: finalPrice, phase: activePriceList, modifiers: modJson, notes: kpNote ?? null } as never });
     }
     refresh();
   }
 
   async function handleAddProduct(productId: number, unitPrice: string) {
-    if (categoryModifiers.length > 0) {
-      const productName = (products as PosProduct[]).find(p => p.id === productId)?.name ?? "";
-      setSelectedModifierIds(new Set());
-      setModifierPicker({ productId, productName, unitPrice });
-      return;
-    }
-    await doAddProduct(productId, unitPrice, []);
+    const productName = (products as PosProduct[]).find(p => p.id === productId)?.name ?? "";
+    setSelectedModifierIds(new Set());
+    setPickerKpNote("");
+    setPickerModFilter("all");
+    setModifierPicker({ productId, productName, unitPrice });
   }
 
-  async function confirmModifiers() {
+  async function confirmModifiers(withMods: boolean) {
     if (!modifierPicker) return;
-    const mods = categoryModifiers.filter(m => selectedModifierIds.has(m.id));
+    const mods = withMods ? categoryModifiers.filter(m => selectedModifierIds.has(m.id)) : [];
     setModifierPicker(null);
-    await doAddProduct(modifierPicker.productId, modifierPicker.unitPrice, mods);
+    await doAddProduct(modifierPicker.productId, modifierPicker.unitPrice, mods, pickerKpNote);
   }
 
   async function handleQty(itemId: number, qty: number) {
@@ -2179,55 +2181,110 @@ export default function FrontOffice() {
 
       {/* ── Modifier Picker ─────────────────────────────────────────── */}
       <Dialog open={!!modifierPicker} onOpenChange={o => !o && setModifierPicker(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="leading-snug">
-              {modifierPicker?.productName}
-              <span className="block text-xs font-normal text-slate-400 mt-0.5">Seleziona variazioni (opzionale)</span>
-            </DialogTitle>
-          </DialogHeader>
-          <div className="py-2 space-y-2 max-h-72 overflow-y-auto pr-1">
-            {categoryModifiers.map(m => {
-              const checked = selectedModifierIds.has(m.id);
-              const typeIcon = m.type === "plus" ? "+" : m.type === "minus" ? "−" : "✎";
-              const typeBg = m.type === "plus"
-                ? (checked ? "bg-emerald-500 border-emerald-500 text-white" : "border-emerald-300 text-emerald-700 bg-emerald-50")
-                : m.type === "minus"
-                  ? (checked ? "bg-red-500 border-red-500 text-white" : "border-red-300 text-red-700 bg-red-50")
-                  : (checked ? "bg-slate-600 border-slate-600 text-white" : "border-slate-300 text-slate-600 bg-slate-50");
-              return (
-                <button key={m.id}
-                  onClick={() => setSelectedModifierIds(prev => {
-                    const next = new Set(prev);
-                    if (next.has(m.id)) next.delete(m.id); else next.add(m.id);
-                    return next;
-                  })}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 font-medium transition-all text-left",
-                    typeBg
-                  )}>
-                  <span className="text-base font-bold shrink-0 w-5 text-center">{typeIcon}</span>
-                  <span className="flex-1">{m.label}</span>
-                  {parseFloat(m.priceExtra) !== 0 && (
-                    <span className="text-xs font-mono shrink-0">
-                      {parseFloat(m.priceExtra) > 0 ? "+" : ""}€{parseFloat(m.priceExtra).toFixed(2)}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+        <DialogContent className="max-w-sm p-0 overflow-hidden rounded-2xl">
+          {/* Header */}
+          <div className="px-5 pt-5 pb-3 border-b border-slate-100">
+            <div className="font-bold text-slate-800 text-base leading-snug">{modifierPicker?.productName}</div>
+            <div className="text-xs text-slate-400 mt-0.5">Seleziona variazioni (opzionale)</div>
           </div>
-          <DialogFooter className="flex gap-2">
-            <Button variant="outline" className="flex-1" onClick={() => {
-              setModifierPicker(null);
-              doAddProduct(modifierPicker!.productId, modifierPicker!.unitPrice, []);
-            }}>
+
+          <div className="px-4 py-3 space-y-3 max-h-[60vh] overflow-y-auto">
+            {/* Filtri tipo variazione */}
+            {categoryModifiers.length > 0 && (
+              <div className="flex gap-2">
+                {(["all", "plus", "minus"] as const).map(f => {
+                  const labels = { all: "Tutte", plus: "+ Aggiungi", minus: "− Rimuovi" };
+                  const hasMods = f === "all" || categoryModifiers.some(m => m.type === f);
+                  if (!hasMods) return null;
+                  return (
+                    <button
+                      key={f}
+                      onClick={() => setPickerModFilter(f)}
+                      className={cn(
+                        "px-3 py-1 rounded-full text-xs font-semibold border transition-all",
+                        pickerModFilter === f
+                          ? f === "plus" ? "bg-emerald-500 border-emerald-500 text-white"
+                            : f === "minus" ? "bg-red-500 border-red-500 text-white"
+                            : "bg-primary border-primary text-white"
+                          : "bg-white border-slate-200 text-slate-500 hover:border-slate-400"
+                      )}>
+                      {labels[f]}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Lista variazioni filtrate */}
+            {categoryModifiers.length > 0 ? (
+              <div className="space-y-2">
+                {categoryModifiers
+                  .filter(m => pickerModFilter === "all" || m.type === pickerModFilter)
+                  .map(m => {
+                    const checked = selectedModifierIds.has(m.id);
+                    const typeIcon = m.type === "plus" ? "+" : m.type === "minus" ? "−" : "✎";
+                    const colorOn = m.type === "plus"
+                      ? "bg-emerald-500 border-emerald-500 text-white"
+                      : m.type === "minus"
+                        ? "bg-red-500 border-red-500 text-white"
+                        : "bg-slate-700 border-slate-700 text-white";
+                    const colorOff = m.type === "plus"
+                      ? "border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
+                      : m.type === "minus"
+                        ? "border-red-200 text-red-700 bg-red-50 hover:bg-red-100"
+                        : "border-slate-200 text-slate-600 bg-slate-50 hover:bg-slate-100";
+                    return (
+                      <button key={m.id}
+                        onClick={() => setSelectedModifierIds(prev => {
+                          const next = new Set(prev);
+                          if (next.has(m.id)) next.delete(m.id); else next.add(m.id);
+                          return next;
+                        })}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 font-medium transition-all text-left active:scale-95",
+                          checked ? colorOn : colorOff
+                        )}>
+                        <span className="text-base font-bold shrink-0 w-5 text-center">{typeIcon}</span>
+                        <span className="flex-1 text-sm">{m.label}</span>
+                        {parseFloat(m.priceExtra) !== 0 && (
+                          <span className="text-xs font-mono shrink-0">
+                            {parseFloat(m.priceExtra) > 0 ? "+" : ""}€{parseFloat(m.priceExtra).toFixed(2)}
+                          </span>
+                        )}
+                        {checked && <span className="text-xs font-bold shrink-0">✓</span>}
+                      </button>
+                    );
+                  })}
+              </div>
+            ) : (
+              <div className="text-center py-4 text-slate-300 text-xs italic">Nessuna variazione per questa categoria</div>
+            )}
+
+            {/* Commento KP */}
+            <div className="pt-1">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-teal-600 mb-1.5 flex items-center gap-1">
+                <span>💬</span> Commento KP
+                <span className="ml-auto text-[9px] font-normal text-slate-300 normal-case tracking-normal">Solo cucina · non su scontrino</span>
+              </div>
+              <textarea
+                value={pickerKpNote}
+                onChange={e => setPickerKpNote(e.target.value)}
+                rows={2}
+                placeholder="Es. senza cipolla, ben cotto, allergia…"
+                className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl resize-none outline-none focus:ring-2 focus:ring-teal-300 focus:border-teal-400 placeholder:text-slate-300"
+              />
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="px-4 pb-5 pt-2 flex gap-2 border-t border-slate-100">
+            <Button variant="outline" className="flex-1 h-12 rounded-xl" onClick={() => confirmModifiers(false)}>
               Senza variazioni
             </Button>
-            <Button className="flex-1" onClick={confirmModifiers}>
+            <Button className="flex-1 h-12 rounded-xl text-sm font-bold" onClick={() => confirmModifiers(true)}>
               {selectedModifierIds.size > 0 ? `Aggiungi (${selectedModifierIds.size})` : "Aggiungi"}
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
