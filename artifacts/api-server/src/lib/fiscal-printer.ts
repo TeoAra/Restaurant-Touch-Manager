@@ -80,9 +80,11 @@ export async function sendCgiCommand(
   path: string,
   method: "GET" | "POST" = "POST",
   body?: string,
-  timeoutMs = 8000
+  timeoutMs = 8000,
+  port = 80
 ): Promise<CgiResult> {
-  const url = `http://${ip}${path}`;
+  const portStr = port && port !== 80 ? `:${port}` : "";
+  const url = `http://${ip}${portStr}${path}`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   const t0 = Date.now();
@@ -230,7 +232,7 @@ export async function emettiFiscalReceipt(opts: {
   // ── Chiama la RT con XML Protocol 7.0 ────────────────────────────────────
   let rt: CgiResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
   if (printer) {
-    const rtPort = printer.port && printer.port !== 9100 ? printer.port : 80;
+    const rtPort = printer.port ?? 80;
     const xml = buildReceiptXml({ righe, importo, metodoPagamento, lotteria });
     rt = await sendXmlCommand(printer.ip, xml, 12000, rtPort);
   }

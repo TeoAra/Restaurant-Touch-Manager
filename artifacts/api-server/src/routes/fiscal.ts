@@ -100,7 +100,8 @@ router.post("/receipts/:id/void", async (req, res) => {
       "/cgi-bin/annullo.cgi",
       "POST",
       `data=${dataCgi}&chiusura=${nChiusura}&documento=${nDocumento}&importo=${receipt.importo}`,
-      6000
+      6000,
+      printer.port ?? 80
     );
   } else {
     printerResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
@@ -125,7 +126,7 @@ router.post("/lotteria", async (req, res) => {
     return res.json({ ok: true, codice: codicePulito, nota: "RT non configurata — codice salvato, verrà applicato all'incasso" });
   }
   // Verifica connettività RT via XML (queryPrinterStatus)
-  const result = await inviaLotteriaRt(printer.ip, codicePulito);
+  const result = await inviaLotteriaRt(printer.ip, codicePulito, printer.port ?? 80);
   res.json({
     ok: result.ok,
     ms: result.ms,
@@ -153,7 +154,7 @@ router.post("/x-report", async (req, res) => {
   let printerResult = null;
   if (printer) {
     // Lettura di giornata — CGI standard RT italiano
-    printerResult = await sendCgiCommand(printer.ip, "/cgi-bin/lettura.cgi", "GET", undefined, 8000);
+    printerResult = await sendCgiCommand(printer.ip, "/cgi-bin/lettura.cgi", "GET", undefined, 8000, printer.port ?? 80);
   } else {
     printerResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
   }
@@ -190,7 +191,7 @@ router.post("/z-report", async (req, res) => {
   let printerResult = null;
   if (printer) {
     // Chiusura fiscale — CGI standard RT italiano
-    printerResult = await sendCgiCommand(printer.ip, "/cgi-bin/chiusura.cgi", "POST", undefined, 10000);
+    printerResult = await sendCgiCommand(printer.ip, "/cgi-bin/chiusura.cgi", "POST", undefined, 10000, printer.port ?? 80);
   } else {
     printerResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
   }
@@ -215,7 +216,7 @@ router.get("/printer-status", async (req, res) => {
   if (!printer) {
     return res.json({ found: false, error: "Nessuna stampante fiscale (RT) configurata e attiva" });
   }
-  const result = await sendCgiCommand(printer.ip, "/cgi-bin/stato.cgi", "GET", undefined, 4000);
+  const result = await sendCgiCommand(printer.ip, "/cgi-bin/stato.cgi", "GET", undefined, 4000, printer.port ?? 80);
   res.json({
     found: true,
     printer: {

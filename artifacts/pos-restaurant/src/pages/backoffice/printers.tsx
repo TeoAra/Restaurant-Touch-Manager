@@ -508,11 +508,7 @@ export default function PrintersPage() {
               <Checkbox
                 id="fiscale"
                 checked={form.isFiscale}
-                onCheckedChange={v => setForm(f => ({
-                  ...f,
-                  isFiscale: v === true,
-                  port: v === true ? 80 : (f.port === 80 ? 9100 : f.port),
-                }))}
+                onCheckedChange={v => setForm(f => ({ ...f, isFiscale: v === true }))}
               />
               <Label htmlFor="fiscale" className="cursor-pointer font-medium text-sm">
                 Stampante fiscale (RT)
