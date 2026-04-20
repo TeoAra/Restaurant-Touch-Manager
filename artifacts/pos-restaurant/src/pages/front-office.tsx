@@ -28,7 +28,7 @@ import {
   ShoppingBag, Truck, Clock, Send, FileText, Divide,
   ChevronLeft, Search, X, UtensilsCrossed, Zap, Map as MapIcon,
   AlertTriangle, CheckCircle2, User, LogOut, Building2, Pencil,
-  ArrowRightFromLine, ReceiptText, Trash2, BadgePercent, StickyNote,
+  ArrowRightFromLine, ReceiptText, Trash2, BadgePercent, StickyNote, Ticket,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link } from "wouter";
@@ -1107,6 +1107,10 @@ export default function FrontOffice() {
   const [showRomana, setShowRomana] = useState(false);
   const [showPreconto, setShowPreconto] = useState(false);
   const [showSplitBill, setShowSplitBill] = useState(false);
+  const [showLotteria, setShowLotteria] = useState(false);
+  const [lotteriaCodice, setLotteriaCodice] = useState(""); // codice confermato per l'ordine attivo
+  const [lotteriaInput, setLotteriaInput] = useState("");   // input nel dialog
+  const [lotteriaLoading, setLotteriaLoading] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [pendingTableId, setPendingTableId] = useState<number | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ itemId: number; name: string } | null>(null);
@@ -1335,7 +1339,43 @@ export default function FrontOffice() {
     setIsQuickMode(null);
     setQuickOrderId(null);
     setSelectedCategoryId(null);
+    setLotteriaCodice("");
+    setLotteriaInput("");
     refresh();
+  }
+
+  async function handleLotteria() {
+    const codice = lotteriaInput.toUpperCase().trim();
+    if (codice.length !== 8) return;
+    setLotteriaLoading(true);
+    try {
+      const res = await fetch(`${API}/fiscal/lotteria`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ codice }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setLotteriaCodice(codice);
+        setShowLotteria(false);
+        toast({ title: "Codice lotteria inviato", description: `Codice ${codice} trasmesso alla RT` });
+      } else {
+        // Errore RT ma salviamo comunque il codice localmente
+        setLotteriaCodice(codice);
+        setShowLotteria(false);
+        toast({
+          title: "Codice salvato — RT non risponde",
+          description: data.error ?? "La stampante fiscale non è raggiungibile",
+          variant: "destructive",
+        });
+      }
+    } catch {
+      setLotteriaCodice(codice);
+      setShowLotteria(false);
+      toast({ title: "Codice salvato offline", description: `${codice} — nessuna RT raggiungibile`, variant: "destructive" });
+    } finally {
+      setLotteriaLoading(false);
+    }
   }
 
   async function handleCancelOrder() {
@@ -1759,10 +1799,19 @@ export default function FrontOffice() {
               Sconto
             </button>
             <button
-              disabled={!selectedItemId}
-              onClick={() => { setRightTab("var"); setMobilePanel("right"); }}
-              className="h-12 rounded-lg flex items-center justify-center bg-blue-100 text-blue-800 hover:bg-blue-200 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
-              Nota
+              disabled={items.length === 0 && !activeOrderId}
+              onClick={() => { setLotteriaInput(lotteriaCodice); setShowLotteria(true); }}
+              className={cn(
+                "h-12 rounded-lg flex items-center justify-center gap-1 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed relative",
+                lotteriaCodice
+                  ? "bg-green-100 text-green-800 hover:bg-green-200 ring-1 ring-green-400"
+                  : "bg-blue-100 text-blue-800 hover:bg-blue-200"
+              )}>
+              <Ticket className="h-3.5 w-3.5 shrink-0" />
+              Lotteria
+              {lotteriaCodice && (
+                <span className="absolute -top-1 -right-1 bg-green-500 text-white text-[9px] font-bold rounded-full px-1 leading-4">✓</span>
+              )}
             </button>
 
             {/* Riga 2 */}
@@ -2145,6 +2194,81 @@ export default function FrontOffice() {
         item={editingItem}
         onSave={handleSaveItemEdit}
       />
+
+      {/* ── Lotteria degli Scontrini ─────────────────────────────────────────── */}
+      <Dialog open={showLotteria} onOpenChange={o => !o && setShowLotteria(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Ticket className="h-5 w-5 text-blue-600" /> Codice Lotteria Scontrini
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-1">
+            <p className="text-xs text-slate-500">
+              Il cliente fornisce il codice di 8 caratteri dalla app <strong>Lotteria degli Scontrini</strong>.
+              Verrà trasmesso alla RT e registrato dall'Agenzia delle Entrate.
+            </p>
+
+            {/* Display del codice */}
+            <div className="flex justify-center">
+              <div className="font-mono text-3xl tracking-[0.4em] font-bold text-slate-800 bg-slate-100 border-2 border-slate-300 rounded-xl px-6 py-3 min-w-[220px] text-center">
+                {(lotteriaInput || "________").split("").map((ch, i) => (
+                  <span key={i} className={ch === "_" ? "text-slate-300" : "text-slate-800"}>{ch}</span>
+                ))}
+              </div>
+            </div>
+
+            {/* Tastiera alfanumerica touchscreen */}
+            <div className="space-y-1.5">
+              {[
+                ["1","2","3","4","5","6","7","8","9","0"],
+                ["Q","W","E","R","T","Y","U","I","O","P"],
+                ["A","S","D","F","G","H","J","K","L","⌫"],
+                ["Z","X","C","V","B","N","M","✕"],
+              ].map((row, ri) => (
+                <div key={ri} className="flex gap-1 justify-center">
+                  {row.map(k => (
+                    <button
+                      key={k}
+                      onPointerDown={e => {
+                        e.preventDefault();
+                        if (k === "⌫") { setLotteriaInput(p => p.slice(0, -1)); return; }
+                        if (k === "✕") { setLotteriaInput(""); return; }
+                        if (lotteriaInput.length < 8) setLotteriaInput(p => p + k);
+                      }}
+                      className={cn(
+                        "h-10 rounded-lg text-sm font-bold select-none active:scale-95 transition-all",
+                        k === "⌫" ? "bg-amber-100 text-amber-800 px-3" :
+                        k === "✕" ? "bg-red-100 text-red-700 px-3 flex-1" :
+                        "bg-slate-100 hover:bg-slate-200 text-slate-800 w-8"
+                      )}>
+                      {k}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+
+            {lotteriaCodice && (
+              <div className="text-xs text-center text-green-600 font-semibold">
+                Codice attivo: <span className="font-mono tracking-widest">{lotteriaCodice}</span>
+                <button className="ml-2 underline text-red-500" onPointerDown={() => { setLotteriaCodice(""); setLotteriaInput(""); }}>Rimuovi</button>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowLotteria(false)}>Chiudi</Button>
+            <Button
+              onClick={handleLotteria}
+              disabled={lotteriaInput.length !== 8 || lotteriaLoading}
+              className="gap-1.5 bg-blue-600 hover:bg-blue-700">
+              {lotteriaLoading
+                ? <><span className="animate-spin">⏳</span> Invio...</>
+                : <><Ticket className="h-4 w-4" /> Invia alla RT ({lotteriaInput.length}/8)</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <CoversDialog
         open={showCovers}

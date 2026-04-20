@@ -152,6 +152,27 @@ router.post("/receipts/:id/void", async (req, res) => {
   res.json({ receipt, printer: printerResult });
 });
 
+// ── Lotteria degli Scontrini — invia codice cliente alla RT ─────────────────
+router.post("/lotteria", async (req, res) => {
+  const { codice } = req.body as { codice?: string };
+  if (!codice || codice.length !== 8) {
+    return res.status(400).json({ error: "Il codice lotteria deve essere di 8 caratteri" });
+  }
+  const codicePulito = codice.toUpperCase().trim();
+  const printer = await getFiscalPrinter();
+  if (!printer) {
+    return res.status(503).json({ ok: false, error: "Nessuna stampante fiscale configurata" });
+  }
+  const result = await sendCgiCommand(
+    printer.ip,
+    "/cgi-bin/lotteria.cgi",
+    "POST",
+    `codice=${codicePulito}`,
+    6000
+  );
+  res.json({ ok: result.ok, ms: result.ms, error: result.error ?? null, codice: codicePulito });
+});
+
 // ── Report X — Lettura di giornata (non azzera) ─────────────────────────────
 router.post("/x-report", async (req, res) => {
   const anno = new Date().getFullYear();
