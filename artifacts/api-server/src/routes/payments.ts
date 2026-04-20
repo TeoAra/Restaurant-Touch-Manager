@@ -36,7 +36,7 @@ router.post("/", async (req, res) => {
   }
 
   // ── Emetti scontrino fiscale sulla RT ────────────────────────────────────
-  let fiscalResult: { receiptId?: number; rtOk?: boolean; rtError?: string } = {};
+  let fiscalResult: { receiptId?: number; rtOk?: boolean; rtError?: string; rtIp?: string; rtBody?: string } = {};
   try {
     const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, body.orderId));
     const settings = await getSettings();
@@ -44,25 +44,38 @@ router.post("/", async (req, res) => {
     const aliquotaIva = settings[`iva_${modalita}`] ?? settings["iva_tavolo"] ?? "10";
     const printer = await getFiscalPrinter();
 
-    const righe = items.map(i => ({
-      desc: i.productName,
-      qta: i.quantity,
-      prezzoUnitario: i.unitPrice,
-      aliquotaIva,
-    }));
+    console.log(`[FISCAL] Pagamento ordine ${body.orderId} — stampante fiscale: ${printer ? `${printer.name} (${printer.ip})` : "NESSUNA"}`);
 
-    const { receipt, rt } = await emettiFiscalReceipt({
-      orderId: body.orderId,
-      importo: body.amount,
-      metodoPagamento: body.method,
-      righe,
-      lotteria,
-      printer,
-    });
+    if (!printer) {
+      console.warn("[FISCAL] Nessuna stampante con is_fiscale=true e active=true trovata in DB");
+      fiscalResult = { rtOk: false, rtError: "Nessuna stampante fiscale configurata nel DB" };
+    } else {
+      const righe = items.map(i => ({
+        desc: i.productName,
+        qta: i.quantity,
+        prezzoUnitario: i.unitPrice,
+        aliquotaIva,
+      }));
 
-    fiscalResult = { receiptId: receipt.id, rtOk: rt.ok, rtError: rt.error };
+      console.log(`[FISCAL] Invio XML a http://${printer.ip}/cgi-bin/fpmate.cgi — ${righe.length} righe — IVA ${aliquotaIva}% — totale ${body.amount}`);
+
+      const { receipt, rt } = await emettiFiscalReceipt({
+        orderId: body.orderId,
+        importo: body.amount,
+        metodoPagamento: body.method,
+        righe,
+        lotteria,
+        printer,
+      });
+
+      console.log(`[FISCAL] RT risposta: ok=${rt.ok} ms=${rt.ms} rtCode=${rt.rtCode ?? "-"} error=${rt.error ?? "-"}`);
+      if (rt.body) console.log(`[FISCAL] RT body: ${rt.body.substring(0, 300)}`);
+
+      fiscalResult = { receiptId: receipt.id, rtOk: rt.ok, rtError: rt.error, rtIp: printer.ip, rtBody: rt.body?.substring(0, 200) };
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[FISCAL] Eccezione: ${msg}`);
     fiscalResult = { rtOk: false, rtError: `Errore emissione scontrino: ${msg}` };
   }
 

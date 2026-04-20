@@ -1517,9 +1517,22 @@ export default function FrontOffice() {
   async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number) {
     if (!activeOrderId) return;
     setShowPayment(false);
-    await createPayment.mutateAsync({
+    const paymentRes = await createPayment.mutateAsync({
       data: { orderId: activeOrderId, method, amount: total.toFixed(2), amountGiven: amountGiven?.toFixed(2), lotteria: lotteriaCodice || undefined } as never
     });
+    // Mostra risultato RT (scontrino fiscale)
+    const fiscal = (paymentRes as never as { fiscal?: { rtOk?: boolean; rtError?: string; rtIp?: string; receiptId?: number } }).fiscal;
+    if (fiscal) {
+      if (fiscal.rtOk) {
+        toast({ title: "Scontrino fiscale emesso", description: `RT ${fiscal.rtIp ?? ""} — ricevuta #${fiscal.receiptId}` });
+      } else {
+        toast({
+          title: "Scontrino non inviato alla RT",
+          description: fiscal.rtError ?? "Errore sconosciuto — controlla i log del server",
+          variant: "destructive",
+        });
+      }
+    }
     if (invoiceCustomerId && items.length > 0) {
       try {
         const righe = items.map(i => ({
