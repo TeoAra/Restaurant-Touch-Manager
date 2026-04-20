@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { UtensilsCrossed, LayoutGrid, BarChart3, CreditCard, ArrowRight, BookOpen, Layers, Printer, Settings, Users, Receipt, FileText, User, Tag, Zap, Bike, Package, Sun, MessageSquare, BadgePercent, SlidersHorizontal, CalendarDays } from "lucide-react";
+import { UtensilsCrossed, LayoutGrid, BarChart3, CreditCard, ArrowRight, BookOpen, Layers, Printer, Settings, Users, Receipt, FileText, User, Tag, Zap, Bike, Package, Sun, BadgePercent, SlidersHorizontal, CalendarDays } from "lucide-react";
 import { useGetDashboardSummary } from "@workspace/api-client-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
 
@@ -21,7 +21,6 @@ const sections = [
   { href: "/backoffice/rooms", icon: Layers, label: "Sale", description: "Gestione ambienti", color: "bg-violet-50 text-violet-600 border-violet-200" },
 
   // Cucina e stampa
-  { href: "/backoffice/kp-comments", icon: MessageSquare, label: "Commenti KP", description: "Note cucina rapide", color: "bg-teal-50 text-teal-600 border-teal-200" },
   { href: "/backoffice/printers", icon: Printer, label: "Stampanti", description: "Configurazione", color: "bg-slate-50 text-slate-600 border-slate-200" },
 
   // Delivery
@@ -44,9 +43,9 @@ const sections = [
 const GROUPS = [
   { label: "Prodotti & Menu", range: [0, 4] },
   { label: "Sconti & Promozioni", range: [4, 7] },
-  { label: "Sala & Stampa", range: [7, 12] },
-  { label: "Report & Cassa", range: [12, 16] },
-  { label: "Clienti & Gestione", range: [16, 20] },
+  { label: "Sala & Stampa", range: [7, 11] },
+  { label: "Report & Cassa", range: [11, 15] },
+  { label: "Clienti & Gestione", range: [15, 19] },
 ];
 
 export default function BackOfficeIndex() {

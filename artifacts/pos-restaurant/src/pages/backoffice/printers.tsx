@@ -5,301 +5,389 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, Printer, Wifi, WifiOff, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Printer, Wifi, WifiOff, CheckCircle2, XCircle, Loader2, Receipt } from "lucide-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
+import { cn } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
 
-type PrinterT = { id: number; name: string; ip: string; port: number; model: string | null; departmentId: number | null; active: boolean };
-type PrinterForm = { name: string; ip: string; port: number; model: string; departmentId: string; active: boolean };
-type AppSettings = Record<string, string>;
-type TestResult = { ok: boolean; error?: string } | null;
+type PrinterT = {
+  id: number;
+  name: string;
+  ip: string;
+  port: number;
+  subnet: string | null;
+  model: string | null;
+  isFiscale: boolean;
+  matricola: string | null;
+  departmentId: number | null;
+  active: boolean;
+};
 
-const empty: PrinterForm = { name: "", ip: "192.168.1.", port: 9100, model: "", departmentId: "", active: true };
+type PrinterForm = {
+  name: string;
+  ip: string;
+  port: number;
+  subnet: string;
+  model: string;
+  isFiscale: boolean;
+  matricola: string;
+  active: boolean;
+};
+
+type TestResult = { id: number; ok: boolean; ms?: number; error?: string } | null;
+
+const empty: PrinterForm = {
+  name: "",
+  ip: "192.168.1.",
+  port: 9100,
+  subnet: "255.255.255.0",
+  model: "",
+  isFiscale: false,
+  matricola: "",
+  active: true,
+};
 
 async function fetchPrinters(): Promise<PrinterT[]> {
   const res = await fetch(`${API}/printers`);
   if (!res.ok) throw new Error("Errore");
   return res.json();
 }
-function fetchSettings(): Promise<AppSettings> {
-  return fetch(`${API}/settings`).then(r => r.json());
-}
 
 function FLabel({ children }: { children: React.ReactNode }) {
   return <Label className="text-xs text-slate-500 mb-1 block">{children}</Label>;
-}
-
-function StatusBadge({ result, label }: { result: TestResult; label: string }) {
-  if (!result) return <span className="text-xs text-slate-400">{label}: —</span>;
-  if (result.ok) return (
-    <span className="flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-      <CheckCircle2 className="h-3.5 w-3.5" /> {label}: Raggiunta
-    </span>
-  );
-  return (
-    <span className="flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
-      <XCircle className="h-3.5 w-3.5" /> {label}: {result.error ?? "Non raggiunta"}
-    </span>
-  );
 }
 
 export default function PrintersPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const { data: printers = [], isLoading } = useQuery({ queryKey: ["printers"], queryFn: fetchPrinters });
-  const { data: settings = {} } = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
 
-  // ── Dialog stampante ESC/POS ────────────────────────────────────────────────
+  // Dialog
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<PrinterT | null>(null);
   const [form, setForm] = useState<PrinterForm>(empty);
 
   const create = useMutation({
     mutationFn: (data: PrinterForm) =>
-      fetch(`${API}/printers`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...data, port: Number(data.port), departmentId: data.departmentId ? Number(data.departmentId) : null }) }).then(r => r.json()),
+      fetch(`${API}/printers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...data,
+          port: Number(data.port),
+          subnet: data.subnet || null,
+          model: data.model || null,
+          matricola: data.isFiscale && data.matricola ? data.matricola : null,
+          departmentId: null,
+        }),
+      }).then(r => r.json()),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["printers"] }); setOpen(false); toast({ title: "Stampante aggiunta" }); },
   });
+
   const update = useMutation({
     mutationFn: ({ id, data }: { id: number; data: PrinterForm }) =>
-      fetch(`${API}/printers/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...data, port: Number(data.port), departmentId: data.departmentId ? Number(data.departmentId) : null }) }).then(r => r.json()),
+      fetch(`${API}/printers/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...data,
+          port: Number(data.port),
+          subnet: data.subnet || null,
+          model: data.model || null,
+          matricola: data.isFiscale && data.matricola ? data.matricola : null,
+          departmentId: null,
+        }),
+      }).then(r => r.json()),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["printers"] }); setOpen(false); toast({ title: "Stampante aggiornata" }); },
   });
+
   const remove = useMutation({
     mutationFn: (id: number) => fetch(`${API}/printers/${id}`, { method: "DELETE" }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["printers"] }); toast({ title: "Stampante eliminata" }); },
   });
 
   function openNew() { setEditing(null); setForm(empty); setOpen(true); }
-  function openEdit(p: PrinterT) { setEditing(p); setForm({ name: p.name, ip: p.ip, port: p.port, model: p.model ?? "", departmentId: p.departmentId?.toString() ?? "", active: p.active }); setOpen(true); }
+  function openEdit(p: PrinterT) {
+    setEditing(p);
+    setForm({
+      name: p.name,
+      ip: p.ip,
+      port: p.port,
+      subnet: p.subnet ?? "255.255.255.0",
+      model: p.model ?? "",
+      isFiscale: p.isFiscale,
+      matricola: p.matricola ?? "",
+      active: p.active,
+    });
+    setOpen(true);
+  }
+
   function handleSave() {
     if (editing) update.mutate({ id: editing.id, data: form });
     else create.mutate(form);
   }
 
-  // ── Stampanti fisse (DTR + Sewoo) da settings ───────────────────────────────
-  const [fixedForm, setFixedForm] = useState({ dtr_ip: "", dtr_matricola: "", sewoo_ip: "", sewoo_port: "9100" });
-  useEffect(() => {
-    if (Object.keys(settings).length > 0) {
-      setFixedForm(f => ({
-        dtr_ip: settings.dtr_ip ?? f.dtr_ip,
-        dtr_matricola: settings.dtr_matricola ?? f.dtr_matricola,
-        sewoo_ip: settings.sewoo_ip ?? f.sewoo_ip,
-        sewoo_port: settings.sewoo_port ?? "9100",
-      }));
-    }
-  }, [settings]);
-
-  const saveFixed = useMutation({
-    mutationFn: async () => {
-      for (const [key, value] of Object.entries(fixedForm)) {
-        await fetch(`${API}/settings`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ key, value }),
-        });
-      }
-      qc.invalidateQueries({ queryKey: ["settings"] });
-    },
-    onSuccess: () => toast({ title: "Impostazioni stampanti salvate" }),
-  });
-
-  // ── Test connessione ─────────────────────────────────────────────────────────
+  // Test all printers
   const [testing, setTesting] = useState(false);
-  const [testDtr, setTestDtr] = useState<TestResult>(null);
-  const [testSewoo, setTestSewoo] = useState<TestResult>(null);
+  const [testResults, setTestResults] = useState<Map<number, TestResult>>(new Map());
 
-  async function runTest() {
+  async function runTestAll() {
     setTesting(true);
-    setTestDtr(null);
-    setTestSewoo(null);
+    setTestResults(new Map());
     try {
-      const resp = await fetch(`${API}/fiscal/printer-test`);
-      const data = await resp.json();
-      setTestDtr(data.dtr ?? { ok: false, error: "Non configurata" });
-      setTestSewoo(data.sewoo ?? { ok: false, error: "Non configurata" });
+      const resp = await fetch(`${API}/printers/test-all`);
+      const data = await resp.json() as { results: Array<{ id: number; ok: boolean; ms?: number; error?: string }> };
+      const map = new Map<number, TestResult>();
+      for (const r of data.results) map.set(r.id, r);
+      setTestResults(map);
     } catch {
-      setTestDtr({ ok: false, error: "Errore di rete" });
-      setTestSewoo({ ok: false, error: "Errore di rete" });
+      toast({ title: "Errore test connessioni", variant: "destructive" });
     } finally {
       setTesting(false);
     }
   }
 
+  const activePrinters = printers.filter(p => p.active);
+
   return (
     <BackofficeShell
       title="Stampanti"
-      subtitle="Configurazione stampanti fiscali e comande"
-      actions={<Button size="sm" onClick={openNew} className="gap-1.5"><Plus className="h-4 w-4" /> Nuova ESC/POS</Button>}
+      subtitle={`${printers.length} stampant${printers.length === 1 ? "e" : "i"} configurate`}
+      actions={
+        <Button size="sm" onClick={openNew} className="gap-1.5">
+          <Plus className="h-4 w-4" /> Nuova
+        </Button>
+      }
     >
-    <div className="p-4 md:p-6 max-w-2xl space-y-8">
-
-      {/* ── Stampante Fiscale DTR ─────────────────────────────────────────────── */}
-      <div className="space-y-3">
-        <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 px-1 flex items-center gap-2">
-          <Printer className="h-3.5 w-3.5 text-red-500" /> Stampante Fiscale RT
-        </h2>
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-5">
-
-          {/* DTR */}
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <div className="h-8 w-8 bg-red-50 rounded-lg flex items-center justify-center shrink-0">
-                <Printer className="h-4 w-4 text-red-600" />
-              </div>
-              <div>
-                <div className="font-semibold text-sm text-slate-800">DTR DFront RT</div>
-                <div className="text-xs text-slate-400">Stampante fiscale (RT) — collegamento IP</div>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <FLabel>Indirizzo IP</FLabel>
-                <Input value={fixedForm.dtr_ip} onChange={e => setFixedForm(f => ({ ...f, dtr_ip: e.target.value }))} placeholder="192.168.1.100" className="h-9 text-sm" />
-              </div>
-              <div>
-                <FLabel>Matricola fiscale</FLabel>
-                <Input value={fixedForm.dtr_matricola} onChange={e => setFixedForm(f => ({ ...f, dtr_matricola: e.target.value }))} placeholder="RT-XXXXXXXXXX" className="h-9 text-sm" />
-              </div>
-            </div>
-          </div>
-
-          {/* Sewoo */}
-          <div className="border-t border-slate-100 pt-4">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="h-8 w-8 bg-blue-50 rounded-lg flex items-center justify-center shrink-0">
-                <Printer className="h-4 w-4 text-blue-600" />
-              </div>
-              <div>
-                <div className="font-semibold text-sm text-slate-800">Sewoo SLK-TS400EB</div>
-                <div className="text-xs text-slate-400">Stampante comande — collegamento IP/Ethernet ESC/POS</div>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <FLabel>Indirizzo IP</FLabel>
-                <Input value={fixedForm.sewoo_ip} onChange={e => setFixedForm(f => ({ ...f, sewoo_ip: e.target.value }))} placeholder="192.168.1.101" className="h-9 text-sm" />
-              </div>
-              <div>
-                <FLabel>Porta TCP</FLabel>
-                <Input value={fixedForm.sewoo_port} onChange={e => setFixedForm(f => ({ ...f, sewoo_port: e.target.value }))} placeholder="9100" className="h-9 text-sm" />
-              </div>
-            </div>
-          </div>
-
-          {/* Test + risultati */}
-          <div className="border-t border-slate-100 pt-4 space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={runTest} disabled={testing}>
-                {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wifi className="h-4 w-4" />}
-                {testing ? "Test in corso..." : "Test connessione"}
-              </Button>
-              {(testDtr || testSewoo) && (
-                <div className="flex flex-wrap gap-2">
-                  <StatusBadge result={testDtr} label="DTR" />
-                  <StatusBadge result={testSewoo} label="Sewoo" />
-                </div>
-              )}
-            </div>
-            <div className="flex justify-end">
-              <Button size="sm" onClick={() => saveFixed.mutate()} disabled={saveFixed.isPending}>
-                {saveFixed.isPending ? "Salvataggio..." : "Salva Impostazioni"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Stampanti ESC/POS aggiuntive ──────────────────────────────────────── */}
-      <div className="space-y-3">
-        <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 px-1 flex items-center gap-2">
-          <Printer className="h-3.5 w-3.5 text-blue-500" /> Stampanti ESC/POS Aggiuntive
-        </h2>
+      <div className="p-4 md:p-6 max-w-2xl space-y-4">
 
         {isLoading ? (
-          <div className="text-sm text-slate-400 px-1">Caricamento...</div>
+          <div className="flex items-center gap-2 text-slate-400 py-10 justify-center">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span className="text-sm">Caricamento...</span>
+          </div>
+        ) : printers.length === 0 ? (
+          <div className="text-center py-16 text-slate-400">
+            <Printer className="h-12 w-12 mx-auto mb-3 opacity-20" />
+            <div className="text-sm font-medium">Nessuna stampante configurata</div>
+            <div className="text-xs mt-1">Aggiungi la prima stampante con il pulsante in alto</div>
+          </div>
         ) : (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="text-left px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Nome</th>
-                  <th className="text-left px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">IP:Porta</th>
-                  <th className="text-left px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Modello</th>
-                  <th className="text-left px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Stato</th>
-                  <th className="px-4 py-3 w-20" />
-                </tr>
-              </thead>
-              <tbody>
-                {printers.map((p, i) => (
-                  <tr key={p.id} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/50"}>
-                    <td className="px-4 py-3 font-medium text-slate-800">{p.name}</td>
-                    <td className="px-4 py-3 text-slate-500 font-mono text-xs">{p.ip}:{p.port}</td>
-                    <td className="px-4 py-3 text-slate-500">{p.model || "—"}</td>
-                    <td className="px-4 py-3">
-                      {p.active
-                        ? <span className="flex items-center gap-1 text-emerald-600 text-xs font-medium"><Wifi className="h-3 w-3" />Attiva</span>
-                        : <span className="flex items-center gap-1 text-slate-400 text-xs"><WifiOff className="h-3 w-3" />Inattiva</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1 justify-end">
-                        <Button variant="ghost" size="sm" onClick={() => openEdit(p)}><Pencil className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => remove.mutate(p.id)}><Trash2 className="h-4 w-4" /></Button>
+          <div className="space-y-3">
+            {printers.map(p => {
+              const result = testResults.get(p.id);
+              return (
+                <div key={p.id} className={cn(
+                  "bg-white border-2 rounded-2xl p-4 shadow-sm transition-all",
+                  p.isFiscale ? "border-red-200" : "border-slate-200",
+                  !p.active && "opacity-60"
+                )}>
+                  <div className="flex items-start gap-3">
+                    {/* Icon */}
+                    <div className={cn(
+                      "h-10 w-10 rounded-xl flex items-center justify-center shrink-0",
+                      p.isFiscale ? "bg-red-50" : "bg-blue-50"
+                    )}>
+                      {p.isFiscale
+                        ? <Receipt className="h-5 w-5 text-red-600" />
+                        : <Printer className="h-5 w-5 text-blue-600" />}
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-slate-800 text-sm">{p.name}</span>
+                        {p.isFiscale && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">
+                            RT FISCALE
+                          </span>
+                        )}
+                        {!p.active && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                            Inattiva
+                          </span>
+                        )}
                       </div>
-                    </td>
-                  </tr>
-                ))}
-                {printers.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-10 text-center text-slate-400 text-sm">
-                      Nessuna stampante aggiuntiva configurata
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+
+                      {/* Network info */}
+                      <div className="flex items-center gap-3 mt-1 flex-wrap">
+                        <span className="text-xs font-mono text-slate-500">{p.ip}:{p.port}</span>
+                        {p.subnet && (
+                          <span className="text-xs text-slate-400">Subnet: {p.subnet}</span>
+                        )}
+                        {p.model && (
+                          <span className="text-xs text-slate-400">{p.model}</span>
+                        )}
+                      </div>
+
+                      {/* Matricola fiscale */}
+                      {p.isFiscale && p.matricola && (
+                        <div className="text-xs text-red-600 font-mono mt-0.5">Matricola: {p.matricola}</div>
+                      )}
+
+                      {/* Test result badge */}
+                      {result && (
+                        <div className="mt-1.5">
+                          {result.ok ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Raggiunta {result.ms != null ? `(${result.ms}ms)` : ""}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
+                              <XCircle className="h-3 w-3" />
+                              Non raggiunta: {result.error ?? "errore"}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => openEdit(p)}
+                        className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors">
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => remove.mutate(p.id)}
+                        className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Test tutte le connessioni */}
+        {activePrinters.length > 0 && (
+          <div className="pt-2">
+            <Button
+              variant="outline"
+              className="w-full gap-2 h-12 rounded-2xl border-2 border-dashed"
+              onClick={runTestAll}
+              disabled={testing}
+            >
+              {testing
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Test in corso...</>
+                : <><Wifi className="h-4 w-4" /> Testa tutte le connessioni ({activePrinters.length})</>
+              }
+            </Button>
+            {testResults.size > 0 && (
+              <div className="mt-2 text-xs text-center text-slate-400">
+                {[...testResults.values()].filter(r => r?.ok).length} / {testResults.size} raggiungibili
+              </div>
+            )}
           </div>
         )}
       </div>
 
-    </div>
+      {/* Dialog nuova/modifica stampante */}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{editing ? "Modifica Stampante" : "Nuova Stampante"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
 
-    {/* Dialog nuova/modifica stampante ESC/POS */}
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent>
-        <DialogHeader><DialogTitle>{editing ? "Modifica Stampante" : "Nuova Stampante ESC/POS"}</DialogTitle></DialogHeader>
-        <div className="space-y-4 py-2">
-          <div className="space-y-1">
-            <Label>Nome *</Label>
-            <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="es. Cucina, Bar, Cassa 2" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label>Indirizzo IP *</Label>
-              <Input value={form.ip} onChange={e => setForm(f => ({ ...f, ip: e.target.value }))} placeholder="192.168.1.100" />
+              <FLabel>Nome *</FLabel>
+              <Input
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="es. Cucina, Bar, Cassa RT"
+              />
             </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <FLabel>Indirizzo IP *</FLabel>
+                <Input
+                  value={form.ip}
+                  onChange={e => setForm(f => ({ ...f, ip: e.target.value }))}
+                  placeholder="192.168.1.100"
+                  className="font-mono text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <FLabel>Porta TCP</FLabel>
+                <Input
+                  type="number"
+                  value={form.port}
+                  onChange={e => setForm(f => ({ ...f, port: parseInt(e.target.value) || 9100 }))}
+                  className="font-mono text-sm"
+                />
+              </div>
+            </div>
+
             <div className="space-y-1">
-              <Label>Porta TCP</Label>
-              <Input type="number" value={form.port} onChange={e => setForm(f => ({ ...f, port: parseInt(e.target.value) || 9100 }))} />
+              <FLabel>Subnet mask</FLabel>
+              <Input
+                value={form.subnet}
+                onChange={e => setForm(f => ({ ...f, subnet: e.target.value }))}
+                placeholder="255.255.255.0"
+                className="font-mono text-sm"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <FLabel>Modello</FLabel>
+              <Input
+                value={form.model}
+                onChange={e => setForm(f => ({ ...f, model: e.target.value }))}
+                placeholder="es. DTR DFront RT, Sewoo SLK-TS400"
+              />
+            </div>
+
+            {/* Fiscale */}
+            <div className="flex items-center gap-3 py-1">
+              <Checkbox
+                id="fiscale"
+                checked={form.isFiscale}
+                onCheckedChange={v => setForm(f => ({ ...f, isFiscale: v === true }))}
+              />
+              <Label htmlFor="fiscale" className="cursor-pointer font-medium text-sm">
+                Stampante fiscale (RT)
+              </Label>
+            </div>
+
+            {form.isFiscale && (
+              <div className="space-y-1 pl-7">
+                <FLabel>Matricola fiscale</FLabel>
+                <Input
+                  value={form.matricola}
+                  onChange={e => setForm(f => ({ ...f, matricola: e.target.value }))}
+                  placeholder="es. RT-XXXXXXXXXX"
+                  className="font-mono text-sm"
+                />
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 pt-1">
+              <Switch
+                checked={form.active}
+                onCheckedChange={v => setForm(f => ({ ...f, active: v }))}
+              />
+              <Label className="text-sm">Stampante attiva</Label>
             </div>
           </div>
-          <div className="space-y-1">
-            <Label>Modello</Label>
-            <Input value={form.model} onChange={e => setForm(f => ({ ...f, model: e.target.value }))} placeholder="es. Sewoo LK-TL212, Epson TM-T88" />
-          </div>
-          <div className="flex items-center gap-3">
-            <Switch checked={form.active} onCheckedChange={v => setForm(f => ({ ...f, active: v }))} />
-            <Label>Stampante attiva</Label>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Annulla</Button>
-          <Button onClick={handleSave} disabled={!form.name || !form.ip}>{editing ? "Salva" : "Aggiungi"}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Annulla</Button>
+            <Button onClick={handleSave} disabled={!form.name || !form.ip}>
+              {editing ? "Salva" : "Aggiungi"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </BackofficeShell>
   );
 }
