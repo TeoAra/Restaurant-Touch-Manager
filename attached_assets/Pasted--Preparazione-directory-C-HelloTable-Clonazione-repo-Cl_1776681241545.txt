@@ -1,0 +1,125 @@
+>>> Preparazione directory C:\HelloTable
+    Clonazione repo...
+Cloning into 'C:\HelloTable'...
+remote: Enumerating objects: 713, done.
+remote: Counting objects: 100% (22/22), done.
+remote: Compressing objects: 100% (16/16), done.
+remote: Total 713 (delta 14), reused 13 (delta 6), pack-reused 691 (from 1)
+Receiving objects: 100% (713/713), 70.96 MiB | 12.84 MiB/s, done.
+Resolving deltas: 100% (385/385), done.
+Updating files: 100% (282/282), done.
+    [OK] Sorgenti pronti in C:\HelloTable
+
+>>> Configurazione .env
+    Inserisci il DATABASE_URL (PostgreSQL): postgresql://postgres:password@helium/heliumdb?sslmode=disable
+    [OK] .env creato
+
+>>> Installazione dipendenze (pnpm install)
+Scope: all 9 workspace projects
+Lockfile is up to date, resolution step is skipped
+Packages: +486
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 486, reused 486, downloaded 0, added 486, done
+
+devDependencies:
++ prettier 3.8.1
++ typescript 5.9.3
+
+. preinstall$ sh -c 'rm -f package-lock.json yarn.lock; case "$npm_config_user_agent" in pnpm/*) ;; *) echo "Use pnpm…
+│ "sh" non � riconosciuto come comando interno o esterno,
+│  un programma eseguibile o un file batch.
+└─ Failed in 123ms at C:\HelloTable
+ ELIFECYCLE  Command failed with exit code 1.
+    [OK] Dipendenze installate
+
+>>> Build API server
+
+> @workspace/api-server@0.0.0 build C:\HelloTable\artifacts\api-server
+> node ./build.mjs
+
+
+  dist\index.mjs                       2.3mb
+  dist\pino-worker.mjs               153.4kb
+  dist\pino-file.mjs                 142.0kb
+  dist\pino-pretty.mjs               114.6kb
+  dist\thread-stream-worker.mjs        7.3kb
+  dist\index.mjs.map                   3.9mb
+  dist\pino-worker.mjs.map           256.9kb
+  dist\pino-file.mjs.map             229.0kb
+  dist\pino-pretty.mjs.map           203.9kb
+  dist\thread-stream-worker.mjs.map   12.0kb
+
+Done in 1254ms
+    [OK] API server compilato
+
+>>> Build frontend
+
+> @workspace/pos-restaurant@0.0.0 build C:\HelloTable\artifacts\pos-restaurant
+> vite build --config vite.config.ts
+
+You are using Node.js 20.11.1. Vite requires Node.js version 20.19+ or 22.12+. Please upgrade your Node.js version.
+C:\HelloTable\node_modules\.pnpm\rollup@4.59.0\node_modules\rollup\dist\native.js:115
+                throw new Error(
+                      ^
+
+Error: Cannot find module @rollup/rollup-win32-x64-msvc. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Please try `npm i` again after removing both package-lock.json and node_modules directory.
+    at requireWithFriendlyError (C:\HelloTable\node_modules\.pnpm\rollup@4.59.0\node_modules\rollup\dist\native.js:115:9)
+    at Object.<anonymous> (C:\HelloTable\node_modules\.pnpm\rollup@4.59.0\node_modules\rollup\dist\native.js:124:76)
+    ... 3 lines matching cause stack trace ...
+    at Module._load (node:internal/modules/cjs/loader:1023:12)
+    at cjsLoader (node:internal/modules/esm/translators:356:17)
+    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:305:7)
+    at ModuleJob.run (node:internal/modules/esm/module_job:218:25)
+    at async ModuleLoader.import (node:internal/modules/esm/loader:329:24) {
+  [cause]: Error: Cannot find module '@rollup/rollup-win32-x64-msvc'
+  Require stack:
+  - C:\HelloTable\node_modules\.pnpm\rollup@4.59.0\node_modules\rollup\dist\native.js
+      at Module._resolveFilename (node:internal/modules/cjs/loader:1144:15)
+      at Module._load (node:internal/modules/cjs/loader:985:27)
+      at Module.require (node:internal/modules/cjs/loader:1235:19)
+      at require (node:internal/modules/helpers:176:18)
+      at requireWithFriendlyError (C:\HelloTable\node_modules\.pnpm\rollup@4.59.0\node_modules\rollup\dist\native.js:97:10)
+      at Object.<anonymous> (C:\HelloTable\node_modules\.pnpm\rollup@4.59.0\node_modules\rollup\dist\native.js:124:76)
+      at Module._compile (node:internal/modules/cjs/loader:1376:14)
+      at Module._extensions..js (node:internal/modules/cjs/loader:1435:10)
+      at Module.load (node:internal/modules/cjs/loader:1207:32)
+      at Module._load (node:internal/modules/cjs/loader:1023:12) {
+    code: 'MODULE_NOT_FOUND',
+    requireStack: [
+      'C:\\HelloTable\\node_modules\\.pnpm\\rollup@4.59.0\\node_modules\\rollup\\dist\\native.js'
+    ]
+  }
+}
+
+Node.js v20.11.1
+C:\HelloTable\artifacts\pos-restaurant:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/pos-restaurant@0.0.0 build: `vite build --config vite.config.ts`
+Exit status 1
+    [OK] Frontend compilato
+
+>>> Sincronizzazione database
+
+> @workspace/db@0.0.0 push-force C:\HelloTable\lib\db
+> drizzle-kit push --force --config ./drizzle.config.ts
+
+Reading config file 'C:\HelloTable\lib\db\drizzle.config.ts'
+DATABASE_URL, ensure the database is provisioned
+C:\HelloTable\lib\db:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/db@0.0.0 push-force: `drizzle-kit push --force --config ./drizzle.config.ts`
+Exit status 1
+    [OK] Schema DB aggiornato
+
+>>> Scaricamento NSSM (Windows Service Manager)
+    [OK] NSSM pronto: C:\nssm\win64\nssm.exe
+
+>>> Registrazione servizio Windows 'HelloTable'
+iex : Termine 'C:\nssm\win64\nssm.exe' non riconosciuto come nome di cmdlet, funzione, programma eseguibile o file
+script. Controllare l'ortografia del nome o verificare che il percorso sia incluso e corretto, quindi riprovare.
+In riga:3 car:106
++ ... eoAra/Restaurant-Touch-Manager/main/scripts/windows/install.ps1 | iex
++                                                                       ~~~
+    + CategoryInfo          : ObjectNotFound: (C:\nssm\win64\nssm.exe:String) [Invoke-Expression], CommandNotFoundExce
+   ption
+    + FullyQualifiedErrorId : CommandNotFoundException,Microsoft.PowerShell.Commands.InvokeExpressionCommand
+
+PS C:\WINDOWS\system32>

@@ -45,8 +45,8 @@ Write-Step "Verifica prerequisiti"
 
 # Node.js
 if (!(Get-Command node -ErrorAction SilentlyContinue)) {
-    Write-Warn "Node.js non trovato. Installazione v20..."
-    $nodeUrl = "https://nodejs.org/dist/v20.11.1/node-v20.11.1-x64.msi"
+    Write-Warn "Node.js non trovato. Installazione v22..."
+    $nodeUrl = "https://nodejs.org/dist/v22.14.0/node-v22.14.0-x64.msi"
     $nodeMsi = "$env:TEMP\node_install.msi"
     Invoke-WebRequest $nodeUrl -OutFile $nodeMsi
     Start-Process msiexec.exe -Wait -ArgumentList "/i `"$nodeMsi`" /qn ADDLOCAL=ALL"
@@ -127,7 +127,7 @@ foreach ($line in Get-Content $envFile) {
 # ─── 4. Dipendenze e build ──────────────────────────────────────────────────
 Write-Step "Installazione dipendenze (pnpm install)"
 Push-Location $INSTALL_DIR
-pnpm install --frozen-lockfile
+pnpm install
 if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Fail "pnpm install fallito." }
 Write-Ok "Dipendenze installate"
 
