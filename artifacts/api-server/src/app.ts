@@ -43,7 +43,7 @@ if (localFrontendDir) {
     ? localFrontendDir
     : path.resolve(__dirname, localFrontendDir);
   app.use(express.static(frontendPath));
-  app.get("*", (_req, res) => {
+  app.get("/{*path}", (_req, res) => {
     res.sendFile(path.join(frontendPath, "index.html"));
   });
   logger.info({ frontendPath }, "Serving local frontend");
