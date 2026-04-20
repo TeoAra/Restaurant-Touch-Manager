@@ -24,6 +24,7 @@ export const orderItemsTable = pgTable("order_items", {
   subtotal: text("subtotal").notNull(),
   status: text("status").notNull().default("draft"),
   notes: text("notes"),
+  modifiers: text("modifiers").notNull().default("[]"),
   phase: integer("phase").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

@@ -92,7 +92,10 @@ Full-stack POS (Point of Sale) system for restaurants, pubs, and breweries. Buil
 - `payments` — Payment records with method and amounts
 - `users` — Auth users: name, PIN (4-digit), role (admin/employee)
 - `app_settings` — Key-value: enable_asporto, enable_delivery, **cover_price**
-- `product_variations` — Variation groups per product: name, options (JSON), required, sortOrder
+- `product_variations` — Legacy: variation groups per product (kept for compatibility)
+- `modifiers` — Global modifiers: label, type (plus/minus/note), priceExtra (optional)
+- `category_modifiers` — Junction table: many-to-many modifiers ↔ categories
+- `order_items.modifiers` — JSON column: snapshot of selected modifiers at order time
 - `customers` — Customer registry for electronic invoicing (FatturaPA)
 - `invoices` — FatturaPA 1.2.1 invoices with XML content
 - `fiscal_receipts` — Fiscal receipt records
@@ -114,12 +117,16 @@ Full-stack POS (Point of Sale) system for restaurants, pubs, and breweries. Buil
 - Rotation step: **45°** (supports diamond/rhombus layout for 4-seat tables)
 - Rooms, tables, decors on a 12×8 grid (80px cells)
 
-## Product Variations (Back-office → Menu)
+## Modifiers / Variazioni (Back-office → Variazioni)
 
-Each product has a **⚙ Variazioni** button opening a dedicated dialog:
-- Add/edit/delete **variation groups** (e.g., "Cottura", "Taglia", "Aggiunta")
-- Each group has: **name**, **required** toggle, list of **options** (name + price extra)
-- API: `GET/POST /api/products/:id/variations`, `PATCH/DELETE /api/products/:productId/variations/:varId`
+Global modifiers not bound to individual products but to **categories**:
+- **Types**: `plus` (+ aggiunta), `minus` (− rimozione), `note` (✎ commento)
+- Optional price change (positive or negative); defaults to 0
+- Each modifier can be associated to multiple categories via checkbox
+- **In cassa**: when a product from a category with modifiers is tapped, a picker dialog appears to optionally select modifiers before adding the item
+- Selected modifiers are stored as JSON snapshot in `order_items.modifiers` and shown as chips in the cart
+- Price of the item is adjusted by the sum of selected modifier `priceExtra` values
+- API: `GET/POST /api/modifiers`, `PATCH/DELETE /api/modifiers/:id`, `GET /api/modifiers/by-category/:categoryId`
 
 ## Key Commands
 

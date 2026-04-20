@@ -1,11 +1,12 @@
 import { Link } from "wouter";
-import { UtensilsCrossed, LayoutGrid, BarChart3, CreditCard, ArrowRight, BookOpen, Layers, ChefHat, Printer, Settings, Users, Receipt, FileText, User, Tag, Zap, Bike, Package, Sun, MessageSquare, BadgePercent } from "lucide-react";
+import { UtensilsCrossed, LayoutGrid, BarChart3, CreditCard, ArrowRight, BookOpen, Layers, ChefHat, Printer, Settings, Users, Receipt, FileText, User, Tag, Zap, Bike, Package, Sun, MessageSquare, BadgePercent, SlidersHorizontal } from "lucide-react";
 import { useGetDashboardSummary } from "@workspace/api-client-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
 
 const sections = [
   // Database prodotti
   { href: "/backoffice/menu", icon: BookOpen, label: "Menu", description: "Categorie e prodotti", color: "bg-amber-50 text-amber-600 border-amber-200" },
+  { href: "/backoffice/variazioni", icon: SlidersHorizontal, label: "Variazioni", description: "Modificatori per categoria", color: "bg-lime-50 text-lime-700 border-lime-200" },
   { href: "/backoffice/combo", icon: Package, label: "Combo", description: "Menu e prodotti composti", color: "bg-orange-50 text-orange-600 border-orange-200" },
   { href: "/backoffice/aliquote-iva", icon: BadgePercent, label: "Aliquote IVA", description: "Reparti fiscali", color: "bg-red-50 text-red-600 border-red-200" },
 
@@ -41,11 +42,11 @@ const sections = [
 ];
 
 const GROUPS = [
-  { label: "Prodotti & Menu", range: [0, 3] },
-  { label: "Sconti & Promozioni", range: [3, 6] },
-  { label: "Sala & Stampa", range: [6, 11] },
-  { label: "Report & Cassa", range: [11, 15] },
-  { label: "Clienti & Gestione", range: [15, 19] },
+  { label: "Prodotti & Menu", range: [0, 4] },
+  { label: "Sconti & Promozioni", range: [4, 7] },
+  { label: "Sala & Stampa", range: [7, 12] },
+  { label: "Report & Cassa", range: [12, 16] },
+  { label: "Clienti & Gestione", range: [16, 20] },
 ];
 
 export default function BackOfficeIndex() {

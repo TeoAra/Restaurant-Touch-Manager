@@ -1156,10 +1156,22 @@ export default function FrontOffice() {
   const [deleteConfirm, setDeleteConfirm] = useState<{ itemId: number; name: string } | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [editingItem, setEditingItem] = useState<EditableItem | null>(null);
+  const [modifierPicker, setModifierPicker] = useState<{ productId: number; productName: string; unitPrice: string } | null>(null);
+  const [selectedModifierIds, setSelectedModifierIds] = useState<Set<number>>(new Set());
 
   const { data: tablesStatus = [] } = useGetTablesStatus();
   const { data: categories = [] } = useListCategories();
   const { data: products = [] } = useListProducts({ categoryId: selectedCategoryId ?? undefined });
+
+  type FEModifier = { id: number; label: string; type: string; priceExtra: string };
+  const { data: categoryModifiers = [] } = useQuery<FEModifier[]>({
+    queryKey: ["category-modifiers", selectedCategoryId],
+    queryFn: () => selectedCategoryId
+      ? fetch(`${API}/modifiers/by-category/${selectedCategoryId}`).then(r => r.json())
+      : Promise.resolve([]),
+    enabled: !!selectedCategoryId,
+    staleTime: 30000,
+  });
 
   const activeTableEntry = tablesStatus.find(t => t.id === selectedTableId) as FETable | undefined;
   const activeOrderId = isQuickMode
@@ -1361,7 +1373,7 @@ export default function FrontOffice() {
     setNumBuffer(b => (b.length < 5 ? b + key : b));
   }
 
-  async function handleAddProduct(productId: number, unitPrice: string) {
+  async function doAddProduct(productId: number, unitPrice: string, mods: FEModifier[]) {
     const qty = numBuffer ? Math.max(1, parseInt(numBuffer) || 1) : 1;
     setNumBuffer("");
     let orderId = activeOrderId;
@@ -1378,19 +1390,40 @@ export default function FrontOffice() {
       setMobilePanel("left");
       orderId = order.id;
     }
-    // Check for existing item with same product AND same phase AND same unit price
-    const existing = items.find(i =>
+    const modJson = JSON.stringify(mods.map(m => ({ id: m.id, label: m.label, type: m.type, priceExtra: m.priceExtra })));
+    const effectivePrice = mods.reduce((acc, m) => acc + parseFloat(m.priceExtra || "0"), parseFloat(unitPrice));
+    const finalPrice = effectivePrice.toFixed(2);
+    // Only merge into existing item if no modifiers applied
+    const existing = mods.length === 0 ? items.find(i =>
       i.productId === productId &&
       (i as never as { phase: number }).phase === activePriceList &&
-      i.unitPrice === unitPrice
-    );
+      i.unitPrice === unitPrice &&
+      ((i as never as { modifiers?: string }).modifiers ?? "[]") === "[]"
+    ) : null;
     if (existing && orderId === activeOrderId && qty === 1) {
       await updateItem.mutateAsync({ orderId, itemId: existing.id, data: { quantity: existing.quantity + 1 } });
     } else {
-      await addItem.mutateAsync({ orderId, data: { productId, quantity: qty, unitPrice, phase: activePriceList } as never });
+      await addItem.mutateAsync({ orderId, data: { productId, quantity: qty, unitPrice: finalPrice, phase: activePriceList, modifiers: modJson } as never });
     }
     refresh();
     setMobilePanel("left");
+  }
+
+  async function handleAddProduct(productId: number, unitPrice: string) {
+    if (categoryModifiers.length > 0) {
+      const productName = (products as PosProduct[]).find(p => p.id === productId)?.name ?? "";
+      setSelectedModifierIds(new Set());
+      setModifierPicker({ productId, productName, unitPrice });
+      return;
+    }
+    await doAddProduct(productId, unitPrice, []);
+  }
+
+  async function confirmModifiers() {
+    if (!modifierPicker) return;
+    const mods = categoryModifiers.filter(m => selectedModifierIds.has(m.id));
+    setModifierPicker(null);
+    await doAddProduct(modifierPicker.productId, modifierPicker.unitPrice, mods);
   }
 
   async function handleQty(itemId: number, qty: number) {
@@ -1640,6 +1673,26 @@ export default function FrontOffice() {
                     {itemNotes && (
                       <div className="mt-0.5 text-[9px] text-orange-400 italic truncate">{itemNotes}</div>
                     )}
+                    {(() => {
+                      try {
+                        const mods: Array<{ label: string; type: string }> = JSON.parse((item as never as { modifiers?: string }).modifiers ?? "[]");
+                        if (!mods.length) return null;
+                        return (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {mods.map((m, i) => (
+                              <span key={i} className={cn(
+                                "text-[9px] px-1.5 py-0.5 rounded font-medium",
+                                m.type === "plus" ? "bg-emerald-100 text-emerald-700" :
+                                m.type === "minus" ? "bg-red-100 text-red-700" :
+                                "bg-slate-100 text-slate-500"
+                              )}>
+                                {m.type === "plus" ? "+" : m.type === "minus" ? "−" : "✎"} {m.label}
+                              </span>
+                            ))}
+                          </div>
+                        );
+                      } catch { return null; }
+                    })()}
                   </div>
                 );
               })
@@ -2052,6 +2105,60 @@ export default function FrontOffice() {
         coverCount={coverCount}
         onPay={(method, amount) => handlePay(method, amount)}
       />
+
+      {/* ── Modifier Picker ─────────────────────────────────────────── */}
+      <Dialog open={!!modifierPicker} onOpenChange={o => !o && setModifierPicker(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="leading-snug">
+              {modifierPicker?.productName}
+              <span className="block text-xs font-normal text-slate-400 mt-0.5">Seleziona variazioni (opzionale)</span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2 space-y-2 max-h-72 overflow-y-auto pr-1">
+            {categoryModifiers.map(m => {
+              const checked = selectedModifierIds.has(m.id);
+              const typeIcon = m.type === "plus" ? "+" : m.type === "minus" ? "−" : "✎";
+              const typeBg = m.type === "plus"
+                ? (checked ? "bg-emerald-500 border-emerald-500 text-white" : "border-emerald-300 text-emerald-700 bg-emerald-50")
+                : m.type === "minus"
+                  ? (checked ? "bg-red-500 border-red-500 text-white" : "border-red-300 text-red-700 bg-red-50")
+                  : (checked ? "bg-slate-600 border-slate-600 text-white" : "border-slate-300 text-slate-600 bg-slate-50");
+              return (
+                <button key={m.id}
+                  onClick={() => setSelectedModifierIds(prev => {
+                    const next = new Set(prev);
+                    if (next.has(m.id)) next.delete(m.id); else next.add(m.id);
+                    return next;
+                  })}
+                  className={cn(
+                    "w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 font-medium transition-all text-left",
+                    typeBg
+                  )}>
+                  <span className="text-base font-bold shrink-0 w-5 text-center">{typeIcon}</span>
+                  <span className="flex-1">{m.label}</span>
+                  {parseFloat(m.priceExtra) !== 0 && (
+                    <span className="text-xs font-mono shrink-0">
+                      {parseFloat(m.priceExtra) > 0 ? "+" : ""}€{parseFloat(m.priceExtra).toFixed(2)}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <DialogFooter className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => {
+              setModifierPicker(null);
+              doAddProduct(modifierPicker!.productId, modifierPicker!.unitPrice, []);
+            }}>
+              Senza variazioni
+            </Button>
+            <Button className="flex-1" onClick={confirmModifiers}>
+              {selectedModifierIds.size > 0 ? `Aggiungi (${selectedModifierIds.size})` : "Aggiungi"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
         <AlertDialogContent>
