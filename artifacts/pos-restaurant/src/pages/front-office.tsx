@@ -1631,10 +1631,10 @@ export default function FrontOffice() {
 
         {/* Totale */}
         <div className="px-3 pt-2 pb-1 shrink-0">
-          <div className="bg-slate-100 rounded-xl px-3 py-2.5 flex items-center justify-between border border-slate-200">
+          <div className="bg-slate-100 rounded-xl px-3 py-1.5 flex items-center justify-between border border-slate-200">
             <div>
               {numBuffer ? (
-                <div className="text-xl font-bold text-primary leading-none">{numBuffer}×</div>
+                <div className="text-base font-bold text-primary leading-none">{numBuffer}×</div>
               ) : (
                 <div className="text-[11px] font-medium text-slate-500">
                   {activeOrderId ? "Ordine in corso" : "Nessun ordine"}
@@ -1645,7 +1645,7 @@ export default function FrontOffice() {
               )}
             </div>
             <div className="text-right">
-              <div className="text-2xl font-bold text-slate-900 font-mono tabular-nums">€{total.toFixed(2)}</div>
+              <div className="text-base font-bold text-slate-900 font-mono tabular-nums">€{total.toFixed(2)}</div>
               {hasDraftItems && (
                 <div className="text-[10px] font-medium text-orange-600">
                   {items.filter(i => (i as never as { status: string }).status === "draft").length} da inviare
