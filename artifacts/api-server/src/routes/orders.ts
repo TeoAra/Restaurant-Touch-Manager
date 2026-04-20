@@ -55,12 +55,17 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   const body = CreateOrderBody.parse(req.body);
   const covers = (req.body as { covers?: number }).covers;
+  const bodyAny = req.body as { modalita?: string };
+  const modalita = (["tavolo","asporto","delivery","rapida"].includes(bodyAny.modalita ?? ""))
+    ? bodyAny.modalita as "tavolo"|"asporto"|"delivery"|"rapida"
+    : body.tableId ? "tavolo" : "rapida";
   const [order] = await db.insert(ordersTable).values({
     tableId: body.tableId ?? null,
     notes: body.notes ?? null,
     covers: typeof covers === "number" && covers >= 0 ? covers : 1,
     status: "open",
     total: "0.00",
+    modalita,
   }).returning();
 
   if (body.tableId) {
@@ -97,6 +102,7 @@ router.patch("/:id", async (req, res) => {
   if (body.status !== undefined) updateData.status = body.status;
   if (body.notes !== undefined) updateData.notes = body.notes;
   if (body.tableId !== undefined) updateData.tableId = body.tableId;
+  if (body.modalita !== undefined) updateData.modalita = body.modalita;
 
   const [order] = await db.update(ordersTable).set(updateData).where(eq(ordersTable.id, id)).returning();
   if (!order) return res.status(404).json({ error: "Order not found" });

@@ -291,6 +291,7 @@ export const ListOrdersResponse = zod.array(ListOrdersResponseItem);
 export const CreateOrderBody = zod.object({
   tableId: zod.number().nullish(),
   notes: zod.string().nullish(),
+  modalita: zod.enum(["tavolo", "asporto", "delivery", "rapida"]).optional(),
 });
 
 /**
@@ -336,6 +337,7 @@ export const UpdateOrderBody = zod.object({
   status: zod.enum(["open", "paid", "cancelled"]).optional(),
   notes: zod.string().nullish(),
   tableId: zod.number().nullish(),
+  modalita: zod.enum(["tavolo", "asporto", "delivery", "rapida"]).optional(),
 });
 
 export const UpdateOrderResponse = zod.object({

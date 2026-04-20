@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, fiscalReceiptsTable, appSettingsTable } from "@workspace/db";
+import { db, fiscalReceiptsTable, appSettingsTable, ordersTable } from "@workspace/db";
 import { eq, desc, and, sql } from "drizzle-orm";
 
 const router = Router();
@@ -32,13 +32,34 @@ router.post("/receipts", async (req, res) => {
     sql`SELECT COALESCE(MAX(numero), 0) + 1 AS next FROM fiscal_receipts WHERE anno = ${anno}`
   );
   const numero = Number((rows.rows[0] as { next: number }).next);
+
+  // Compute IVA from order's modalita and settings
+  let ivaAmount = body.iva ?? "0";
+  if (body.orderId) {
+    try {
+      const settings = await getSettings();
+      const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, Number(body.orderId)));
+      if (order) {
+        const modalita = (order as never as { modalita?: string }).modalita ?? "tavolo";
+        const settingKey = `iva_${modalita}` as string;
+        const aliquota = parseFloat(settings[settingKey] ?? settings["iva_tavolo"] ?? "10");
+        const importo = parseFloat(body.importo ?? "0");
+        // IVA importo = imponibile × aliquota, dove imponibile = importo / (1 + aliquota/100)
+        const imponibile = importo / (1 + aliquota / 100);
+        ivaAmount = (importo - imponibile).toFixed(2);
+      }
+    } catch {
+      // fallback: use provided iva or 0
+    }
+  }
+
   const [receipt] = await db.insert(fiscalReceiptsTable).values({
     numero,
     anno,
     data: body.data ?? new Date().toISOString().slice(0, 10),
     orderId: body.orderId,
     importo: body.importo ?? "0",
-    iva: body.iva ?? "0",
+    iva: ivaAmount,
     metodoPagamento: body.metodoPagamento ?? "contanti",
     printerRef: body.printerRef,
     printerSerial: body.printerSerial,

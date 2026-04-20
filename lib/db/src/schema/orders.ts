@@ -6,6 +6,7 @@ export const ordersTable = pgTable("orders", {
   id: serial("id").primaryKey(),
   tableId: integer("table_id"),
   status: text("status").notNull().default("open"),
+  modalita: text("modalita").notNull().default("tavolo"),
   covers: integer("covers").notNull().default(1),
   notes: text("notes"),
   total: text("total").notNull().default("0.00"),

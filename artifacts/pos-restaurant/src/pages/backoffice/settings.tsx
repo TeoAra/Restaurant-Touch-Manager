@@ -1,6 +1,6 @@
 import { useState, useEffect, memo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Settings2, ShoppingBag, Truck, Zap, Users, Building2 } from "lucide-react";
+import { Settings2, ShoppingBag, Truck, Zap, Users, Building2, Percent } from "lucide-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
@@ -76,6 +76,22 @@ export default function SettingsPage() {
 
   const [coverPrice, setCoverPrice] = useState("");
   useEffect(() => { if (settings.cover_price !== undefined) setCoverPrice(settings.cover_price); }, [settings.cover_price]);
+
+  const [ivaForm, setIvaForm] = useState({ iva_tavolo: "10", iva_asporto: "10", iva_delivery: "10", iva_rapida: "10", rt_reparto_tavolo: "1", rt_reparto_asporto: "1", rt_reparto_delivery: "1", rt_reparto_rapida: "1" });
+  useEffect(() => {
+    if (Object.keys(settings).length > 0) {
+      setIvaForm(f => ({
+        iva_tavolo: settings.iva_tavolo ?? f.iva_tavolo,
+        iva_asporto: settings.iva_asporto ?? f.iva_asporto,
+        iva_delivery: settings.iva_delivery ?? f.iva_delivery,
+        iva_rapida: settings.iva_rapida ?? f.iva_rapida,
+        rt_reparto_tavolo: settings.rt_reparto_tavolo ?? f.rt_reparto_tavolo,
+        rt_reparto_asporto: settings.rt_reparto_asporto ?? f.rt_reparto_asporto,
+        rt_reparto_delivery: settings.rt_reparto_delivery ?? f.rt_reparto_delivery,
+        rt_reparto_rapida: settings.rt_reparto_rapida ?? f.rt_reparto_rapida,
+      }));
+    }
+  }, [settings]);
 
   const [ditaForm, setDittaForm] = useState({ ragione_sociale: "", partita_iva: "", codice_fiscale: "", indirizzo: "", cap: "", comune: "", provincia: "", regime_fiscale: "RF01" });
   useEffect(() => {
@@ -209,6 +225,97 @@ export default function SettingsPage() {
               value={getBool(s.key)}
               onToggle={(key, value) => toggle.mutate({ key, value })} />
           ))}
+        </div>
+      </div>
+
+      {/* ── Aliquote IVA per modalità ─────────────────────────────────── */}
+      <div className="space-y-3">
+        <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 px-1 flex items-center gap-2">
+          <Percent className="h-3.5 w-3.5" /> Aliquote IVA per modalità
+        </h2>
+        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+          <p className="text-xs text-slate-400 leading-relaxed">
+            L'aliquota IVA viene determinata dalla <span className="font-semibold text-slate-600">modalità dell'ordine</span>, non dal singolo prodotto.
+            Il <span className="font-semibold text-slate-600">Reparto RT</span> è il numero di reparto programmato sul registratore telematico per quella aliquota.
+          </p>
+
+          {/* Riga intestazione */}
+          <div className="grid grid-cols-[1fr_80px_70px] gap-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 px-1">
+            <span>Modalità</span><span className="text-center">IVA %</span><span className="text-center">Rep. RT</span>
+          </div>
+
+          {/* Tavolo – sempre visibile */}
+          {(["tavolo","rapida"] as const).map(mode => (
+            <div key={mode} className="grid grid-cols-[1fr_80px_70px] gap-2 items-center">
+              <div>
+                <div className="text-sm font-semibold text-slate-700 capitalize">{mode === "rapida" ? "Rapida / Banco" : "Tavolo"}</div>
+                <div className="text-xs text-slate-400">{mode === "rapida" ? "Scontrino rapido, asporto al banco" : "Servizio al tavolo (seduto)"}</div>
+              </div>
+              <div className="relative">
+                <Input
+                  type="number" min="0" max="22" step="1"
+                  value={ivaForm[`iva_${mode}` as keyof typeof ivaForm]}
+                  onChange={e => setIvaForm(f => ({ ...f, [`iva_${mode}`]: e.target.value }))}
+                  className="h-9 text-right font-mono pr-6 text-sm"
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">%</span>
+              </div>
+              <Input
+                type="number" min="1" max="9" step="1"
+                value={ivaForm[`rt_reparto_${mode}` as keyof typeof ivaForm]}
+                onChange={e => setIvaForm(f => ({ ...f, [`rt_reparto_${mode}`]: e.target.value }))}
+                className="h-9 text-center font-mono text-sm"
+              />
+            </div>
+          ))}
+
+          {/* Asporto – solo se abilitato */}
+          {getBool("enable_asporto") && (
+            <div className="grid grid-cols-[1fr_80px_70px] gap-2 items-center">
+              <div>
+                <div className="text-sm font-semibold text-slate-700">Asporto</div>
+                <div className="text-xs text-slate-400">Take away con consegna al banco</div>
+              </div>
+              <div className="relative">
+                <Input type="number" min="0" max="22" step="1"
+                  value={ivaForm.iva_asporto}
+                  onChange={e => setIvaForm(f => ({ ...f, iva_asporto: e.target.value }))}
+                  className="h-9 text-right font-mono pr-6 text-sm" />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">%</span>
+              </div>
+              <Input type="number" min="1" max="9" step="1"
+                value={ivaForm.rt_reparto_asporto}
+                onChange={e => setIvaForm(f => ({ ...f, rt_reparto_asporto: e.target.value }))}
+                className="h-9 text-center font-mono text-sm" />
+            </div>
+          )}
+
+          {/* Delivery – solo se abilitato */}
+          {getBool("enable_delivery") && (
+            <div className="grid grid-cols-[1fr_80px_70px] gap-2 items-center">
+              <div>
+                <div className="text-sm font-semibold text-slate-700">Delivery</div>
+                <div className="text-xs text-slate-400">Consegna a domicilio</div>
+              </div>
+              <div className="relative">
+                <Input type="number" min="0" max="22" step="1"
+                  value={ivaForm.iva_delivery}
+                  onChange={e => setIvaForm(f => ({ ...f, iva_delivery: e.target.value }))}
+                  className="h-9 text-right font-mono pr-6 text-sm" />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">%</span>
+              </div>
+              <Input type="number" min="1" max="9" step="1"
+                value={ivaForm.rt_reparto_delivery}
+                onChange={e => setIvaForm(f => ({ ...f, rt_reparto_delivery: e.target.value }))}
+                className="h-9 text-center font-mono text-sm" />
+            </div>
+          )}
+
+          <div className="flex justify-end pt-1 border-t border-slate-100">
+            <Button size="sm" onClick={async () => { await saveMultiple(ivaForm); toast({ title: "Aliquote IVA salvate" }); }}>
+              Salva Aliquote
+            </Button>
+          </div>
         </div>
       </div>
 
