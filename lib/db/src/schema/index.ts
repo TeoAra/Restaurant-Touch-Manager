@@ -14,6 +14,7 @@ export * from "./fiscal_receipts";
 export * from "./product_variations";
 export * from "./modifiers";
 export * from "./category_modifiers";
+export * from "./reservations";
 export * from "./discounts";
 export * from "./promotions";
 export * from "./couriers";

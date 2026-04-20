@@ -29,6 +29,7 @@ import HappyHourPage from "@/pages/backoffice/happy-hour";
 import KpCommentsPage from "@/pages/backoffice/kp-comments";
 import AliquoteIvaPage from "@/pages/backoffice/aliquote-iva";
 import VarkazioniPage from "@/pages/backoffice/variazioni";
+import PrenotazioniPage from "@/pages/backoffice/prenotazioni";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -70,6 +71,7 @@ function AppRouter() {
         {isAdmin && <Route path="/backoffice/kp-comments" component={KpCommentsPage} />}
         {isAdmin && <Route path="/backoffice/aliquote-iva" component={AliquoteIvaPage} />}
         {isAdmin && <Route path="/backoffice/variazioni" component={VarkazioniPage} />}
+        {isAdmin && <Route path="/backoffice/prenotazioni" component={PrenotazioniPage} />}
         <Route component={NotFound} />
       </Switch>
     </Layout>

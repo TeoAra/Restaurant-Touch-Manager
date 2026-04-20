@@ -168,6 +168,7 @@ router.post("/:orderId/items", async (req, res) => {
   const unitPrice = body.unitPrice ?? product.price;
   const subtotal = (parseFloat(unitPrice) * body.quantity).toFixed(2);
 
+  const rawAddModifiers = (req.body as { modifiers?: string }).modifiers;
   const [item] = await db.insert(orderItemsTable).values({
     orderId,
     productId: body.productId,
@@ -177,6 +178,7 @@ router.post("/:orderId/items", async (req, res) => {
     unitPrice,
     subtotal,
     notes: body.notes ?? null,
+    modifiers: rawAddModifiers ?? "[]",
     phase: body.phase ?? 0,
   }).returning();
 
@@ -207,6 +209,9 @@ router.patch("/:orderId/items/:itemId", async (req, res) => {
     updateData.subtotal = (parseFloat(effectiveUnitPrice) * existing.quantity).toFixed(2);
   }
   if (body.notes !== undefined) updateData.notes = body.notes;
+  // modifiers is not in the Zod schema but can be passed directly
+  const rawModifiers = (req.body as { modifiers?: string }).modifiers;
+  if (rawModifiers !== undefined) updateData.modifiers = rawModifiers;
 
   const [item] = await db.update(orderItemsTable).set(updateData)
     .where(and(eq(orderItemsTable.id, itemId), eq(orderItemsTable.orderId, orderId)))

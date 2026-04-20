@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { UtensilsCrossed, LayoutGrid, BarChart3, CreditCard, ArrowRight, BookOpen, Layers, ChefHat, Printer, Settings, Users, Receipt, FileText, User, Tag, Zap, Bike, Package, Sun, MessageSquare, BadgePercent, SlidersHorizontal } from "lucide-react";
+import { UtensilsCrossed, LayoutGrid, BarChart3, CreditCard, ArrowRight, BookOpen, Layers, ChefHat, Printer, Settings, Users, Receipt, FileText, User, Tag, Zap, Bike, Package, Sun, MessageSquare, BadgePercent, SlidersHorizontal, CalendarDays } from "lucide-react";
 import { useGetDashboardSummary } from "@workspace/api-client-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
 
@@ -16,8 +16,9 @@ const sections = [
   { href: "/backoffice/happy-hour", icon: Sun, label: "Happy Hour", description: "Fasce orarie speciali", color: "bg-yellow-50 text-yellow-600 border-yellow-200" },
 
   // Sala e tavoli
-  { href: "/backoffice/tables", icon: LayoutGrid, label: "Tavoli", description: "Planimetria e sale", color: "bg-blue-50 text-blue-600 border-blue-200" },
-  { href: "/backoffice/rooms", icon: Layers, label: "Sale", description: "Gestione ambienti", color: "bg-indigo-50 text-indigo-600 border-indigo-200" },
+  { href: "/backoffice/prenotazioni", icon: CalendarDays, label: "Prenotazioni", description: "Calendario tavoli", color: "bg-blue-50 text-blue-600 border-blue-200" },
+  { href: "/backoffice/tables", icon: LayoutGrid, label: "Tavoli", description: "Planimetria e sale", color: "bg-indigo-50 text-indigo-600 border-indigo-200" },
+  { href: "/backoffice/rooms", icon: Layers, label: "Sale", description: "Gestione ambienti", color: "bg-violet-50 text-violet-600 border-violet-200" },
 
   // Cucina e stampa
   { href: "/backoffice/kp-comments", icon: MessageSquare, label: "Commenti KP", description: "Note cucina rapide", color: "bg-teal-50 text-teal-600 border-teal-200" },
@@ -44,9 +45,9 @@ const sections = [
 const GROUPS = [
   { label: "Prodotti & Menu", range: [0, 4] },
   { label: "Sconti & Promozioni", range: [4, 7] },
-  { label: "Sala & Stampa", range: [7, 12] },
-  { label: "Report & Cassa", range: [12, 16] },
-  { label: "Clienti & Gestione", range: [16, 20] },
+  { label: "Sala & Stampa", range: [7, 13] },
+  { label: "Report & Cassa", range: [13, 17] },
+  { label: "Clienti & Gestione", range: [17, 21] },
 ];
 
 export default function BackOfficeIndex() {

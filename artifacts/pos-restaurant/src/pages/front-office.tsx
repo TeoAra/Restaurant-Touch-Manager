@@ -879,18 +879,8 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
   );
 }
 
-// ─── Item Edit Dialog (note + modifica prezzo + variazioni) ───────────────────
+// ─── Item Edit Dialog (note + modifica prezzo) ────────────────────────────────
 type EditableItem = { id: number; productName: string; quantity: number; unitPrice: string; notes?: string | null; status: string };
-const QUICK_MODS = [
-  { label: "Senza cipolla", val: "- Senza cipolla", price: 0 },
-  { label: "Senza glutine", val: "- Senza glutine", price: 0 },
-  { label: "+ Salsa extra", val: "+ Salsa extra", price: 0.5 },
-  { label: "+ Extra formaggio", val: "+ Extra formaggio", price: 1.0 },
-  { label: "+ Doppio", val: "+ Doppio", price: 2.0 },
-  { label: "Ben cotto", val: "· Ben cotto", price: 0 },
-  { label: "Al sangue", val: "· Al sangue", price: 0 },
-  { label: "Senza ghiaccio", val: "- Senza ghiaccio", price: 0 },
-];
 
 function ItemEditDialog({ open, onClose, item, onSave }: {
   open: boolean; onClose: () => void;
@@ -913,13 +903,6 @@ function ItemEditDialog({ open, onClose, item, onSave }: {
   const currentPrice = parseFloat(price) || 0;
   const priceDiff = currentPrice - originalPrice;
 
-  function addMod(mod: { val: string; price: number }) {
-    setNotes(n => n ? `${n}, ${mod.val}` : mod.val);
-    if (mod.price !== 0) {
-      setPrice(p => (parseFloat(p) + mod.price).toFixed(2));
-    }
-  }
-
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-sm">
@@ -938,19 +921,6 @@ function ItemEditDialog({ open, onClose, item, onSave }: {
             {item.status === "sent" && (
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Inviato</span>
             )}
-          </div>
-
-          {/* Variazioni rapide */}
-          <div>
-            <div className="text-xs font-semibold text-slate-500 mb-1.5">Variazioni rapide</div>
-            <div className="flex flex-wrap gap-1.5">
-              {QUICK_MODS.map(m => (
-                <button key={m.val} onClick={() => addMod(m)}
-                  className="px-2.5 py-1 rounded-full border border-slate-200 text-xs text-slate-600 hover:border-primary hover:text-primary hover:bg-orange-50 transition-all">
-                  {m.label}{m.price > 0 ? ` +€${m.price.toFixed(2)}` : ""}
-                </button>
-              ))}
-            </div>
           </div>
 
           {/* Note libere */}
@@ -1158,6 +1128,7 @@ export default function FrontOffice() {
   const [editingItem, setEditingItem] = useState<EditableItem | null>(null);
   const [modifierPicker, setModifierPicker] = useState<{ productId: number; productName: string; unitPrice: string } | null>(null);
   const [selectedModifierIds, setSelectedModifierIds] = useState<Set<number>>(new Set());
+  const [selectedItemCategoryId, setSelectedItemCategoryId] = useState<number | null>(null);
 
   const { data: tablesStatus = [] } = useGetTablesStatus();
   const { data: categories = [] } = useListCategories();
@@ -1170,6 +1141,15 @@ export default function FrontOffice() {
       ? fetch(`${API}/modifiers/by-category/${selectedCategoryId}`).then(r => r.json())
       : Promise.resolve([]),
     enabled: !!selectedCategoryId,
+    staleTime: 30000,
+  });
+
+  const { data: selectedItemModifiers = [] } = useQuery<FEModifier[]>({
+    queryKey: ["category-modifiers-item", selectedItemCategoryId],
+    queryFn: () => selectedItemCategoryId
+      ? fetch(`${API}/modifiers/by-category/${selectedItemCategoryId}`).then(r => r.json())
+      : Promise.resolve([]),
+    enabled: !!selectedItemCategoryId,
     staleTime: 30000,
   });
 
@@ -1201,6 +1181,15 @@ export default function FrontOffice() {
   const prevTableIdRef = useRef<number | null>(null);
   const hasDraftItemsRef = useRef(false);
   useEffect(() => { hasDraftItemsRef.current = hasDraftItems; }, [hasDraftItems]);
+
+  const selectedItem = items.find(i => i.id === selectedItemId);
+  useEffect(() => {
+    if (!selectedItem) { setSelectedItemCategoryId(null); return; }
+    fetch(`${API}/products/${selectedItem.productId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(p => setSelectedItemCategoryId(p?.categoryId ?? null))
+      .catch(() => setSelectedItemCategoryId(null));
+  }, [selectedItem?.productId]);
 
   const sendComandaForOrder = useCallback(async (orderId: number) => {
     await fetch(`${API}/orders/${orderId}/send-comanda`, { method: "POST" }).catch(() => {});
@@ -1406,7 +1395,6 @@ export default function FrontOffice() {
       await addItem.mutateAsync({ orderId, data: { productId, quantity: qty, unitPrice: finalPrice, phase: activePriceList, modifiers: modJson } as never });
     }
     refresh();
-    setMobilePanel("left");
   }
 
   async function handleAddProduct(productId: number, unitPrice: string) {
@@ -1528,9 +1516,6 @@ export default function FrontOffice() {
 
   // ── Numpad keys ─────────────────────────────────────────────────────────────
   const numpadKeys = ["7","8","9","4","5","6","1","2","3","X","0","."];
-
-  // ── VAR panel: quick modifiers for selected item ─────────────────────────────
-  const selectedItem = selectedItemId ? items.find(i => i.id === selectedItemId) : null;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -1903,70 +1888,138 @@ export default function FrontOffice() {
           </div>
         )}
 
-        {/* ── VAR: variations for selected order item */}
+        {/* ── VAR: variazioni per articolo selezionato */}
         {rightTab === "var" && (
           <ScrollArea className="flex-1 bg-[#f0f2f7]">
-            <div className="p-4">
+            <div className="p-3 space-y-3">
               {!selectedItem ? (
                 <div className="text-center py-20 text-slate-400">
                   <div className="text-5xl mb-3">✦</div>
                   <div className="text-sm font-semibold text-slate-500">Seleziona un articolo dall'ordine</div>
-                  <div className="text-xs text-slate-400 mt-1">Le varianti e modificatori appariranno qui</div>
+                  <div className="text-xs text-slate-400 mt-1">Le variazioni disponibili appariranno qui</div>
                 </div>
               ) : (
                 <>
-                  <div className="mb-4 px-4 py-3 bg-white rounded-2xl border-2 border-primary/30 shadow-sm">
-                    <div className="font-bold text-slate-800 text-sm">{selectedItem.productName}</div>
+                  {/* Product info card */}
+                  <div className="px-4 py-3 bg-white rounded-2xl border-2 border-primary/30 shadow-sm">
+                    <div className="font-bold text-slate-800">{selectedItem.productName}</div>
                     <div className="text-xs text-slate-500 mt-0.5">
                       {selectedItem.quantity}× · €{parseFloat(selectedItem.unitPrice).toFixed(2)} cad.
-                      {(selectedItem as never as { notes?: string | null }).notes && (
-                        <span className="ml-2 italic text-orange-500">
-                          {(selectedItem as never as { notes?: string | null }).notes}
-                        </span>
-                      )}
                     </div>
+                    {(selectedItem as never as { notes?: string | null }).notes && (
+                      <div className="text-xs italic text-orange-500 mt-1 truncate">
+                        {(selectedItem as never as { notes?: string | null }).notes}
+                      </div>
+                    )}
                   </div>
-                  <div className="text-xs text-slate-500 font-semibold mb-3 uppercase tracking-wide">Modificatori rapidi</div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {QUICK_MODS.map(mod => (
-                      <button key={mod.val}
-                        onClick={async () => {
-                          const curNotes = (selectedItem as never as { notes?: string | null }).notes ?? "";
-                          const newNotes = curNotes ? `${curNotes}, ${mod.val}` : mod.val;
-                          if (activeOrderId) {
-                            await updateItem.mutateAsync({
-                              orderId: activeOrderId,
-                              itemId: selectedItem.id,
-                              data: {
-                                quantity: selectedItem.quantity,
-                                unitPrice: selectedItem.unitPrice,
-                                notes: newNotes,
-                              } as never,
-                            });
-                            refresh();
-                          }
-                        }}
-                        className={cn(
-                          "py-3 px-2 rounded-xl font-bold text-sm active:scale-90 transition-all shadow-sm",
-                          mod.price > 0
-                            ? "bg-emerald-500 text-white hover:bg-emerald-600"
-                            : mod.price < 0
-                              ? "bg-red-500 text-white hover:bg-red-600"
-                              : "bg-white text-slate-700 border-2 border-slate-200 hover:border-primary"
-                        )}>
-                        {mod.label}
-                        {mod.price !== 0 && (
-                          <div className="text-[10px] font-normal mt-0.5 opacity-80">
-                            {mod.price > 0 ? `+€${mod.price.toFixed(2)}` : `-€${Math.abs(mod.price).toFixed(2)}`}
-                          </div>
-                        )}
-                      </button>
-                    ))}
-                  </div>
+
+                  {/* Applied modifiers */}
+                  {(() => {
+                    try {
+                      const applied: Array<{ id: number; label: string; type: string; priceExtra: string }> =
+                        JSON.parse((selectedItem as never as { modifiers?: string }).modifiers ?? "[]");
+                      if (!applied.length) return null;
+                      return (
+                        <div className="space-y-1.5">
+                          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 px-1">Variazioni applicate</div>
+                          {applied.map((m, i) => {
+                            const icon = m.type === "plus" ? "+" : m.type === "minus" ? "−" : "✎";
+                            const bg = m.type === "plus" ? "bg-emerald-50 border-emerald-300 text-emerald-800"
+                              : m.type === "minus" ? "bg-red-50 border-red-300 text-red-800"
+                              : "bg-slate-100 border-slate-300 text-slate-700";
+                            return (
+                              <div key={i} className={cn("flex items-center gap-3 px-4 py-3 rounded-xl border-2", bg)}>
+                                <span className="font-bold text-base w-5 text-center shrink-0">{icon}</span>
+                                <span className="font-semibold flex-1">{m.label}</span>
+                                {parseFloat(m.priceExtra) !== 0 && (
+                                  <span className="text-xs font-mono shrink-0">
+                                    {parseFloat(m.priceExtra) > 0 ? "+" : ""}€{parseFloat(m.priceExtra).toFixed(2)}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    } catch { return null; }
+                  })()}
+
+                  {/* Available category modifiers */}
+                  {selectedItemModifiers.length > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 px-1">Variazioni disponibili</div>
+                      {selectedItemModifiers.map(mod => {
+                        const currentMods: Array<{ id: number; label: string; type: string; priceExtra: string }> = (() => {
+                          try { return JSON.parse((selectedItem as never as { modifiers?: string }).modifiers ?? "[]"); } catch { return []; }
+                        })();
+                        const isApplied = currentMods.some(m => m.id === mod.id);
+                        const icon = mod.type === "plus" ? "+" : mod.type === "minus" ? "−" : "✎";
+                        const colorOn = mod.type === "plus"
+                          ? "bg-emerald-500 border-emerald-500 text-white"
+                          : mod.type === "minus"
+                            ? "bg-red-500 border-red-500 text-white"
+                            : "bg-slate-700 border-slate-700 text-white";
+                        const colorOff = mod.type === "plus"
+                          ? "bg-white border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                          : mod.type === "minus"
+                            ? "bg-white border-red-300 text-red-700 hover:bg-red-50"
+                            : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50";
+                        return (
+                          <button key={mod.id}
+                            onClick={async () => {
+                              if (!activeOrderId) return;
+                              let next: typeof currentMods;
+                              if (isApplied) {
+                                next = currentMods.filter(m => m.id !== mod.id);
+                              } else {
+                                next = [...currentMods, { id: mod.id, label: mod.label, type: mod.type, priceExtra: mod.priceExtra }];
+                              }
+                              const priceAdj = next.reduce((acc, m) => acc + parseFloat(m.priceExtra || "0"), 0);
+                              const basePrice = parseFloat((selectedItem as never as { productPrice: string }).productPrice || selectedItem.unitPrice);
+                              const newPrice = Math.max(0, basePrice + priceAdj).toFixed(2);
+                              await fetch(`${API}/orders/${activeOrderId}/items/${selectedItem.id}`, {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ modifiers: JSON.stringify(next), unitPrice: newPrice }),
+                              });
+                              refresh();
+                            }}
+                            className={cn(
+                              "w-full flex items-center gap-3 px-4 py-4 rounded-xl border-2 font-semibold transition-all active:scale-95 text-left",
+                              isApplied ? colorOn : colorOff
+                            )}>
+                            <span className="text-xl font-bold w-6 text-center shrink-0">{icon}</span>
+                            <span className="flex-1 text-sm">{mod.label}</span>
+                            {parseFloat(mod.priceExtra) !== 0 && (
+                              <span className="text-xs font-mono shrink-0">
+                                {parseFloat(mod.priceExtra) > 0 ? "+" : ""}€{parseFloat(mod.priceExtra).toFixed(2)}
+                              </span>
+                            )}
+                            {isApplied && <span className="text-xs font-bold shrink-0 ml-1">✓</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {selectedItemModifiers.length === 0 && selectedItemCategoryId && (
+                    <div className="text-center py-6 text-slate-300 text-xs italic">
+                      Nessuna variazione configurata per questa categoria
+                    </div>
+                  )}
+
+                  {/* Edit notes / price */}
                   <button
-                    onClick={() => setEditingItem({ id: selectedItem.id, productName: selectedItem.productName, quantity: selectedItem.quantity, unitPrice: selectedItem.unitPrice, notes: (selectedItem as never as { notes?: string | null }).notes, status: (selectedItem as never as { status: string }).status })}
-                    className="mt-4 w-full py-3 rounded-2xl border-2 border-dashed border-primary/40 text-primary font-semibold text-sm hover:bg-primary/5 transition-all active:scale-95">
-                    ✎ Modifica completa…
+                    onClick={() => setEditingItem({
+                      id: selectedItem.id,
+                      productName: selectedItem.productName,
+                      quantity: selectedItem.quantity,
+                      unitPrice: selectedItem.unitPrice,
+                      notes: (selectedItem as never as { notes?: string | null }).notes,
+                      status: (selectedItem as never as { status: string }).status,
+                    })}
+                    className="w-full py-3.5 rounded-2xl border-2 border-dashed border-slate-300 text-slate-500 font-semibold text-sm hover:border-primary hover:text-primary hover:bg-orange-50 transition-all active:scale-95">
+                    ✎ Note / modifica prezzo…
                   </button>
                 </>
               )}
