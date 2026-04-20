@@ -1623,7 +1623,7 @@ export default function FrontOffice() {
                 const isSelected = item.id === selectedItemId;
                 return (
                   <div key={item.id}
-                    onClick={() => { setSelectedItemId(isSelected ? null : item.id); setRightTab("var"); setMobilePanel("right"); }}
+                    onClick={() => { setSelectedItemId(isSelected ? null : item.id); }}
                     className={cn(
                       "rounded-lg px-2.5 py-1.5 cursor-pointer transition-all select-none border",
                       isDraft
@@ -1640,18 +1640,18 @@ export default function FrontOffice() {
                       <span className="text-[10px] text-slate-500 flex-1">€{parseFloat(item.unitPrice).toFixed(2)} cad.</span>
                       <button
                         onClick={e => { e.stopPropagation(); setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus }); }}
-                        className="h-4 w-4 rounded flex items-center justify-center hover:bg-slate-100 transition-colors shrink-0">
-                        <Pencil className="h-2 w-2 text-slate-400" />
+                        className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-slate-100 active:bg-slate-200 transition-colors shrink-0">
+                        <Pencil className="h-3.5 w-3.5 text-slate-500" />
                       </button>
-                      <div className="flex items-center gap-px shrink-0">
+                      <div className="flex items-center gap-0.5 shrink-0">
                         <button onClick={e => { e.stopPropagation(); handleQty(item.id, item.quantity - 1); }}
-                          className="h-4 w-4 rounded flex items-center justify-center hover:bg-red-50 transition-colors">
-                          <Minus className="h-2 w-2 text-slate-500" />
+                          className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-red-50 active:bg-red-100 transition-colors">
+                          <Minus className="h-3.5 w-3.5 text-slate-600" />
                         </button>
-                        <span className="w-4 text-center text-[10px] font-medium text-slate-700">{item.quantity}</span>
+                        <span className="w-5 text-center text-xs font-bold text-slate-700">{item.quantity}</span>
                         <button onClick={e => { e.stopPropagation(); handleQty(item.id, item.quantity + 1); }}
-                          className="h-4 w-4 rounded flex items-center justify-center hover:bg-emerald-50 transition-colors">
-                          <Plus className="h-2 w-2 text-slate-500" />
+                          className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-emerald-50 active:bg-emerald-100 transition-colors">
+                          <Plus className="h-3.5 w-3.5 text-slate-600" />
                         </button>
                       </div>
                     </div>
@@ -1703,15 +1703,15 @@ export default function FrontOffice() {
           </button>
         </div>
 
-        {/* Tastierino + bottoni rapidi laterali (stile MOito) */}
-        <div className="px-2.5 pb-1 shrink-0 flex gap-1">
+        {/* Tastierino + bottoni rapidi laterali */}
+        <div className="px-2.5 pb-1 shrink-0 flex gap-1.5">
 
           {/* Numpad compatto 3×4 */}
           <div className="flex-1 grid grid-cols-3 gap-1">
             {numpadKeys.map(k => (
               <button key={k} onClick={() => handleNumpadKey(k)}
                 className={cn(
-                  "h-10 rounded-lg font-semibold text-base transition-all active:scale-90 select-none",
+                  "h-9 rounded-lg font-semibold text-sm transition-all active:scale-90 select-none",
                   k === "X"
                     ? "bg-red-100 text-red-600 hover:bg-red-200"
                     : "bg-slate-100 text-slate-800 hover:bg-slate-200"
@@ -1721,9 +1721,9 @@ export default function FrontOffice() {
             ))}
           </div>
 
-          {/* Bottoni rapidi verticali — stile MOito */}
-          <div className="flex flex-col gap-1 w-20">
-            {/* Sconto % */}
+          {/* Bottoni azione — 2 colonne × 3 righe */}
+          <div className="grid grid-cols-2 gap-1 w-[116px] shrink-0">
+            {/* Riga 1 */}
             <button
               disabled={!selectedItemId}
               onClick={() => selectedItem && setEditingItem({
@@ -1734,53 +1734,47 @@ export default function FrontOffice() {
                 notes: (selectedItem as never as { notes?: string | null }).notes,
                 status: (selectedItem as never as { status: string }).status,
               })}
-              className="flex-1 rounded-lg flex items-center justify-center bg-amber-100 text-amber-800 hover:bg-amber-200 text-[11px] font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              className="h-12 rounded-lg flex items-center justify-center bg-amber-100 text-amber-800 hover:bg-amber-200 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
               Sconto
             </button>
-
-            {/* Nota */}
             <button
               disabled={!selectedItemId}
               onClick={() => { setRightTab("var"); setMobilePanel("right"); }}
-              className="flex-1 rounded-lg flex items-center justify-center bg-blue-100 text-blue-800 hover:bg-blue-200 text-[11px] font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              className="h-12 rounded-lg flex items-center justify-center bg-blue-100 text-blue-800 hover:bg-blue-200 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
               Nota
             </button>
 
-            {/* Preconto */}
+            {/* Riga 2 */}
             <button
               disabled={items.length === 0}
               onClick={() => setShowPreconto(true)}
-              className="flex-1 rounded-lg flex items-center justify-center bg-slate-200 text-slate-700 hover:bg-slate-300 text-[11px] font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
-              Prec.
+              className="h-12 rounded-lg flex items-center justify-center bg-slate-200 text-slate-700 hover:bg-slate-300 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              Preconto
             </button>
-
-            {/* Separa conto */}
             <button
               disabled={items.length < 2}
               onClick={() => setShowSplitBill(true)}
-              className="flex-1 rounded-lg flex items-center justify-center bg-purple-100 text-purple-800 hover:bg-purple-200 text-[11px] font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              className="h-12 rounded-lg flex items-center justify-center bg-purple-100 text-purple-800 hover:bg-purple-200 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
               Separa
             </button>
 
-            {/* Alla Romana */}
+            {/* Riga 3 */}
             <button
               disabled={items.length === 0}
               onClick={() => setShowRomana(true)}
-              className="flex-1 rounded-lg flex items-center justify-center bg-green-100 text-green-800 hover:bg-green-200 text-[11px] font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              className="h-12 rounded-lg flex items-center justify-center bg-green-100 text-green-800 hover:bg-green-200 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
               Romana
             </button>
-
-            {/* Annulla ordine / Scontrino rapido */}
             {activeOrderId ? (
               <button
                 onClick={() => setShowCancelConfirm(true)}
-                className="flex-1 rounded-lg flex items-center justify-center bg-red-100 text-red-800 hover:bg-red-200 text-[11px] font-semibold transition-all active:scale-95">
+                className="h-12 rounded-lg flex items-center justify-center bg-red-100 text-red-800 hover:bg-red-200 text-xs font-semibold transition-all active:scale-95">
                 Annulla
               </button>
             ) : (
               <button
                 onClick={() => handleQuickMode("rapida")}
-                className="flex-1 rounded-lg flex items-center justify-center bg-orange-100 text-orange-800 hover:bg-orange-200 text-[11px] font-semibold transition-all active:scale-95">
+                className="h-12 rounded-lg flex items-center justify-center bg-orange-100 text-orange-800 hover:bg-orange-200 text-xs font-semibold transition-all active:scale-95">
                 Rapida
               </button>
             )}
