@@ -53,6 +53,23 @@ function testTcp(ip: string, port: number, timeoutMs = 4000): Promise<{ ok: bool
   });
 }
 
+// Test a specific IP:port without needing it in the DB
+router.post("/test-ip", async (req, res) => {
+  const { ip, port = 9100 } = req.body as { ip?: string; port?: number };
+  if (!ip) return res.status(400).json({ error: "ip mancante" });
+  const result = await testTcp(String(ip), Number(port), 4000);
+  res.json({ ip, port, ...result });
+});
+
+// Test a single printer by ID
+router.get("/:id/test", async (req, res) => {
+  const id = parseInt(req.params.id);
+  const [p] = await db.select().from(printersTable).where(eq(printersTable.id, id));
+  if (!p) return res.status(404).json({ error: "Stampante non trovata" });
+  const result = await testTcp(p.ip, p.port, 4000);
+  res.json({ id: p.id, name: p.name, ip: p.ip, port: p.port, ...result });
+});
+
 // Test all active printers
 router.get("/test-all", async (_req, res) => {
   const printers = await db.select().from(printersTable).where(eq(printersTable.active, true));

@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, Printer, Wifi, WifiOff, CheckCircle2, XCircle, Loader2, Receipt } from "lucide-react";
+import { Plus, Pencil, Trash2, Printer, Wifi, WifiOff, CheckCircle2, XCircle, Loader2, Receipt, Search } from "lucide-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { cn } from "@/lib/utils";
 
@@ -134,6 +134,13 @@ export default function PrintersPage() {
   // Test all printers
   const [testing, setTesting] = useState(false);
   const [testResults, setTestResults] = useState<Map<number, TestResult>>(new Map());
+  const [testingId, setTestingId] = useState<number | null>(null);
+
+  // Test IP diretto
+  const [directIp, setDirectIp] = useState("192.168.8.");
+  const [directPort, setDirectPort] = useState("9100");
+  const [directResult, setDirectResult] = useState<{ ok: boolean; ms?: number; error?: string } | null>(null);
+  const [directTesting, setDirectTesting] = useState(false);
 
   async function runTestAll() {
     setTesting(true);
@@ -148,6 +155,38 @@ export default function PrintersPage() {
       toast({ title: "Errore test connessioni", variant: "destructive" });
     } finally {
       setTesting(false);
+    }
+  }
+
+  async function runTestSingle(id: number) {
+    setTestingId(id);
+    try {
+      const resp = await fetch(`${API}/printers/${id}/test`);
+      const data = await resp.json() as { id: number; ok: boolean; ms?: number; error?: string };
+      setTestResults(prev => new Map(prev).set(id, data));
+    } catch {
+      toast({ title: "Errore test", variant: "destructive" });
+    } finally {
+      setTestingId(null);
+    }
+  }
+
+  async function runDirectTest() {
+    if (!directIp.trim()) return;
+    setDirectTesting(true);
+    setDirectResult(null);
+    try {
+      const resp = await fetch(`${API}/printers/test-ip`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ip: directIp.trim(), port: parseInt(directPort) || 9100 }),
+      });
+      const data = await resp.json();
+      setDirectResult(data);
+    } catch {
+      setDirectResult({ ok: false, error: "Errore di rete" });
+    } finally {
+      setDirectTesting(false);
     }
   }
 
@@ -250,6 +289,15 @@ export default function PrintersPage() {
                     {/* Actions */}
                     <div className="flex items-center gap-1 shrink-0">
                       <button
+                        onClick={() => runTestSingle(p.id)}
+                        disabled={testingId === p.id}
+                        title="Testa connessione TCP"
+                        className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors disabled:opacity-40">
+                        {testingId === p.id
+                          ? <Loader2 className="h-4 w-4 animate-spin" />
+                          : <Wifi className="h-4 w-4" />}
+                      </button>
+                      <button
                         onClick={() => openEdit(p)}
                         className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors">
                         <Pencil className="h-4 w-4" />
@@ -288,6 +336,59 @@ export default function PrintersPage() {
             )}
           </div>
         )}
+
+        {/* Test IP diretto */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
+          <div className="text-xs font-bold uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
+            <Search className="h-3.5 w-3.5" /> Test connessione IP diretto
+          </div>
+          <p className="text-xs text-slate-500">
+            Verifica la raggiungibilità di una stampante sulla rete prima di aggiungerla.
+            Porta ESC/POS standard: <span className="font-mono font-semibold">9100</span>.
+          </p>
+          <div className="flex gap-2 items-end">
+            <div className="flex-1">
+              <Label className="text-xs text-slate-500 mb-1 block">Indirizzo IP</Label>
+              <Input
+                value={directIp}
+                onChange={e => setDirectIp(e.target.value)}
+                placeholder="192.168.8.192"
+                className="font-mono text-sm h-9"
+              />
+            </div>
+            <div className="w-20">
+              <Label className="text-xs text-slate-500 mb-1 block">Porta</Label>
+              <Input
+                value={directPort}
+                onChange={e => setDirectPort(e.target.value)}
+                className="font-mono text-sm h-9 text-center"
+              />
+            </div>
+            <Button
+              onClick={runDirectTest}
+              disabled={directTesting || !directIp.trim()}
+              className="h-9 gap-1.5 shrink-0"
+            >
+              {directTesting
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <Wifi className="h-4 w-4" />}
+              {directTesting ? "..." : "Testa"}
+            </Button>
+          </div>
+          {directResult && (
+            <div className={cn(
+              "flex items-center gap-2 text-sm font-semibold rounded-xl px-4 py-3 border",
+              directResult.ok
+                ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                : "bg-red-50 border-red-200 text-red-700"
+            )}>
+              {directResult.ok
+                ? <><CheckCircle2 className="h-4 w-4 shrink-0" /> Raggiunta! Risposta in {directResult.ms}ms — porta {directPort} aperta</>
+                : <><XCircle className="h-4 w-4 shrink-0" /> Non raggiungibile: {directResult.error ?? "timeout"}</>
+              }
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Dialog nuova/modifica stampante */}
