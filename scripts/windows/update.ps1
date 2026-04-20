@@ -37,8 +37,17 @@ Write-Ok "Servizio fermato"
 # ── 2. Git pull ──────────────────────────────────────────────────────────────
 Write-Step "Download aggiornamenti (git pull)"
 Push-Location $INSTALL_DIR
+
+if (-not (Test-Path "$INSTALL_DIR\.git")) {
+    Write-Host "    Repository git non trovato — inizializzazione..." -ForegroundColor Yellow
+    git init
+    git remote add origin https://github.com/TeoAra/Restaurant-Touch-Manager.git
+}
+
 git fetch --all
+if ($LASTEXITCODE -ne 0) { Write-Fail "git fetch fallito. Controlla la connessione internet." }
 git reset --hard origin/main
+if ($LASTEXITCODE -ne 0) { Write-Fail "git reset fallito." }
 Write-Ok "Sorgenti aggiornati al commit: $(git log --oneline -1)"
 
 # ── 3. Dipendenze ────────────────────────────────────────────────────────────
