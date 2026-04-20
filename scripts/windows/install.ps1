@@ -39,6 +39,11 @@ function Reload-Path {
     $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" +
                 [System.Environment]::GetEnvironmentVariable("PATH","User")
 }
+# Scrive file UTF-8 SENZA BOM (il BOM rompe JSON/YAML su Windows PowerShell)
+$NoBom = [System.Text.UTF8Encoding]::new($false)
+function Write-FileNoBom($path, $content) {
+    [System.IO.File]::WriteAllText($path, $content, $NoBom)
+}
 
 Write-Host @"
 
@@ -132,7 +137,7 @@ Write-Step "Compatibilita' Windows"
 $pkgPath = "$INSTALL_DIR\package.json"
 $pkg = Get-Content $pkgPath -Raw | ConvertFrom-Json
 $pkg.scripts.preinstall = "node -e `"['package-lock.json','yarn.lock'].forEach(f=>{try{require('fs').unlinkSync(f)}catch(e){}})`""
-$pkg | ConvertTo-Json -Depth 10 | Set-Content $pkgPath -Encoding UTF8
+Write-FileNoBom $pkgPath ($pkg | ConvertTo-Json -Depth 10)
 Write-Ok "preinstall script aggiornato"
 
 # Rimuovi le esclusioni Linux-only da pnpm-workspace.yaml
@@ -145,7 +150,7 @@ $wsFiltered = $wsLines | Where-Object {
     # Rimuovi il commento correlato
     $_ -notmatch "replit uses linux"
 }
-($wsFiltered -join "`n") | Set-Content $wsPath -Encoding UTF8
+Write-FileNoBom $wsPath ($wsFiltered -join "`n")
 Write-Ok "pnpm-workspace.yaml: rimossi filtri Linux"
 
 # Fix drizzle.config.ts per path relativo
@@ -154,7 +159,7 @@ $drizzle = Get-Content $drizzlePath -Raw
 if ($drizzle -match "path\.join\(__dirname") {
     $drizzle = $drizzle -replace 'import path from "path";\r?\n', ''
     $drizzle = $drizzle -replace 'path\.join\(__dirname,\s*"\.\/src\/schema\/index\.ts"\)', '"./src/schema/index.ts"'
-    Set-Content $drizzlePath $drizzle -Encoding UTF8
+    Write-FileNoBom $drizzlePath $drizzle
     Write-Ok "drizzle.config.ts aggiornato"
 }
 
@@ -175,7 +180,7 @@ SESSION_SECRET=$sessionSecret
 PORT=$PORT
 NODE_ENV=production
 LOCAL_FRONTEND_DIR=$INSTALL_DIR\artifacts\pos-restaurant\dist\public
-"@ | Set-Content $envFile -Encoding UTF8
+"@ | ForEach-Object { Write-FileNoBom $envFile $_ }
 Write-Ok ".env scritto"
 
 # Carica variabili nel processo corrente
@@ -247,7 +252,7 @@ $winswXml = "$INSTALL_DIR\winsw.xml"
   <onfailure action="restart" delay="20 sec"/>
   <onfailure action="restart" delay="60 sec"/>
 </service>
-"@ | Set-Content $winswXml -Encoding UTF8
+"@ | ForEach-Object { Write-FileNoBom $winswXml $_ }
 
 $svc = Get-Service $SVC_NAME -ErrorAction SilentlyContinue
 if ($svc) {
