@@ -1,0 +1,52 @@
+>>> pnpm install
+Scope: all 9 workspace projects
+Lockfile is up to date, resolution step is skipped
+Packages: +24
+++++++++++++++++++++++++
+Progress: resolved 24, reused 24, downloaded 0, added 24, done
+. preinstall$ node -e "['package-lock.json','yarn.lock'].forEach(f=>{try{require('fs').unlinkSync(f)}catch(e){}})"
+└─ Done in 115ms
+Done in 4.2s using pnpm v10.33.0
+    [OK] Dipendenze installate
+
+>>> Build API server
+
+> @workspace/api-server@0.0.0 build C:\HelloTable\artifacts\api-server
+> node ./build.mjs
+
+X [ERROR] Could not resolve "zod"
+
+    ../../lib/api-zod/src/generated/api.ts:8:21:
+      8 │ import * as zod from "zod";
+        ╵                      ~~~~~
+
+  You can mark the path "zod" as external to exclude it from the bundle, which will remove this
+  error and leave the unresolved path in the bundle.
+
+X [ERROR] Could not resolve "zod/v4"
+
+    ../../node_modules/.pnpm/drizzle-zod@0.8.3_drizzle-o_b76d21f9ee576bf35159ba9b21aefea5/node_modules/drizzle-zod/index.mjs:1:18:
+      1 │ import { z } from 'zod/v4';
+        ╵                   ~~~~~~~~
+
+  You can mark the path "zod/v4" as external to exclude it from the bundle, which will remove this
+  error and leave the unresolved path in the bundle.
+
+2 errors
+Error: Build failed with 2 errors:
+../../lib/api-zod/src/generated/api.ts:8:21: ERROR: Could not resolve "zod"
+../../node_modules/.pnpm/drizzle-zod@0.8.3_drizzle-o_b76d21f9ee576bf35159ba9b21aefea5/node_modules/drizzle-zod/index.mjs:1:18: ERROR: Could not resolve "zod/v4"
+    at failureErrorWithLog (C:\HelloTable\node_modules\.pnpm\esbuild@0.27.3\node_modules\esbuild\lib\main.js:1467:15)
+    at C:\HelloTable\node_modules\.pnpm\esbuild@0.27.3\node_modules\esbuild\lib\main.js:926:25
+    at C:\HelloTable\node_modules\.pnpm\esbuild@0.27.3\node_modules\esbuild\lib\main.js:1345:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {
+  errors: [Getter/Setter],
+  warnings: [Getter/Setter]
+}
+C:\HelloTable\artifacts\api-server:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/api-server@0.0.0 build: `node ./build.mjs`
+Exit status 1
+
+    [X]  Build API server fallita.
+
+Premi Invio per chiudere:

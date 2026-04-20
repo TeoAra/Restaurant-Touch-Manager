@@ -125,15 +125,30 @@ if (Test-Path "$INSTALL_DIR\.git") {
 }
 Write-Ok "Sorgenti in $INSTALL_DIR"
 
-# ─── 6. Patch preinstall per Windows ────────────────────────────────────────
+# ─── 6. Patch per Windows ───────────────────────────────────────────────────
 Write-Step "Compatibilita' Windows"
+
+# Fix preinstall script (sh -> node)
 $pkgPath = "$INSTALL_DIR\package.json"
 $pkg = Get-Content $pkgPath -Raw | ConvertFrom-Json
 $pkg.scripts.preinstall = "node -e `"['package-lock.json','yarn.lock'].forEach(f=>{try{require('fs').unlinkSync(f)}catch(e){}})`""
 $pkg | ConvertTo-Json -Depth 10 | Set-Content $pkgPath -Encoding UTF8
 Write-Ok "preinstall script aggiornato"
 
-# Patch drizzle.config.ts per path relativo
+# Rimuovi le esclusioni Linux-only da pnpm-workspace.yaml
+# (Replit esclude tutti i pacchetti nativi Windows per ridurre dimensioni su Linux)
+$wsPath = "$INSTALL_DIR\pnpm-workspace.yaml"
+$wsLines = Get-Content $wsPath
+$wsFiltered = $wsLines | Where-Object {
+    # Rimuovi righe che impostano pacchetti a "-" (esclusi su Linux)
+    $_ -notmatch ":\s*[`"']?-[`"']?\s*$" -and
+    # Rimuovi il commento correlato
+    $_ -notmatch "replit uses linux"
+}
+($wsFiltered -join "`n") | Set-Content $wsPath -Encoding UTF8
+Write-Ok "pnpm-workspace.yaml: rimossi filtri Linux"
+
+# Fix drizzle.config.ts per path relativo
 $drizzlePath = "$INSTALL_DIR\lib\db\drizzle.config.ts"
 $drizzle = Get-Content $drizzlePath -Raw
 if ($drizzle -match "path\.join\(__dirname") {
@@ -141,6 +156,13 @@ if ($drizzle -match "path\.join\(__dirname") {
     $drizzle = $drizzle -replace 'path\.join\(__dirname,\s*"\.\/src\/schema\/index\.ts"\)', '"./src/schema/index.ts"'
     Set-Content $drizzlePath $drizzle -Encoding UTF8
     Write-Ok "drizzle.config.ts aggiornato"
+}
+
+# Rimuovi node_modules esistente per installazione pulita
+if (Test-Path "$INSTALL_DIR\node_modules") {
+    Write-Warn "Rimozione node_modules precedente per installazione pulita..."
+    Remove-Item "$INSTALL_DIR\node_modules" -Recurse -Force
+    Write-Ok "node_modules rimosso"
 }
 
 # ─── 7. File .env ───────────────────────────────────────────────────────────
