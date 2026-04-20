@@ -284,7 +284,52 @@ if ($status -ne "Running") {
     Write-Ok "Servizio in esecuzione"
 }
 
-# ─── 13. Riepilogo ──────────────────────────────────────────────────────────
+# ─── 13. Utente admin iniziale ──────────────────────────────────────────────
+Write-Step "Creazione utente admin"
+Start-Sleep 3  # attendi che il server sia pronto
+try {
+    $apiBase = "http://localhost:$PORT/api"
+    # Controlla se esistono gia' utenti
+    $users = Invoke-RestMethod "$apiBase/auth/users" -ErrorAction Stop
+    if ($users.Count -eq 0) {
+        $adminPin  = "1234"
+        Invoke-RestMethod "$apiBase/auth/users" -Method Post `
+            -ContentType "application/json" `
+            -Body "{`"name`":`"Admin`",`"pin`":`"$adminPin`",`"role`":`"admin`"}" | Out-Null
+        Write-Ok "Utente Admin creato — PIN: $adminPin (cambialo dal backoffice)"
+    } else {
+        Write-Ok "Utenti gia' presenti nel database ($($users.Count))"
+    }
+} catch {
+    Write-Warn "Impossibile creare utente admin automaticamente: $_"
+    Write-Warn "Crealo manualmente da backoffice dopo il primo avvio."
+}
+
+# ─── 14. Collegamento desktop ────────────────────────────────────────────────
+Write-Step "Collegamento sul Desktop"
+try {
+    $desktopPub = "$env:PUBLIC\Desktop"
+    $desktopUsr = "$env:USERPROFILE\Desktop"
+    $desktop = if (Test-Path $desktopPub) { $desktopPub } else { $desktopUsr }
+    $shell = New-Object -ComObject WScript.Shell
+
+    # Collegamento browser
+    $url = $shell.CreateShortcut("$desktop\HelloTable POS.url")
+    $url.TargetPath = "http://localhost:$PORT"
+    $url.Save()
+
+    # Collegamento gestione servizio (apre services.msc)
+    $svcLink = $shell.CreateShortcut("$desktop\HelloTable Servizio.lnk")
+    $svcLink.TargetPath = "services.msc"
+    $svcLink.Description = "Gestione servizio HelloTable"
+    $svcLink.Save()
+
+    Write-Ok "Collegamento 'HelloTable POS' creato sul Desktop"
+} catch {
+    Write-Warn "Collegamento desktop non creato: $_"
+}
+
+# ─── 15. Riepilogo ──────────────────────────────────────────────────────────
 $localIPs = Get-NetIPAddress -AddressFamily IPv4 |
     Where-Object { $_.InterfaceAlias -notmatch "Loopback" -and $_.IPAddress -ne "127.0.0.1" } |
     Select-Object -ExpandProperty IPAddress
@@ -293,12 +338,13 @@ Write-Host ""
 Write-Host "  ╔══════════════════════════════════════════════════════╗" -ForegroundColor Green
 Write-Host "  ║        HelloTable installato con successo!           ║" -ForegroundColor Green
 Write-Host "  ╠══════════════════════════════════════════════════════╣" -ForegroundColor Green
+Write-Host "  ║  Da questo PC:  http://localhost:$PORT               ║" -ForegroundColor Yellow
 foreach ($ip in $localIPs) {
-Write-Host "  ║  Browser/tablet/telefono:                            ║" -ForegroundColor Green
-Write-Host "  ║    http://${ip}:${PORT}                              ║" -ForegroundColor Yellow
+Write-Host "  ║  Da tablet/tel: http://${ip}:${PORT}                 ║" -ForegroundColor Yellow
 }
 Write-Host "  ╠══════════════════════════════════════════════════════╣" -ForegroundColor Green
-Write-Host "  ║  Servizio: $SVC_NAME (avvio automatico con Windows)  ║" -ForegroundColor Green
+Write-Host "  ║  PIN admin iniziale: 1234  (cambialo dal backoffice) ║" -ForegroundColor Cyan
+Write-Host "  ║  Servizio: avvio automatico con Windows              ║" -ForegroundColor Green
 Write-Host "  ║  Database: PostgreSQL locale (porta 5432)            ║" -ForegroundColor Green
 Write-Host "  ║  Log: $INSTALL_DIR\logs\                             ║" -ForegroundColor Green
 Write-Host "  ╚══════════════════════════════════════════════════════╝" -ForegroundColor Green
