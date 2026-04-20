@@ -879,20 +879,18 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
   );
 }
 
-// ─── Item Edit Dialog (note + modifica prezzo) ────────────────────────────────
+// ─── Item Edit Dialog (solo modifica prezzo) ──────────────────────────────────
 type EditableItem = { id: number; productName: string; quantity: number; unitPrice: string; notes?: string | null; status: string };
 
 function ItemEditDialog({ open, onClose, item, onSave }: {
   open: boolean; onClose: () => void;
   item: EditableItem | null;
-  onSave: (itemId: number, notes: string, unitPrice: string) => void;
+  onSave: (itemId: number, unitPrice: string) => void;
 }) {
-  const [notes, setNotes] = useState("");
   const [price, setPrice] = useState("");
 
   useEffect(() => {
     if (open && item) {
-      setNotes(item.notes ?? "");
       setPrice(parseFloat(item.unitPrice).toFixed(2));
     }
   }, [open, item]);
@@ -909,7 +907,7 @@ function ItemEditDialog({ open, onClose, item, onSave }: {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Pencil className="h-4 w-4 text-primary" />
-            Modifica Riga
+            Modifica Prezzo
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-1">
@@ -921,18 +919,6 @@ function ItemEditDialog({ open, onClose, item, onSave }: {
             {item.status === "sent" && (
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Inviato</span>
             )}
-          </div>
-
-          {/* Note libere */}
-          <div>
-            <Label className="text-xs font-semibold text-slate-500 mb-1 block">Note libere</Label>
-            <textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              rows={2}
-              placeholder="Es. senza sale, extra piccante…"
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm resize-none outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-            />
           </div>
 
           {/* Modifica prezzo */}
@@ -964,7 +950,7 @@ function ItemEditDialog({ open, onClose, item, onSave }: {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Annulla</Button>
-          <Button onClick={() => { onSave(item.id, notes, parseFloat(price).toFixed(2)); onClose(); }}>Salva</Button>
+          <Button onClick={() => { onSave(item.id, parseFloat(price).toFixed(2)); onClose(); }}>Salva</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1126,6 +1112,8 @@ export default function FrontOffice() {
   const [deleteConfirm, setDeleteConfirm] = useState<{ itemId: number; name: string } | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [editingItem, setEditingItem] = useState<EditableItem | null>(null);
+  const [kpComment, setKpComment] = useState("");
+  const [kpSaving, setKpSaving] = useState(false);
   const [modifierPicker, setModifierPicker] = useState<{ productId: number; productName: string; unitPrice: string } | null>(null);
   const [selectedModifierIds, setSelectedModifierIds] = useState<Set<number>>(new Set());
   const [selectedItemCategoryId, setSelectedItemCategoryId] = useState<number | null>(null);
@@ -1190,6 +1178,10 @@ export default function FrontOffice() {
       .then(p => setSelectedItemCategoryId(p?.categoryId ?? null))
       .catch(() => setSelectedItemCategoryId(null));
   }, [selectedItem?.productId]);
+
+  useEffect(() => {
+    setKpComment((selectedItem as never as { notes?: string | null })?.notes ?? "");
+  }, [selectedItemId]);
 
   const sendComandaForOrder = useCallback(async (orderId: number) => {
     await fetch(`${API}/orders/${orderId}/send-comanda`, { method: "POST" }).catch(() => {});
@@ -1440,15 +1432,15 @@ export default function FrontOffice() {
     setDeleteConfirm(null);
   }
 
-  async function handleSaveItemEdit(itemId: number, notes: string, unitPrice: string) {
+  async function handleSaveItemEdit(itemId: number, unitPrice: string) {
     if (!activeOrderId) return;
     await updateItem.mutateAsync({
       orderId: activeOrderId,
       itemId,
-      data: { notes, unitPrice } as never,
+      data: { unitPrice } as never,
     });
     refresh();
-    toast({ title: "Riga aggiornata" });
+    toast({ title: "Prezzo aggiornato" });
   }
 
   async function handleSendComanda() {
@@ -2002,7 +1994,39 @@ export default function FrontOffice() {
                     </div>
                   )}
 
-                  {/* Edit notes / price */}
+                  {/* ── Commento KP ── */}
+                  <div className="bg-white rounded-2xl border-2 border-teal-200 p-3 space-y-2">
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-teal-600">
+                      <span>💬</span>
+                      <span>Commento KP</span>
+                      <span className="ml-auto text-[9px] font-normal text-slate-300 normal-case tracking-normal">Solo cucina · non su scontrino</span>
+                    </div>
+                    <textarea
+                      value={kpComment}
+                      onChange={e => setKpComment(e.target.value)}
+                      rows={2}
+                      placeholder="Es. senza cipolla, ben cotto, allergia…"
+                      className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl resize-none outline-none focus:ring-2 focus:ring-teal-300 focus:border-teal-400 placeholder:text-slate-300"
+                    />
+                    <button
+                      disabled={kpSaving}
+                      onClick={async () => {
+                        if (!activeOrderId || !selectedItem) return;
+                        setKpSaving(true);
+                        await fetch(`${API}/orders/${activeOrderId}/items/${selectedItem.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ notes: kpComment }),
+                        });
+                        refresh();
+                        setKpSaving(false);
+                      }}
+                      className="w-full py-2 rounded-xl bg-teal-500 hover:bg-teal-600 active:scale-95 text-white text-xs font-bold transition-all disabled:opacity-50">
+                      {kpSaving ? "Salvataggio…" : "Conferma commento"}
+                    </button>
+                  </div>
+
+                  {/* Modifica prezzo */}
                   <button
                     onClick={() => setEditingItem({
                       id: selectedItem.id,
@@ -2012,8 +2036,8 @@ export default function FrontOffice() {
                       notes: (selectedItem as never as { notes?: string | null }).notes,
                       status: (selectedItem as never as { status: string }).status,
                     })}
-                    className="w-full py-3.5 rounded-2xl border-2 border-dashed border-slate-300 text-slate-500 font-semibold text-sm hover:border-primary hover:text-primary hover:bg-orange-50 transition-all active:scale-95">
-                    ✎ Note / modifica prezzo…
+                    className="w-full py-3 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400 font-semibold text-sm hover:border-slate-400 hover:text-slate-600 transition-all active:scale-95">
+                    ✎ Modifica prezzo…
                   </button>
                 </>
               )}
