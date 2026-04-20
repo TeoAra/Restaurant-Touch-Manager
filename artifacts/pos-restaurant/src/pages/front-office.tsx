@@ -1807,7 +1807,6 @@ export default function FrontOffice() {
                   ? "bg-green-100 text-green-800 hover:bg-green-200 ring-1 ring-green-400"
                   : "bg-blue-100 text-blue-800 hover:bg-blue-200"
               )}>
-              <Ticket className="h-3.5 w-3.5 shrink-0" />
               Lotteria
               {lotteriaCodice && (
                 <span className="absolute -top-1 -right-1 bg-green-500 text-white text-[9px] font-bold rounded-full px-1 leading-4">✓</span>
