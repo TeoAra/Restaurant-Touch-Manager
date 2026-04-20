@@ -330,17 +330,18 @@ function PositionEditor({ tables, rooms, activeRoom, onActiveRoomChange, onEdit,
 }
 
 // ── Form ──────────────────────────────────────────────────────────────────────
-function TableForm({ initial, rooms, onSave, onClose, isDecorElement }: {
+function TableForm({ initial, rooms, onSave, onClose, isDecorElement, defaultRoomId }: {
   initial?: ExtTable; rooms: Room[];
   onSave: (data: { number: number; name: string; seats: number; status: string; roomId: number | null; shape: string; elementType: string }) => void;
   onClose: () => void;
   isDecorElement?: boolean;
+  defaultRoomId?: number | null;
 }) {
   const [number, setNumber] = useState(initial?.number ?? 1);
   const [name, setName] = useState(initial?.name ?? "");
   const [seats, setSeats] = useState(initial?.seats ?? 4);
   const [status, setStatus] = useState<string>(initial?.status ?? "free");
-  const [roomId, setRoomId] = useState<number | null>(initial?.roomId ?? null);
+  const [roomId, setRoomId] = useState<number | null>(initial?.roomId ?? defaultRoomId ?? null);
   const [shape, setShape] = useState<string>(initial?.shape ?? "square");
   const elementType = initial?.elementType ?? (isDecorElement ? "banco" : "table");
 
@@ -415,7 +416,7 @@ function TableForm({ initial, rooms, onSave, onClose, isDecorElement }: {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function TablesPage() {
-  const [dialog, setDialog] = useState<{ open: boolean; item?: ExtTable }>({ open: false });
+  const [dialog, setDialog] = useState<{ open: boolean; item?: ExtTable; defaultRoomId?: number | null }>({ open: false });
   const [localTables, setLocalTables] = useState<ExtTable[]>([]);
   const [view, setView] = useState<"list" | "map">("map");
   const [roomFilter, setRoomFilter] = useState<number | null>(null);
@@ -556,7 +557,7 @@ export default function TablesPage() {
               </button>
             </div>
           )}
-          <Button size="sm" className="gap-1" onClick={() => setDialog({ open: true, item: view === "map" && mapRoom ? { roomId: mapRoom } as ExtTable : undefined })}>
+          <Button size="sm" className="gap-1" onClick={() => setDialog({ open: true, item: undefined, defaultRoomId: view === "map" && mapRoom ? mapRoom : undefined })}>
             <Plus className="h-4 w-4" /> <span className="hidden sm:inline">Nuovo</span>
           </Button>
         </div>
@@ -612,7 +613,7 @@ export default function TablesPage() {
                 : "Nuovo Tavolo"}
             </DialogTitle>
           </DialogHeader>
-          <TableForm initial={dialog.item} rooms={rooms} onSave={handleSave} onClose={() => setDialog({ open: false })} />
+          <TableForm initial={dialog.item} rooms={rooms} onSave={handleSave} onClose={() => setDialog({ open: false })} defaultRoomId={dialog.defaultRoomId} />
         </DialogContent>
       </Dialog>
     </BackofficeShell>
