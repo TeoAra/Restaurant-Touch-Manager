@@ -314,14 +314,28 @@ try {
     $urlContent = "[InternetShortcut]`r`nURL=http://localhost:$PORT`r`nIconIndex=0`r`n"
     [System.IO.File]::WriteAllText("$desktop\HelloTable POS.url", $urlContent, $enc)
 
-    # Collegamento gestione servizio
+    # Collegamento gestione servizio e aggiornamento
     $shell = New-Object -ComObject WScript.Shell
+
     $svcLink = $shell.CreateShortcut("$desktop\HelloTable Servizio.lnk")
     $svcLink.TargetPath = "services.msc"
     $svcLink.Description = "Gestione servizio HelloTable"
     $svcLink.Save()
 
-    Write-Ok "Collegamento 'HelloTable POS' creato sul Desktop"
+    # Collegamento aggiornamento — esegue update.ps1 come amministratore
+    $updLink = $shell.CreateShortcut("$desktop\HelloTable Aggiorna.lnk")
+    $updLink.TargetPath = "powershell.exe"
+    $updLink.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$INSTALL_DIR\scripts\windows\update.ps1`""
+    $updLink.WorkingDirectory = $INSTALL_DIR
+    $updLink.Description = "Aggiorna HelloTable da GitHub e riavvia il server"
+    $updLink.Save()
+
+    # Imposta "Esegui come amministratore" sul collegamento aggiornamento
+    $bytes = [System.IO.File]::ReadAllBytes("$desktop\HelloTable Aggiorna.lnk")
+    $bytes[0x15] = $bytes[0x15] -bor 0x20
+    [System.IO.File]::WriteAllBytes("$desktop\HelloTable Aggiorna.lnk", $bytes)
+
+    Write-Ok "Collegamento 'HelloTable POS' e 'HelloTable Aggiorna' creati sul Desktop"
 } catch {
     Write-Warn "Collegamento desktop non creato: $_"
 }

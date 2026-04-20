@@ -12,6 +12,19 @@ $PORT        = 8080
 
 function Write-Step($msg) { Write-Host "`n>>> $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)   { Write-Host "    [OK] $msg" -ForegroundColor Green }
+function Write-Fail($msg) { Write-Host "`n[ERRORE] $msg" -ForegroundColor Red; Read-Host "Premi Invio"; exit 1 }
+
+# Carica .env nel processo corrente
+$envFile = "$INSTALL_DIR\.env"
+if (Test-Path $envFile) {
+    foreach ($line in Get-Content $envFile) {
+        if ($line -match "^([^#=\s][^=]*)=(.+)$") {
+            [System.Environment]::SetEnvironmentVariable($Matches[1].Trim(), $Matches[2].Trim(), "Process")
+        }
+    }
+} else {
+    Write-Fail "File .env non trovato in $INSTALL_DIR. Reinstalla HelloTable."
+}
 
 Write-Host "`n  HelloTable — Aggiornamento" -ForegroundColor DarkCyan
 
@@ -30,7 +43,7 @@ Write-Ok "Sorgenti aggiornati al commit: $(git log --oneline -1)"
 
 # ── 3. Dipendenze ────────────────────────────────────────────────────────────
 Write-Step "Aggiornamento dipendenze"
-pnpm install --frozen-lockfile
+pnpm install
 Write-Ok "Dipendenze ok"
 
 # ── 4. Build ─────────────────────────────────────────────────────────────────
@@ -63,8 +76,13 @@ $localIPs = (Get-NetIPAddress -AddressFamily IPv4 |
     Select-Object -ExpandProperty IPAddress)
 
 Write-Host ""
-Write-Host "  Aggiornamento completato!" -ForegroundColor Green
+Write-Host "  ╔══════════════════════════════════════════════════════╗" -ForegroundColor Green
+Write-Host "  ║        HelloTable aggiornato con successo!           ║" -ForegroundColor Green
+Write-Host "  ╠══════════════════════════════════════════════════════╣" -ForegroundColor Green
+Write-Host "  ║  Da questo PC:  http://localhost:$PORT               ║" -ForegroundColor Yellow
 foreach ($ip in $localIPs) {
-    Write-Host "  Accedi: http://${ip}:${PORT}" -ForegroundColor Yellow
+    Write-Host "  ║  Da tablet/tel: http://${ip}:${PORT}                 ║" -ForegroundColor Yellow
 }
+Write-Host "  ╚══════════════════════════════════════════════════════╝" -ForegroundColor Green
 Write-Host ""
+Read-Host "Premi Invio per chiudere"
