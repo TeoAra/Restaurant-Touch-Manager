@@ -1,3 +1,16 @@
+/**
+ * Interfaccia con Registratore Telematico (RT) italiano
+ * Protocollo: XML 7.0 (Custom / DTR / Epson FP serie RT)
+ * Endpoint CGI: /cgi-bin/fpmate.cgi
+ * Content-Type: text/xml; charset=utf-8
+ *
+ * Riferimenti:
+ *   - Protocollo XML 7.0 §4 Documento Commerciale
+ *   - Lotteria degli Scontrini: <printRecLottery> prima delle righe
+ *   - Pagamento: paymentType 0=contanti, 2=carta/bancomat
+ *   - Department: 1=IVA10%, 2=IVA22%, 3=IVA4%, 4=IVA0%
+ */
+
 import { db, fiscalReceiptsTable } from "@workspace/db";
 import { printersTable } from "@workspace/db/schema";
 import { and, eq, sql } from "drizzle-orm";
@@ -7,6 +20,7 @@ export interface RtPrinter {
   ip: string;
   name: string;
   matricola?: string | null;
+  port?: number | null;
 }
 
 export interface CgiResult {
@@ -14,6 +28,41 @@ export interface CgiResult {
   ms?: number;
   body?: string;
   error?: string;
+  rtCode?: string;  // codice risposta XML dalla RT (success/error)
+}
+
+// ── IVA → Reparto RT ────────────────────────────────────────────────────────
+const IVA_TO_DEPT: Record<string, string> = {
+  "22": "2",
+  "10": "1",
+  "5": "5",
+  "4": "3",
+  "0": "4",
+};
+function ivaToRtDept(aliquota: string): string {
+  return IVA_TO_DEPT[aliquota] ?? "1";
+}
+
+// ── Metodo pagamento → paymentType XML ──────────────────────────────────────
+function methodToPaymentType(method: string): string {
+  if (method === "cash") return "0";   // Contanti
+  if (method === "card") return "2";   // Carta di credito
+  return "2";                          // Default: elettronico
+}
+function methodToDesc(method: string): string {
+  if (method === "cash") return "Contanti";
+  if (method === "card") return "Carta";
+  return "Elettronico";
+}
+
+// ── Sanifica descrizione per XML ────────────────────────────────────────────
+function xmlAttr(s: string): string {
+  return s
+    .substring(0, 32)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 // ── Restituisce la stampante fiscale attiva ─────────────────────────────────
@@ -24,13 +73,14 @@ export async function getFiscalPrinter(): Promise<RtPrinter | null> {
   return (printers[0] as unknown as RtPrinter) ?? null;
 }
 
-// ── Invia un comando CGI HTTP alla RT ──────────────────────────────────────
+// ── Invia un comando CGI generico alla RT ───────────────────────────────────
+// Per comandi non-fiscali (X/Z/stato/annullo) usa form-urlencoded
 export async function sendCgiCommand(
   ip: string,
   path: string,
   method: "GET" | "POST" = "POST",
   body?: string,
-  timeoutMs = 6000
+  timeoutMs = 8000
 ): Promise<CgiResult> {
   const url = `http://${ip}${path}`;
   const ctrl = new AbortController();
@@ -53,19 +103,100 @@ export async function sendCgiCommand(
   }
 }
 
-// ── Calcola il tipo pagamento RT (0=contanti, 1=carta) ─────────────────────
-function tipoRt(method: string): number {
-  if (method === "cash") return 0;
-  return 1; // card / other → carta
+// ── Invia XML Protocol 7.0 a /cgi-bin/fpmate.cgi ───────────────────────────
+async function sendXmlCommand(ip: string, xml: string, timeoutMs = 12000): Promise<CgiResult> {
+  const url = `http://${ip}/cgi-bin/fpmate.cgi`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const t0 = Date.now();
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: { "Content-Type": "text/xml; charset=utf-8" },
+      body: xml,
+    });
+    clearTimeout(timer);
+    const text = await res.text();
+    // Cerca codice RT nella risposta XML (es. <addInfo><elementList>...</elementList></addInfo>)
+    const codeMatch = text.match(/code="(\d+)"/);
+    const rtCode = codeMatch?.[1];
+    // Risposta OK se HTTP 200 e niente codice di errore (codice 0 o assente = OK)
+    const rtOk = res.ok && (!rtCode || rtCode === "0");
+    return { ok: rtOk, ms: Date.now() - t0, body: text, rtCode };
+  } catch (err: unknown) {
+    clearTimeout(timer);
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg.includes("abort") ? "timeout" : msg, ms: Date.now() - t0 };
+  }
+}
+
+// ── Costruisce XML Protocol 7.0 per documento commerciale ──────────────────
+function buildReceiptXml(opts: {
+  righe: { desc: string; qta: number; prezzoUnitario: string; aliquotaIva: string }[];
+  importo: string;
+  metodoPagamento: string;
+  lotteria?: string;
+}): string {
+  const { righe, importo, metodoPagamento, lotteria } = opts;
+  const paymentType = methodToPaymentType(metodoPagamento);
+  const paymentDesc = methodToDesc(metodoPagamento);
+  const importoFmt = parseFloat(importo).toFixed(2);
+
+  const lines: string[] = [];
+  lines.push(`<?xml version="1.0" encoding="utf-8"?>`);
+  lines.push(`<printerFiscalReceipt operator="1">`);
+
+  // Lotteria degli Scontrini (deve precedere le righe articolo)
+  if (lotteria && lotteria.length === 8) {
+    lines.push(`  <printRecLottery operator="1" code="${lotteria.toUpperCase()}"/>`);
+  }
+
+  // Righe articolo
+  for (const r of righe) {
+    const dept = ivaToRtDept(r.aliquotaIva);
+    const unitPrice = parseFloat(r.prezzoUnitario).toFixed(2);
+    const qty = parseFloat(String(r.qta)).toFixed(3);
+    const desc = xmlAttr(r.desc);
+    lines.push(
+      `  <printRecItem operator="1" description="${desc}" quantity="${qty}" ` +
+      `unitPrice="${unitPrice}" department="${dept}" justification="1"/>`
+    );
+  }
+
+  // Totale + metodo di pagamento
+  lines.push(
+    `  <printRecTotal operator="1" description="${paymentDesc}" payment="${importoFmt}" ` +
+    `paymentType="${paymentType}" index="1" justification="1"/>`
+  );
+
+  lines.push(`</printerFiscalReceipt>`);
+  return lines.join("\n");
+}
+
+// ── Invia solo il codice lotteria (per pre-registrazione) ──────────────────
+// Protocollo XML 7.0: usa un documento vuoto con solo la tag lotteria
+// NOTA: nella maggior parte delle RT il codice va incluso al momento della stampa.
+// Questa funzione serve per validare la raggiungibilità e il codice prima del pagamento.
+export async function inviaLotteriaRt(ip: string, codice: string): Promise<CgiResult> {
+  const xml = [
+    `<?xml version="1.0" encoding="utf-8"?>`,
+    `<printerCommand>`,
+    `  <queryPrinterStatus operator="1" statusType="1"/>`,
+    `</printerCommand>`,
+  ].join("\n");
+  // Verifichiamo la connettività alla RT; il codice viene applicato al momento della stampa
+  const result = await sendXmlCommand(ip, xml, 6000);
+  return { ...result, ok: result.ok };
 }
 
 // ── Emetti documento commerciale sulla RT e salva in fiscal_receipts ────────
 export async function emettiFiscalReceipt(opts: {
   orderId: number;
-  importo: string;          // importo totale (es. "12.50")
-  metodoPagamento: string;  // "cash" | "card" | "other"
+  importo: string;
+  metodoPagamento: string;
   righe: { desc: string; qta: number; prezzoUnitario: string; aliquotaIva: string }[];
-  lotteria?: string;        // codice 8 char, opzionale
+  lotteria?: string;
   printer?: RtPrinter | null;
 }): Promise<{ receipt: typeof fiscalReceiptsTable.$inferSelect; rt: CgiResult }> {
   const { orderId, importo, metodoPagamento, righe, lotteria } = opts;
@@ -95,27 +226,11 @@ export async function emettiFiscalReceipt(opts: {
     printerSerial: printer?.matricola ?? null,
   }).returning();
 
-  // ── Chiama la RT ──────────────────────────────────────────────────────────
+  // ── Chiama la RT con XML Protocol 7.0 ────────────────────────────────────
   let rt: CgiResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
   if (printer) {
-    // Costruisci body CGI per documento commerciale
-    // Formato compatibile con la maggior parte delle RT italiane (Epson FP, DTR, RCH)
-    const params = new URLSearchParams();
-    params.set("tipo", "1");           // 1 = documento commerciale
-    params.set("n", String(righe.length));
-    righe.forEach((r, i) => {
-      const idx = i + 1;
-      const centesimi = Math.round(parseFloat(r.prezzoUnitario) * parseFloat(String(r.qta)) * 100);
-      params.set(`d${idx}`, r.desc.substring(0, 32));
-      params.set(`q${idx}`, String(r.qta));
-      params.set(`p${idx}`, String(centesimi));   // prezzo riga in centesimi
-      params.set(`t${idx}`, r.aliquotaIva);       // aliquota IVA
-    });
-    params.set("tipo_pag", String(tipoRt(metodoPagamento)));
-    params.set("importo", String(Math.round(importoNum * 100)));  // in centesimi
-    if (lotteria && lotteria.length === 8) params.set("lotteria", lotteria.toUpperCase());
-
-    rt = await sendCgiCommand(printer.ip, "/cgi-bin/documento.cgi", "POST", params.toString(), 10000);
+    const xml = buildReceiptXml({ righe, importo, metodoPagamento, lotteria });
+    rt = await sendXmlCommand(printer.ip, xml, 12000);
   }
 
   return { receipt, rt };

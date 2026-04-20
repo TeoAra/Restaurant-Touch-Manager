@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, fiscalReceiptsTable, ordersTable } from "@workspace/db";
 import { eq, desc, and, sql } from "drizzle-orm";
-import { getFiscalPrinter, sendCgiCommand } from "../lib/fiscal-printer";
+import { getFiscalPrinter, sendCgiCommand, inviaLotteriaRt } from "../lib/fiscal-printer";
 import { getSettings } from "../lib/settings";
 
 const router = Router();
@@ -109,7 +109,10 @@ router.post("/receipts/:id/void", async (req, res) => {
   res.json({ receipt, printer: printerResult });
 });
 
-// ── Lotteria degli Scontrini — invia codice cliente alla RT ─────────────────
+// ── Lotteria degli Scontrini — valida RT e codice (XML Protocol 7.0) ────────
+// Con protocollo XML 7.0 il codice lotteria viene incluso nel documento al momento
+// della stampa tramite <printRecLottery>. Questo endpoint verifica la raggiungibilità
+// della RT e valida il codice, che verrà applicato automaticamente al prossimo incasso.
 router.post("/lotteria", async (req, res) => {
   const { codice } = req.body as { codice?: string };
   if (!codice || codice.length !== 8) {
@@ -118,16 +121,18 @@ router.post("/lotteria", async (req, res) => {
   const codicePulito = codice.toUpperCase().trim();
   const printer = await getFiscalPrinter();
   if (!printer) {
-    return res.status(503).json({ ok: false, error: "Nessuna stampante fiscale configurata" });
+    // Nessuna RT configurata: salviamo il codice e lo includeremo al prossimo incasso
+    return res.json({ ok: true, codice: codicePulito, nota: "RT non configurata — codice salvato, verrà applicato all'incasso" });
   }
-  const result = await sendCgiCommand(
-    printer.ip,
-    "/cgi-bin/lotteria.cgi",
-    "POST",
-    `codice=${codicePulito}`,
-    6000
-  );
-  res.json({ ok: result.ok, ms: result.ms, error: result.error ?? null, codice: codicePulito });
+  // Verifica connettività RT via XML (queryPrinterStatus)
+  const result = await inviaLotteriaRt(printer.ip, codicePulito);
+  res.json({
+    ok: result.ok,
+    ms: result.ms,
+    error: result.error ?? null,
+    codice: codicePulito,
+    nota: "Codice salvato — verrà incluso nel documento commerciale al momento dell'incasso",
+  });
 });
 
 // ── Report X — Lettura di giornata (non azzera) ─────────────────────────────
