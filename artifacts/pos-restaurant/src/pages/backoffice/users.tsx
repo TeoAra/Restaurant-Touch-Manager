@@ -66,25 +66,33 @@ export default function UsersPage() {
     setDialog({ open: true, item: u });
   }
 
+  const errToast = (err?: unknown) => {
+    const msg = (err as { message?: string })?.message ?? "Operazione fallita";
+    toast({ title: "Errore", description: msg, variant: "destructive" });
+  };
+
   const createUser = useMutation({
     mutationFn: () => fetch(`${API}/auth/users`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, pin, role }),
-    }).then(r => r.json()),
+    }).then(async r => { if (!r.ok) throw new Error((await r.json()).error ?? r.statusText); return r.json(); }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["auth-users"] }); setDialog({ open: false }); toast({ title: "Utente creato" }); },
+    onError: errToast,
   });
 
   const updateUser = useMutation({
     mutationFn: () => fetch(`${API}/auth/users/${dialog.item!.id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, ...(pin ? { pin } : {}), role }),
-    }).then(r => r.json()),
+    }).then(async r => { if (!r.ok) throw new Error((await r.json()).error ?? r.statusText); return r.json(); }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["auth-users"] }); setDialog({ open: false }); toast({ title: "Utente aggiornato" }); },
+    onError: errToast,
   });
 
   const deleteUser = useMutation({
     mutationFn: (id: number) => fetch(`${API}/auth/users/${id}`, { method: "DELETE" }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["auth-users"] }); toast({ title: "Utente eliminato" }); },
+    onError: errToast,
   });
 
   return (

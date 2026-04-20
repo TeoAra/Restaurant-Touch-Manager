@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import path from "path";
@@ -48,5 +48,18 @@ if (localFrontendDir) {
   });
   logger.info({ frontendPath }, "Serving local frontend");
 }
+
+// ── Global error handler ──────────────────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  const status = (err as { status?: number; statusCode?: number })?.status
+    ?? (err as { statusCode?: number })?.statusCode
+    ?? 500;
+  const message =
+    (err as { message?: string })?.message ?? "Errore interno del server";
+
+  logger.error({ err }, "Unhandled error");
+  res.status(status).json({ error: message });
+});
 
 export default app;

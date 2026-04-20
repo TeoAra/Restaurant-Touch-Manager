@@ -495,6 +495,10 @@ export default function TablesPage() {
         setLocalTables([]);
         setDialog({ open: false });
       },
+      onError: (err: unknown) => {
+        const msg = (err as { message?: string })?.message ?? "Errore durante il salvataggio";
+        toast({ title: "Errore", description: msg, variant: "destructive" });
+      },
     };
     if (dialog.item) updateTable.mutate({ id: dialog.item.id, data: data as never }, opts);
     else createTable.mutate({ data: data as never }, opts);
@@ -509,7 +513,11 @@ export default function TablesPage() {
       onSuccess: () => {
         toast({ title: `${label} aggiunto alla planimetria` });
         qc.invalidateQueries({ queryKey: getListTablesQueryKey() });
-      }
+      },
+      onError: (err: unknown) => {
+        const msg = (err as { message?: string })?.message ?? "Errore";
+        toast({ title: "Errore", description: msg, variant: "destructive" });
+      },
     });
   }
 
