@@ -1776,7 +1776,7 @@ export default function FrontOffice() {
         </div>
 
         {/* Bottone CASSA */}
-        <div className="px-2.5 pb-2.5 shrink-0">
+        <div className="px-2.5 pb-20 sm:pb-2.5 shrink-0">
           <button
             onClick={() => { setRightTab("tot"); setMobilePanel("right"); }}
             disabled={items.length === 0}
