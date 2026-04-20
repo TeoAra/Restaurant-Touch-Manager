@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { db, fiscalReceiptsTable, appSettingsTable, ordersTable } from "@workspace/db";
+import { db, fiscalReceiptsTable, ordersTable } from "@workspace/db";
+import { printersTable } from "@workspace/db/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
 
 const router = Router();
@@ -13,6 +14,42 @@ async function getSettings(): Promise<Record<string, string>> {
   return map;
 }
 
+// Restituisce la stampante fiscale attiva (is_fiscale = true, active = true)
+async function getFiscalPrinter() {
+  const printers = await db.select().from(printersTable)
+    .where(and(eq(printersTable.isFiscale, true), eq(printersTable.active, true)))
+    .limit(1);
+  return printers[0] ?? null;
+}
+
+// Invia un comando CGI HTTP alla stampante RT e restituisce il risultato
+async function sendCgiCommand(
+  ip: string,
+  path: string,
+  method: "GET" | "POST" = "POST",
+  body?: string,
+  timeoutMs = 8000
+): Promise<{ ok: boolean; status?: number; body?: string; error?: string }> {
+  try {
+    const url = `http://${ip}${path}`;
+    const opts: RequestInit = {
+      method,
+      signal: AbortSignal.timeout(timeoutMs),
+    };
+    if (method === "POST" && body) {
+      opts.headers = { "Content-Type": "application/x-www-form-urlencoded" };
+      opts.body = body;
+    }
+    const resp = await fetch(url, opts);
+    let respBody: string | undefined;
+    try { respBody = await resp.text(); } catch { /* ignore */ }
+    return { ok: resp.ok, status: resp.status, body: respBody };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+// ── Lista scontrini fiscali ─────────────────────────────────────────────────
 router.get("/receipts", async (req, res) => {
   const { anno, numero } = req.query;
   let rows;
@@ -25,6 +62,7 @@ router.get("/receipts", async (req, res) => {
   res.json(rows);
 });
 
+// ── Crea scontrino fiscale ──────────────────────────────────────────────────
 router.post("/receipts", async (req, res) => {
   const body = req.body;
   const anno = body.anno ?? new Date().getFullYear();
@@ -33,7 +71,7 @@ router.post("/receipts", async (req, res) => {
   );
   const numero = Number((rows.rows[0] as { next: number }).next);
 
-  // Compute IVA from order's modalita and settings
+  // Calcola IVA dalla modalità dell'ordine + impostazioni
   let ivaAmount = body.iva ?? "0";
   if (body.orderId) {
     try {
@@ -41,17 +79,16 @@ router.post("/receipts", async (req, res) => {
       const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, Number(body.orderId)));
       if (order) {
         const modalita = (order as never as { modalita?: string }).modalita ?? "tavolo";
-        const settingKey = `iva_${modalita}` as string;
-        const aliquota = parseFloat(settings[settingKey] ?? settings["iva_tavolo"] ?? "10");
+        const aliquota = parseFloat(settings[`iva_${modalita}`] ?? settings["iva_tavolo"] ?? "10");
         const importo = parseFloat(body.importo ?? "0");
-        // IVA importo = imponibile × aliquota, dove imponibile = importo / (1 + aliquota/100)
         const imponibile = importo / (1 + aliquota / 100);
         ivaAmount = (importo - imponibile).toFixed(2);
       }
-    } catch {
-      // fallback: use provided iva or 0
-    }
+    } catch { /* fallback: usa iva fornita */ }
   }
+
+  // Recupera stampante fiscale per printerRef/printerSerial automatici
+  const fiscalPrinter = await getFiscalPrinter();
 
   const [receipt] = await db.insert(fiscalReceiptsTable).values({
     numero,
@@ -61,12 +98,13 @@ router.post("/receipts", async (req, res) => {
     importo: body.importo ?? "0",
     iva: ivaAmount,
     metodoPagamento: body.metodoPagamento ?? "contanti",
-    printerRef: body.printerRef,
-    printerSerial: body.printerSerial,
+    printerRef: body.printerRef ?? fiscalPrinter?.name ?? null,
+    printerSerial: body.printerSerial ?? fiscalPrinter?.matricola ?? null,
   }).returning();
   res.status(201).json(receipt);
 });
 
+// ── Annulla scontrino ───────────────────────────────────────────────────────
 router.post("/receipts/:id/void", async (req, res) => {
   const id = Number(req.params.id);
   const { motivo } = req.body;
@@ -76,91 +114,114 @@ router.post("/receipts/:id/void", async (req, res) => {
     .returning();
   if (!receipt) return res.status(404).json({ error: "Scontrino non trovato" });
 
-  const settings = await getSettings();
-  const dtrIp = settings["dtr_ip"];
+  const printer = await getFiscalPrinter();
   let printerResult = null;
-  if (dtrIp) {
-    try {
-      const resp = await fetch(`http://${dtrIp}/cgi-bin/annullo.cgi`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: `numero=${receipt.numero}&data=${receipt.data}&importo=${receipt.importo}`,
-        signal: AbortSignal.timeout(5000),
-      });
-      printerResult = { ok: resp.ok, status: resp.status };
-    } catch (e) {
-      printerResult = { ok: false, error: String(e) };
-    }
+  if (printer) {
+    printerResult = await sendCgiCommand(
+      printer.ip,
+      "/cgi-bin/annullo.cgi",
+      "POST",
+      `numero=${receipt.numero}&data=${receipt.data}&importo=${receipt.importo}`,
+      5000
+    );
+  } else {
+    printerResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
   }
 
   res.json({ receipt, printer: printerResult });
 });
 
-router.post("/z-report", async (req, res) => {
-  const settings = await getSettings();
-  const dtrIp = settings["dtr_ip"];
+// ── Report X — Lettura di giornata (non azzera) ─────────────────────────────
+router.post("/x-report", async (req, res) => {
   const anno = new Date().getFullYear();
   const now = new Date().toISOString().slice(0, 10);
 
+  // Totali DB di oggi
   const totals = await db.execute(sql`
-    SELECT COUNT(*) as count, COALESCE(SUM(importo::numeric), 0) as totale
+    SELECT COUNT(*) as count, COALESCE(SUM(importo::numeric), 0) as totale,
+           COALESCE(SUM(iva::numeric), 0) as totale_iva
     FROM fiscal_receipts
     WHERE anno = ${anno} AND data = ${now} AND annullato = false
   `);
-  const row = totals.rows[0] as { count: string; totale: string };
+  const row = totals.rows[0] as { count: string; totale: string; totale_iva: string };
 
+  const printer = await getFiscalPrinter();
   let printerResult = null;
-  if (dtrIp) {
-    try {
-      const resp = await fetch(`http://${dtrIp}/cgi-bin/chiusura.cgi`, {
-        method: "POST",
-        signal: AbortSignal.timeout(8000),
-      });
-      printerResult = { ok: resp.ok, status: resp.status };
-    } catch (e) {
-      printerResult = { ok: false, error: String(e) };
-    }
+  if (printer) {
+    // Lettura di giornata — CGI standard RT italiano
+    printerResult = await sendCgiCommand(printer.ip, "/cgi-bin/lettura.cgi", "GET", undefined, 8000);
+  } else {
+    printerResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
   }
 
   res.json({
+    tipo: "X",
     data: now,
     anno,
     scontrini: Number(row.count),
     totale: row.totale,
+    totale_iva: row.totale_iva,
     printer: printerResult,
-    simulated: !dtrIp,
+    printer_name: printer?.name ?? null,
+    printer_matricola: printer?.matricola ?? null,
+    simulated: !printer,
   });
 });
 
-router.get("/printer-test", async (req, res) => {
-  const settings = await getSettings();
-  const dtrIp = settings["dtr_ip"];
-  const sewooIp = settings["sewoo_ip"];
-  const results: Record<string, unknown> = {};
+// ── Report Z — Chiusura fiscale giornaliera (azzera contatori) ─────────────
+router.post("/z-report", async (req, res) => {
+  const anno = new Date().getFullYear();
+  const now = new Date().toISOString().slice(0, 10);
 
-  if (dtrIp) {
-    try {
-      const resp = await fetch(`http://${dtrIp}/cgi-bin/stato.cgi`, { signal: AbortSignal.timeout(3000) });
-      results.dtr = { ok: resp.ok, status: resp.status, ip: dtrIp };
-    } catch (e) {
-      results.dtr = { ok: false, error: String(e), ip: dtrIp };
-    }
+  // Totali DB di oggi
+  const totals = await db.execute(sql`
+    SELECT COUNT(*) as count, COALESCE(SUM(importo::numeric), 0) as totale,
+           COALESCE(SUM(iva::numeric), 0) as totale_iva
+    FROM fiscal_receipts
+    WHERE anno = ${anno} AND data = ${now} AND annullato = false
+  `);
+  const row = totals.rows[0] as { count: string; totale: string; totale_iva: string };
+
+  const printer = await getFiscalPrinter();
+  let printerResult = null;
+  if (printer) {
+    // Chiusura fiscale — CGI standard RT italiano
+    printerResult = await sendCgiCommand(printer.ip, "/cgi-bin/chiusura.cgi", "POST", undefined, 10000);
   } else {
-    results.dtr = { ok: false, error: "IP non configurato" };
+    printerResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
   }
 
-  if (sewooIp) {
-    try {
-      const resp = await fetch(`http://${sewooIp}`, { signal: AbortSignal.timeout(3000) });
-      results.sewoo = { ok: resp.ok, status: resp.status, ip: sewooIp };
-    } catch (e) {
-      results.sewoo = { ok: false, error: String(e), ip: sewooIp };
-    }
-  } else {
-    results.sewoo = { ok: false, error: "IP non configurato" };
-  }
+  res.json({
+    tipo: "Z",
+    data: now,
+    anno,
+    scontrini: Number(row.count),
+    totale: row.totale,
+    totale_iva: row.totale_iva,
+    printer: printerResult,
+    printer_name: printer?.name ?? null,
+    printer_matricola: printer?.matricola ?? null,
+    simulated: !printer,
+  });
+});
 
-  res.json(results);
+// ── Test stato stampante fiscale ────────────────────────────────────────────
+router.get("/printer-status", async (req, res) => {
+  const printer = await getFiscalPrinter();
+  if (!printer) {
+    return res.json({ found: false, error: "Nessuna stampante fiscale (RT) configurata e attiva" });
+  }
+  const result = await sendCgiCommand(printer.ip, "/cgi-bin/stato.cgi", "GET", undefined, 4000);
+  res.json({
+    found: true,
+    printer: {
+      name: printer.name,
+      ip: printer.ip,
+      model: printer.model,
+      matricola: printer.matricola,
+    },
+    connection: result,
+  });
 });
 
 export default router;
