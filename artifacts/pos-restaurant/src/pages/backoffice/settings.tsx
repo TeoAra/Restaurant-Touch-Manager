@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, memo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Settings2, ShoppingBag, Truck, Zap, Users, Building2, Printer, Wifi } from "lucide-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
@@ -9,6 +9,17 @@ import { Button } from "@/components/ui/button";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
+
+const DField = memo(function DField({ label, val, setVal, placeholder, className }: {
+  label: string; val: string; setVal: (v: string) => void; placeholder?: string; className?: string;
+}) {
+  return (
+    <div className={className}>
+      <Label className="text-xs text-slate-500 mb-1 block">{label}</Label>
+      <Input value={val} onChange={e => setVal(e.target.value)} placeholder={placeholder} className="h-9 text-sm" />
+    </div>
+  );
+});
 
 type AppSettings = Record<string, string>;
 
@@ -146,15 +157,6 @@ export default function SettingsPage() {
     { v: "RF10", l: "RF10 – Attività sportive" }, { v: "RF17", l: "RF17 – Agriturismo" },
     { v: "RF18", l: "RF18 – Vendita a domicilio" }, { v: "RF19", l: "RF19 – Regime forfetario" },
   ];
-
-  function DField({ label, val, setVal, placeholder, className }: { label: string; val: string; setVal: (v: string) => void; placeholder?: string; className?: string }) {
-    return (
-      <div className={className}>
-        <Label className="text-xs text-slate-500 mb-1 block">{label}</Label>
-        <Input value={val} onChange={e => setVal(e.target.value)} placeholder={placeholder} className="h-9 text-sm" />
-      </div>
-    );
-  }
 
   return (
     <BackofficeShell title="Impostazioni" subtitle="Funzionalità e configurazione sistema">

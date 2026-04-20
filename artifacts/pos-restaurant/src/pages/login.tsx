@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { UtensilsCrossed, Delete } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,19 @@ export default function LoginPage() {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Supporto tastiera fisica
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (loading) return;
+      if (e.key >= "0" && e.key <= "9") handleKey(e.key);
+      else if (e.key === "Backspace") handleKey("⌫");
+      else if (e.key === "Escape") { setPin(""); setError(""); }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, pin]);
 
   async function handleKey(k: string) {
     if (loading) return;
