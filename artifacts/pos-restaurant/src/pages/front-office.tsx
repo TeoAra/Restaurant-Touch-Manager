@@ -1518,7 +1518,7 @@ export default function FrontOffice() {
     if (!activeOrderId) return;
     setShowPayment(false);
     await createPayment.mutateAsync({
-      data: { orderId: activeOrderId, method, amount: total.toFixed(2), amountGiven: amountGiven?.toFixed(2) } as never
+      data: { orderId: activeOrderId, method, amount: total.toFixed(2), amountGiven: amountGiven?.toFixed(2), lotteria: lotteriaCodice || undefined } as never
     });
     if (invoiceCustomerId && items.length > 0) {
       try {

@@ -1,7 +1,9 @@
 import { Router } from "express";
-import { db, paymentsTable, ordersTable, tablesTable } from "@workspace/db";
+import { db, paymentsTable, ordersTable, tablesTable, orderItemsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { CreatePaymentBody, GetPaymentParams } from "@workspace/api-zod";
+import { getFiscalPrinter, emettiFiscalReceipt } from "../lib/fiscal-printer";
+import { getSettings } from "../lib/settings";
 
 const router = Router();
 
@@ -11,6 +13,7 @@ router.get("/", async (req, res) => {
 });
 
 router.post("/", async (req, res) => {
+  const lotteria: string | undefined = req.body?.lotteria; // letto PRIMA del parse (Zod striperebbe)
   const body = CreatePaymentBody.parse(req.body);
 
   const [payment] = await db.insert(paymentsTable).values({
@@ -32,7 +35,38 @@ router.post("/", async (req, res) => {
     }
   }
 
-  res.status(201).json(payment);
+  // ── Emetti scontrino fiscale sulla RT ────────────────────────────────────
+  let fiscalResult: { receiptId?: number; rtOk?: boolean; rtError?: string } = {};
+  try {
+    const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, body.orderId));
+    const settings = await getSettings();
+    const modalita = (order as never as { modalita?: string }).modalita ?? "tavolo";
+    const aliquotaIva = settings[`iva_${modalita}`] ?? settings["iva_tavolo"] ?? "10";
+    const printer = await getFiscalPrinter();
+
+    const righe = items.map(i => ({
+      desc: i.productName,
+      qta: i.quantity,
+      prezzoUnitario: i.unitPrice,
+      aliquotaIva,
+    }));
+
+    const { receipt, rt } = await emettiFiscalReceipt({
+      orderId: body.orderId,
+      importo: body.amount,
+      metodoPagamento: body.method,
+      righe,
+      lotteria,
+      printer,
+    });
+
+    fiscalResult = { receiptId: receipt.id, rtOk: rt.ok, rtError: rt.error };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    fiscalResult = { rtOk: false, rtError: `Errore emissione scontrino: ${msg}` };
+  }
+
+  res.status(201).json({ ...payment, fiscal: fiscalResult });
 });
 
 router.get("/:id", async (req, res) => {

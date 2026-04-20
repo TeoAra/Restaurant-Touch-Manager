@@ -1,53 +1,10 @@
 import { Router } from "express";
 import { db, fiscalReceiptsTable, ordersTable } from "@workspace/db";
-import { printersTable } from "@workspace/db/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
+import { getFiscalPrinter, sendCgiCommand } from "../lib/fiscal-printer";
+import { getSettings } from "../lib/settings";
 
 const router = Router();
-
-async function getSettings(): Promise<Record<string, string>> {
-  const rows = await db.execute(sql`SELECT key, value FROM app_settings`);
-  const map: Record<string, string> = {};
-  for (const row of rows.rows as { key: string; value: string }[]) {
-    map[row.key] = row.value;
-  }
-  return map;
-}
-
-// Restituisce la stampante fiscale attiva (is_fiscale = true, active = true)
-async function getFiscalPrinter() {
-  const printers = await db.select().from(printersTable)
-    .where(and(eq(printersTable.isFiscale, true), eq(printersTable.active, true)))
-    .limit(1);
-  return printers[0] ?? null;
-}
-
-// Invia un comando CGI HTTP alla stampante RT e restituisce il risultato
-async function sendCgiCommand(
-  ip: string,
-  path: string,
-  method: "GET" | "POST" = "POST",
-  body?: string,
-  timeoutMs = 8000
-): Promise<{ ok: boolean; status?: number; body?: string; error?: string }> {
-  try {
-    const url = `http://${ip}${path}`;
-    const opts: RequestInit = {
-      method,
-      signal: AbortSignal.timeout(timeoutMs),
-    };
-    if (method === "POST" && body) {
-      opts.headers = { "Content-Type": "application/x-www-form-urlencoded" };
-      opts.body = body;
-    }
-    const resp = await fetch(url, opts);
-    let respBody: string | undefined;
-    try { respBody = await resp.text(); } catch { /* ignore */ }
-    return { ok: resp.ok, status: resp.status, body: respBody };
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  }
-}
 
 // ── Lista scontrini fiscali ─────────────────────────────────────────────────
 router.get("/receipts", async (req, res) => {
