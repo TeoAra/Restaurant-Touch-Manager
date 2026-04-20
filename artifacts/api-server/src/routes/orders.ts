@@ -246,43 +246,100 @@ const ESC = 0x1b;
 const GS  = 0x1d;
 
 
-function escposComanda(tableLabel: string, items: { productName: string; quantity: number; notes?: string | null }[], phase: string): Buffer {
-  const init     = Buffer.from([ESC, 0x40]);                          // init
+// Converte caratteri accentati italiani in ASCII puro (Codepage 437)
+function toAscii(s: string): string {
+  return s
+    .replace(/[àáâãäå]/gi, "a").replace(/[èéêë]/gi, "e")
+    .replace(/[ìíîï]/gi, "i").replace(/[òóôõö]/gi, "o")
+    .replace(/[ùúûü]/gi, "u").replace(/[ç]/gi, "c")
+    .replace(/[ñ]/gi, "n").replace(/[ý]/gi, "y")
+    .replace(/[^A-Za-z0-9 !"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/g, "?");
+}
+
+function escposComanda(
+  tableLabel: string,
+  items: { productName: string; quantity: number; notes?: string | null; modifiers?: string | null }[],
+  phase: string,
+  printerName?: string,
+  orderId?: number,
+  operatorName?: string,
+): Buffer {
+  const COLS = 42;
+  const SEP  = Buffer.from("-".repeat(COLS) + "\n");
+
+  const init     = Buffer.from([ESC, 0x40]);
   const bold_on  = Buffer.from([ESC, 0x45, 0x01]);
   const bold_off = Buffer.from([ESC, 0x45, 0x00]);
-  const dbl_on   = Buffer.from([GS,  0x21, 0x11]);                   // double width+height
+  const dbl_on   = Buffer.from([GS,  0x21, 0x11]);  // double width+height
   const dbl_off  = Buffer.from([GS,  0x21, 0x00]);
   const center   = Buffer.from([ESC, 0x61, 0x01]);
   const left     = Buffer.from([ESC, 0x61, 0x00]);
-  const cut      = Buffer.from([GS,  0x56, 0x41, 0x03]);             // partial cut + feed
+  const cut      = Buffer.from([GS,  0x56, 0x41, 0x03]);  // partial cut + feed
   const lf       = Buffer.from([0x0a]);
 
-  const now = new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
-  const separator = Buffer.from("-".repeat(32) + "\n");
+  const now  = new Date().toLocaleString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).replace(",", "");
+  const phaseFull = `*** FASE->${phase} ***`;
 
-  const header = Buffer.concat([
-    init, center, dbl_on, bold_on,
-    Buffer.from(`COMANDA ${phase}\n`),
-    dbl_off,
-    Buffer.from(`${tableLabel}  ${now}\n`),
-    bold_off, left, separator,
+  // ── Header ──────────────────────────────────────────────────────────────
+  const headerLines: Buffer[] = [
+    init,
+    SEP,
+    center, bold_on,
+    Buffer.from(toAscii(printerName ? `Comande ${printerName}` : "COMANDA") + "\n"),
+    bold_off,
+    SEP,
+    left,
+    // Table label — double height+width, bold
+    dbl_on, bold_on,
+    Buffer.from(toAscii(tableLabel.substring(0, 20)) + "\n"),
+    dbl_off, bold_off,
+  ];
+
+  if (operatorName) headerLines.push(Buffer.from(toAscii(operatorName) + "\n"));
+  if (orderId)      headerLines.push(Buffer.from(`Ordine: ${orderId}\n`));
+
+  headerLines.push(SEP);
+  headerLines.push(center, bold_on, Buffer.from(phaseFull + "\n"), bold_off, left);
+  headerLines.push(SEP);
+
+  // ── Body — prodotti + variazioni + note ──────────────────────────────────
+  const bodyParts: Buffer[] = [];
+
+  for (const item of items) {
+    const qty  = String(item.quantity).padStart(2, " ");
+    const name = toAscii(item.productName.substring(0, COLS - 7)); // "NEW NN " = 7 chars
+    bodyParts.push(bold_on, Buffer.from(`NEW ${qty} ${name}\n`), bold_off);
+
+    // Variazioni/modificatori
+    if (item.modifiers) {
+      try {
+        const mods: Array<{ label: string; type: string }> = JSON.parse(item.modifiers);
+        for (const m of mods) {
+          const icon   = m.type === "plus" ? "+" : m.type === "minus" ? "-" : "*";
+          const label  = toAscii(m.label.substring(0, COLS - 6)); // "     X " = 6 chars
+          bodyParts.push(Buffer.from(`     ${icon} ${label}\n`));
+        }
+      } catch { /* ignora JSON malformato */ }
+    }
+
+    // Nota KP
+    if (item.notes?.trim()) {
+      const note = toAscii(item.notes.trim().substring(0, COLS - 8)); // "    ** " + " **"
+      bodyParts.push(Buffer.from(`    ** ${note} **\n`));
+    }
+  }
+
+  // ── Footer ───────────────────────────────────────────────────────────────
+  const footer = Buffer.concat([
+    SEP,
+    Buffer.from(`Articoli in ordine # ${items.reduce((s, i) => s + i.quantity, 0)}\n`),
+    Buffer.from(`${now}\n`),
+    SEP,
+    lf, lf,
+    cut,
   ]);
 
-  const body = Buffer.concat(items.map(item => {
-    const qty  = String(item.quantity).padStart(3, " ");
-    const name = item.productName.substring(0, 28);
-    const line = Buffer.concat([
-      bold_on,
-      Buffer.from(`${qty}x ${name}\n`),
-      bold_off,
-    ]);
-    const noteLine = item.notes
-      ? Buffer.from(`     ** ${item.notes.substring(0, 26)} **\n`)
-      : Buffer.alloc(0);
-    return Buffer.concat([line, noteLine]);
-  }));
-
-  return Buffer.concat([header, body, lf, cut]);
+  return Buffer.concat([...headerLines, ...bodyParts, footer]);
 }
 
 async function sendToPrinter(ip: string, port: number, data: Buffer, timeoutMs = 4000): Promise<void> {
@@ -374,7 +431,12 @@ router.post("/:id/send-comanda", async (req, res) => {
   for (const [printerId, items] of byPrinter) {
     const printer = printerId ? printerById.get(printerId) : null;
     const printerName = printer?.name ?? "(nessuna stampante)";
-    const lineItems = items.map(i => ({ productName: i.productName, quantity: i.quantity, notes: (i as unknown as { notes?: string }).notes }));
+    const lineItems = items.map(i => ({
+      productName: i.productName,
+      quantity: i.quantity,
+      notes: (i as unknown as { notes?: string | null }).notes,
+      modifiers: (i as unknown as { modifiers?: string | null }).modifiers,
+    }));
 
     if (!printer) {
       console.log(`[COMANDA][No-printer] ${tableLabel} — Fase ${phase}: ${lineItems.map(li => `${li.quantity}× ${li.productName}`).join(", ")}`);
@@ -382,7 +444,7 @@ router.post("/:id/send-comanda", async (req, res) => {
       continue;
     }
 
-    const data = escposComanda(tableLabel, lineItems, phase);
+    const data = escposComanda(tableLabel, lineItems, phase, printer.name, order.id);
     try {
       await sendToPrinter(printer.ip, printer.port, data);
       console.log(`[COMANDA][OK] → ${printer.name} (${printer.ip}:${printer.port}) — ${lineItems.length} articoli`);
