@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "YufMyIa4GGSLb5QvH2eDB"
+uri = "file://scripts/windows/update_download.txt"
+type = "text"
+title = "update.ps1"
