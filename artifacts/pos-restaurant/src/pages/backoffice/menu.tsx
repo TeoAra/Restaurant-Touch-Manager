@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useListCategories,
   useListProducts,
@@ -73,10 +73,17 @@ async function deleteVariation(productId: number, varId: number): Promise<void> 
 }
 
 // ── CategoryForm ──────────────────────────────────────────────────────────────
-function CategoryForm({ initial, onSave, onClose }: { initial?: Category; onSave: (data: { name: string; color: string; sortOrder: number }) => void; onClose: () => void }) {
+type SimplePrinter = { id: number; name: string };
+function CategoryForm({ initial, printers, onSave, onClose }: {
+  initial?: Category;
+  printers: SimplePrinter[];
+  onSave: (data: { name: string; color: string; sortOrder: number; printerId: number | null }) => void;
+  onClose: () => void;
+}) {
   const [name, setName] = useState(initial?.name ?? "");
   const [color, setColor] = useState(initial?.color ?? "#f59e0b");
   const [sortOrder, setSortOrder] = useState(initial?.sortOrder ?? 0);
+  const [printerId, setPrinterId] = useState<number | null>((initial as Category & { printerId?: number | null })?.printerId ?? null);
 
   return (
     <div className="space-y-4">
@@ -95,9 +102,25 @@ function CategoryForm({ initial, onSave, onClose }: { initial?: Category; onSave
         <Label>Ordine visualizzazione</Label>
         <Input type="number" value={sortOrder} onChange={(e) => setSortOrder(Number(e.target.value))} className="mt-1" />
       </div>
+      <div>
+        <Label>Stampante comanda</Label>
+        <select
+          value={printerId ?? ""}
+          onChange={e => setPrinterId(e.target.value ? Number(e.target.value) : null)}
+          className="mt-1 w-full h-9 px-3 rounded-md border border-slate-200 text-sm bg-white"
+        >
+          <option value="">— Nessuna stampante —</option>
+          {printers.map(p => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+        <p className="text-[11px] text-slate-400 mt-1">
+          Le comande di questa categoria vengono stampate su questa stampante
+        </p>
+      </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Annulla</Button>
-        <Button onClick={() => onSave({ name, color, sortOrder })} disabled={!name}>Salva</Button>
+        <Button onClick={() => onSave({ name, color, sortOrder, printerId })} disabled={!name}>Salva</Button>
       </DialogFooter>
     </div>
   );
@@ -636,6 +659,7 @@ export default function MenuPage() {
   const { data: categories = [] } = useListCategories();
   const { data: products = [] } = useListProducts(filterCatId != null ? { categoryId: filterCatId } : undefined);
   const { data: allProducts = [] } = useListProducts();
+  const { data: printers = [] } = useQuery<SimplePrinter[]>({ queryKey: ["printers"], queryFn: () => fetch(`${API}/printers`).then(r => r.json()) });
 
   const createCat = useCreateCategory();
   const updateCat = useUpdateCategory();
@@ -644,7 +668,7 @@ export default function MenuPage() {
   const updateProd = useUpdateProduct();
   const deleteProd = useDeleteProduct();
 
-  const handleSaveCategory = (data: { name: string; color: string; sortOrder: number }) => {
+  const handleSaveCategory = (data: { name: string; color: string; sortOrder: number; printerId: number | null }) => {
     const opts = {
       onSuccess: () => {
         toast({ title: "Categoria salvata" });
@@ -798,12 +822,23 @@ export default function MenuPage() {
           </div>
           <ScrollArea className="flex-1">
             <div className="px-4 sm:px-6 pb-6 space-y-2">
-              {categories.map((c) => (
+              {categories.map((c) => {
+                const assignedPrinter = c.printerId ? printers.find(p => p.id === c.printerId) : null;
+                return (
                 <div key={c.id} className="flex items-center gap-3 p-3 rounded-lg bg-card border border-border">
                   <div className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-foreground text-sm">{c.name}</div>
-                    <div className="text-xs text-muted-foreground">Ordine: {c.sortOrder}</div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs text-muted-foreground">Ordine: {c.sortOrder}</span>
+                      {assignedPrinter ? (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                          🖨 {assignedPrinter.name}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-300 italic">nessuna stampante</span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex gap-1 shrink-0">
                     <button onClick={() => setCatDialog({ open: true, item: c })} className="h-8 w-8 flex items-center justify-center rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground">
@@ -814,7 +849,8 @@ export default function MenuPage() {
                     </button>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </ScrollArea>
         </TabsContent>
@@ -861,7 +897,7 @@ export default function MenuPage() {
           <DialogHeader>
             <DialogTitle>{catDialog.item ? "Modifica Categoria" : "Nuova Categoria"}</DialogTitle>
           </DialogHeader>
-          <CategoryForm initial={catDialog.item} onSave={handleSaveCategory} onClose={() => setCatDialog({ open: false })} />
+          <CategoryForm initial={catDialog.item} printers={printers} onSave={handleSaveCategory} onClose={() => setCatDialog({ open: false })} />
         </DialogContent>
       </Dialog>
 

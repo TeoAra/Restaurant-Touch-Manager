@@ -35,6 +35,7 @@ export const CreateCategoryBody = zod.object({
   color: zod.string(),
   icon: zod.string().nullish(),
   sortOrder: zod.number(),
+  printerId: zod.number().nullable().optional(),
 });
 
 /**
@@ -65,6 +66,7 @@ export const UpdateCategoryBody = zod.object({
   color: zod.string(),
   icon: zod.string().nullish(),
   sortOrder: zod.number(),
+  printerId: zod.number().nullable().optional(),
 });
 
 export const UpdateCategoryResponse = zod.object({
@@ -73,6 +75,7 @@ export const UpdateCategoryResponse = zod.object({
   color: zod.string(),
   icon: zod.string().nullish(),
   sortOrder: zod.number(),
+  printerId: zod.number().nullable().optional(),
   createdAt: zod.string(),
 });
 

@@ -8,6 +8,7 @@ export const categoriesTable = pgTable("categories", {
   color: text("color").notNull().default("#f59e0b"),
   icon: text("icon"),
   sortOrder: integer("sort_order").notNull().default(0),
+  printerId: integer("printer_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
