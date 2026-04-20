@@ -107,9 +107,23 @@ router.post("/receipts", async (req, res) => {
 // ── Annulla scontrino ───────────────────────────────────────────────────────
 router.post("/receipts/:id/void", async (req, res) => {
   const id = Number(req.params.id);
-  const { motivo } = req.body;
+  const { motivo, numeroChiusura, numeroDocumentoRt, dataDocumento } = req.body as {
+    motivo?: string;
+    numeroChiusura?: number | string;
+    numeroDocumentoRt?: number | string;
+    dataDocumento?: string; // YYYY-MM-DD
+  };
+
+  const updateData: Record<string, unknown> = {
+    annullato: true,
+    annullatoAt: new Date(),
+    motivoAnnullo: motivo ?? "Annullo operatore",
+  };
+  if (numeroChiusura)    updateData.numeroChiusura    = Number(numeroChiusura);
+  if (numeroDocumentoRt) updateData.numeroDocumentoRt = Number(numeroDocumentoRt);
+
   const [receipt] = await db.update(fiscalReceiptsTable)
-    .set({ annullato: true, annullatoAt: new Date(), motivoAnnullo: motivo ?? "Annullo operatore" })
+    .set(updateData as never)
     .where(eq(fiscalReceiptsTable.id, id))
     .returning();
   if (!receipt) return res.status(404).json({ error: "Scontrino non trovato" });
@@ -117,12 +131,19 @@ router.post("/receipts/:id/void", async (req, res) => {
   const printer = await getFiscalPrinter();
   let printerResult = null;
   if (printer) {
+    // Formato data per CGI RT: DDMMYYYY
+    const dataRaw = dataDocumento ?? receipt.data; // YYYY-MM-DD
+    const dataCgi = dataRaw.replace(/(\d{4})-(\d{2})-(\d{2})/, "$3$2$1"); // → DDMMYYYY
+
+    const nChiusura  = numeroChiusura    ?? (receipt as never as { numeroChiusura?: number }).numeroChiusura    ?? 1;
+    const nDocumento = numeroDocumentoRt ?? (receipt as never as { numeroDocumentoRt?: number }).numeroDocumentoRt ?? receipt.numero;
+
     printerResult = await sendCgiCommand(
       printer.ip,
       "/cgi-bin/annullo.cgi",
       "POST",
-      `numero=${receipt.numero}&data=${receipt.data}&importo=${receipt.importo}`,
-      5000
+      `data=${dataCgi}&chiusura=${nChiusura}&documento=${nDocumento}&importo=${receipt.importo}`,
+      6000
     );
   } else {
     printerResult = { ok: false, error: "Nessuna stampante fiscale configurata" };

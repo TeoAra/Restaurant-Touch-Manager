@@ -16,6 +16,9 @@ export const fiscalReceiptsTable = pgTable("fiscal_receipts", {
   motivoAnnullo: text("motivo_annullo"),
   printerRef: text("printer_ref"),
   printerSerial: text("printer_serial"),
+  // Campi RT per annullo fiscale
+  numeroChiusura: integer("numero_chiusura"),   // numero Z-report della chiusura giornaliera
+  numeroDocumentoRt: integer("numero_documento_rt"), // numero documento assegnato dalla RT
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

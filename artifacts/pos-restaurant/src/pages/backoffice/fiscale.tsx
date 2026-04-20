@@ -59,6 +59,9 @@ export default function FiscalePage() {
   const [searchParams, setSearchParams] = useState<{ anno?: number; numero?: number }>({});
   const [voidDialog, setVoidDialog] = useState<{ open: boolean; receipt?: FiscalReceipt }>({ open: false });
   const [motivo, setMotivo] = useState("");
+  const [voidChiusura, setVoidChiusura] = useState("");
+  const [voidDocumento, setVoidDocumento] = useState("");
+  const [voidData, setVoidData] = useState("");
   const [reportResult, setReportResult] = useState<ReportResult | null>(null);
   const [xLoading, setXLoading] = useState(false);
   const [zLoading, setZLoading] = useState(false);
@@ -85,13 +88,21 @@ export default function FiscalePage() {
     const resp = await fetch(`${API}/fiscal/receipts/${voidDialog.receipt.id}/void`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ motivo: motivo || "Annullo operatore" }),
+      body: JSON.stringify({
+        motivo: motivo || "Annullo operatore",
+        numeroChiusura: voidChiusura ? Number(voidChiusura) : undefined,
+        numeroDocumentoRt: voidDocumento ? Number(voidDocumento) : undefined,
+        dataDocumento: voidData || voidDialog.receipt.data,
+      }),
     });
     if (!resp.ok) return toast({ title: "Errore annullo", variant: "destructive" });
     const data = await resp.json();
     qc.invalidateQueries({ queryKey: ["fiscal_receipts"] });
     setVoidDialog({ open: false });
     setMotivo("");
+    setVoidChiusura("");
+    setVoidDocumento("");
+    setVoidData("");
     toast({
       title: "Scontrino annullato",
       description: data.printer?.ok
@@ -231,7 +242,13 @@ export default function FiscalePage() {
                     </div>
                   </div>
                   {!r.annullato && (
-                    <button onClick={() => { setVoidDialog({ open: true, receipt: r }); setMotivo(""); }}
+                    <button onClick={() => {
+                        setVoidDialog({ open: true, receipt: r });
+                        setMotivo("");
+                        setVoidChiusura("");
+                        setVoidDocumento(String(r.numero));
+                        setVoidData(r.data);
+                      }}
                       className="shrink-0 px-3 py-1.5 text-xs font-semibold text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors flex items-center gap-1">
                       <AlertTriangle className="h-3.5 w-3.5" /> Annulla
                     </button>
@@ -310,17 +327,52 @@ export default function FiscalePage() {
           <div className="space-y-4 py-2">
             {voidDialog.receipt && (
               <div className="bg-slate-50 rounded-xl p-3 text-sm border border-slate-200">
-                <div className="font-bold text-slate-800">N° {voidDialog.receipt.numero}/{voidDialog.receipt.anno}</div>
+                <div className="font-bold text-slate-800">Scontrino N° {voidDialog.receipt.numero}/{voidDialog.receipt.anno}</div>
                 <div className="text-slate-600 mt-0.5">Data: {voidDialog.receipt.data} — Importo: <span className="font-semibold">€ {voidDialog.receipt.importo}</span></div>
               </div>
             )}
+
+            {/* Dati RT obbligatori per annullo */}
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-3">
+              <p className="text-xs font-semibold text-amber-800 flex items-center gap-1">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                Dati RT — presenti sullo scontrino cartaceo
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs text-slate-600 mb-1 block">N° Chiusura (Z)</Label>
+                  <Input
+                    value={voidChiusura}
+                    onChange={e => setVoidChiusura(e.target.value.replace(/\D/g, ""))}
+                    placeholder="es. 42"
+                    className="h-9 text-sm font-mono text-center"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-slate-600 mb-1 block">N° Documento RT</Label>
+                  <Input
+                    value={voidDocumento}
+                    onChange={e => setVoidDocumento(e.target.value.replace(/\D/g, ""))}
+                    placeholder="es. 734"
+                    className="h-9 text-sm font-mono text-center"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs text-slate-600 mb-1 block">Data documento</Label>
+                <Input
+                  type="date"
+                  value={voidData}
+                  onChange={e => setVoidData(e.target.value)}
+                  className="h-9 text-sm"
+                />
+              </div>
+            </div>
+
             <div>
               <Label className="text-xs text-slate-500 mb-1 block">Motivo annullo</Label>
               <Input value={motivo} onChange={e => setMotivo(e.target.value)} placeholder="Es. errore importo, reso merce, ecc." className="h-9 text-sm" />
             </div>
-            <p className="text-xs text-slate-500">
-              Il comando di annullo verrà inviato alla stampante fiscale configurata.
-            </p>
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setVoidDialog({ open: false })}>Annulla</Button>
