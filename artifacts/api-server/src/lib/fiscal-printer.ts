@@ -14,6 +14,7 @@
 import { db, fiscalReceiptsTable } from "@workspace/db";
 import { printersTable } from "@workspace/db/schema";
 import { and, eq, sql } from "drizzle-orm";
+import { getSettings } from "./settings";
 
 export interface RtPrinter {
   id: number;
@@ -32,15 +33,17 @@ export interface CgiResult {
 }
 
 // ── IVA → Reparto RT ────────────────────────────────────────────────────────
-const IVA_TO_DEPT: Record<string, string> = {
+// Defaults: reparto 1=10%, 2=22% (i più comuni; configurable da backoffice)
+const IVA_TO_DEPT_DEFAULT: Record<string, string> = {
   "22": "2",
   "10": "1",
-  "5": "5",
-  "4": "3",
-  "0": "4",
+  "5": "1",
+  "4": "1",
+  "0": "1",
 };
-function ivaToRtDept(aliquota: string): string {
-  return IVA_TO_DEPT[aliquota] ?? "1";
+function ivaToRtDept(aliquota: string, deptMap?: Record<string, string>): string {
+  const map = deptMap ?? IVA_TO_DEPT_DEFAULT;
+  return map[aliquota] ?? map["10"] ?? "1";
 }
 
 // ── Metodo pagamento → paymentType XML ──────────────────────────────────────
@@ -140,8 +143,9 @@ function buildReceiptXml(opts: {
   importo: string;
   metodoPagamento: string;
   lotteria?: string;
+  deptMap?: Record<string, string>;
 }): string {
-  const { righe, importo, metodoPagamento, lotteria } = opts;
+  const { righe, importo, metodoPagamento, lotteria, deptMap } = opts;
   const paymentType = methodToPaymentType(metodoPagamento);
   const paymentDesc = methodToDesc(metodoPagamento);
   const importoFmt = parseFloat(importo).toFixed(2);
@@ -157,7 +161,7 @@ function buildReceiptXml(opts: {
 
   // Righe articolo
   for (const r of righe) {
-    const dept = ivaToRtDept(r.aliquotaIva);
+    const dept = ivaToRtDept(r.aliquotaIva, deptMap);
     const unitPrice = parseFloat(r.prezzoUnitario).toFixed(2);
     const qty = parseFloat(String(r.qta)).toFixed(3);
     const desc = xmlAttr(r.desc);
@@ -229,11 +233,21 @@ export async function emettiFiscalReceipt(opts: {
     printerSerial: printer?.matricola ?? null,
   }).returning();
 
+  // ── Carica mapping IVA→Reparto dalle impostazioni ────────────────────────
+  const settings = await getSettings();
+  const deptMap: Record<string, string> = {
+    "22": settings["rt_reparto_22"] ?? IVA_TO_DEPT_DEFAULT["22"],
+    "10": settings["rt_reparto_10"] ?? IVA_TO_DEPT_DEFAULT["10"],
+    "5":  settings["rt_reparto_5"]  ?? IVA_TO_DEPT_DEFAULT["5"],
+    "4":  settings["rt_reparto_4"]  ?? IVA_TO_DEPT_DEFAULT["4"],
+    "0":  settings["rt_reparto_0"]  ?? IVA_TO_DEPT_DEFAULT["0"],
+  };
+
   // ── Chiama la RT con XML Protocol 7.0 ────────────────────────────────────
   let rt: CgiResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
   if (printer) {
     const rtPort = printer.port ?? 80;
-    const xml = buildReceiptXml({ righe, importo, metodoPagamento, lotteria });
+    const xml = buildReceiptXml({ righe, importo, metodoPagamento, lotteria, deptMap });
     rt = await sendXmlCommand(printer.ip, xml, 12000, rtPort);
   }
 

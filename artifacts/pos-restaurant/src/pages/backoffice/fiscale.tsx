@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Receipt, AlertTriangle, BarChart3, CheckCircle2, XCircle, Printer, RefreshCw, Search, Activity, FileText } from "lucide-react";
+import { Receipt, AlertTriangle, BarChart3, CheckCircle2, XCircle, Printer, RefreshCw, Search, Activity, FileText, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -52,6 +52,15 @@ function usePrinterStatus() {
   });
 }
 
+// Mappature IVA→reparto configurabili
+const REPARTI_CONFIG = [
+  { key: "rt_reparto_22", label: "IVA 22%", default: "2" },
+  { key: "rt_reparto_10", label: "IVA 10%", default: "1" },
+  { key: "rt_reparto_5",  label: "IVA 5%",  default: "1" },
+  { key: "rt_reparto_4",  label: "IVA 4%",  default: "1" },
+  { key: "rt_reparto_0",  label: "IVA 0%",  default: "1" },
+];
+
 export default function FiscalePage() {
   const [tab, setTab] = useState<"receipts" | "xreport" | "zreport">("receipts");
   const [searchNumero, setSearchNumero] = useState("");
@@ -65,10 +74,25 @@ export default function FiscalePage() {
   const [reportResult, setReportResult] = useState<ReportResult | null>(null);
   const [xLoading, setXLoading] = useState(false);
   const [zLoading, setZLoading] = useState(false);
+  const [repartiEdit, setRepartiEdit] = useState<Record<string, string>>({});
+  const [repartiOpen, setRepartiOpen] = useState(false);
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: receipts = [] } = useReceipts(searchParams);
   const { data: printerStatus, refetch: refetchPrinter } = usePrinterStatus();
+  const { data: settings = {} } = useQuery<Record<string, string>>({
+    queryKey: ["settings"],
+    queryFn: () => fetch(`${API}/settings`).then(r => r.json()),
+  });
+  const saveSetting = useMutation({
+    mutationFn: ({ key, value }: { key: string; value: string }) =>
+      fetch(`${API}/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value }),
+      }).then(r => r.json()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
+  });
 
   function handleSearch() {
     setSearchParams({
@@ -174,6 +198,58 @@ export default function FiscalePage() {
             }
           </div>
           <button onClick={() => refetchPrinter()} className="shrink-0 text-xs underline opacity-60 hover:opacity-100">Verifica</button>
+        </div>
+
+        {/* Configurazione Reparti RT */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <button
+            className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+            onClick={() => {
+              if (!repartiOpen) {
+                const init: Record<string, string> = {};
+                for (const r of REPARTI_CONFIG) init[r.key] = settings[r.key] ?? r.default;
+                setRepartiEdit(init);
+              }
+              setRepartiOpen(v => !v);
+            }}
+          >
+            <div className="flex items-center gap-2"><Settings2 className="h-4 w-4 text-slate-400" /> Reparti RT (IVA → N° Reparto)</div>
+            <span className="text-slate-400 text-xs">{repartiOpen ? "▲" : "▼"}</span>
+          </button>
+          {repartiOpen && (
+            <div className="border-t border-slate-100 px-4 py-3 space-y-3">
+              <p className="text-xs text-slate-500">
+                Associa ogni aliquota IVA al numero di <strong>reparto</strong> programmato sulla RT.
+                Errore <code className="bg-slate-100 px-1 rounded">13 PLU non trovato</code> = reparto non configurato sulla stampante.
+              </p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {REPARTI_CONFIG.map(({ key, label, default: def }) => (
+                  <div key={key} className="space-y-1">
+                    <Label className="text-xs text-slate-500">{label}</Label>
+                    <Input
+                      type="number" min="1" max="99"
+                      value={repartiEdit[key] ?? settings[key] ?? def}
+                      onChange={e => setRepartiEdit(prev => ({ ...prev, [key]: e.target.value }))}
+                      className="h-9 font-mono text-center text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
+              <Button
+                size="sm"
+                onClick={async () => {
+                  for (const [key, value] of Object.entries(repartiEdit)) {
+                    if (value) await saveSetting.mutateAsync({ key, value });
+                  }
+                  toast({ title: "Reparti RT salvati" });
+                  setRepartiOpen(false);
+                }}
+                disabled={saveSetting.isPending}
+              >
+                Salva reparti
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Tab switcher */}
