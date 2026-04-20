@@ -228,4 +228,41 @@ router.get("/printer-status", async (req, res) => {
   });
 });
 
+// ── Diagnostica completa RT ─────────────────────────────────────────────────
+// GET /api/fiscal/diagnostica  →  mostra TUTTE le stampanti + quale è fiscale + test connessione
+router.get("/diagnostica", async (req, res) => {
+  const { printersTable } = await import("@workspace/db");
+  const allPrinters = await db.select().from(printersTable).orderBy(printersTable.id);
+
+  const fiscalPrinter = await getFiscalPrinter();
+
+  let rtTest: { ok: boolean; ms?: number; error?: string; body?: string } | null = null;
+  if (fiscalPrinter) {
+    const t0 = Date.now();
+    try {
+      const resp = await fetch(`http://${fiscalPrinter.ip}/cgi-bin/fpmate.cgi`, {
+        method: "POST",
+        headers: { "Content-Type": "text/xml; charset=utf-8" },
+        body: `<?xml version="1.0" encoding="utf-8"?><printerFiscalReceipt><queryPrinterStatus operator="1" statusType="0"/></printerFiscalReceipt>`,
+        signal: AbortSignal.timeout(3000),
+      });
+      const body = await resp.text();
+      rtTest = { ok: resp.ok, ms: Date.now() - t0, body: body.substring(0, 300) };
+    } catch (e) {
+      rtTest = { ok: false, ms: Date.now() - t0, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  res.json({
+    tutteLeStampanti: allPrinters.map(p => ({
+      id: p.id, name: p.name, ip: p.ip, port: p.port,
+      is_fiscale: p.isFiscale, active: p.active, model: p.model, matricola: p.matricola,
+    })),
+    stampanteFiscaleSelezionata: fiscalPrinter
+      ? { id: fiscalPrinter.id, name: fiscalPrinter.name, ip: fiscalPrinter.ip }
+      : null,
+    testConnessioneRt: rtTest,
+  });
+});
+
 export default router;
