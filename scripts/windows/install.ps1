@@ -311,14 +311,14 @@ try {
     $desktopPub = "$env:PUBLIC\Desktop"
     $desktopUsr = "$env:USERPROFILE\Desktop"
     $desktop = if (Test-Path $desktopPub) { $desktopPub } else { $desktopUsr }
+    $enc = [System.Text.UTF8Encoding]::new($false)
+
+    # Collegamento browser — file .url (formato testo semplice, funziona sempre)
+    $urlContent = "[InternetShortcut]`r`nURL=http://localhost:$PORT`r`nIconIndex=0`r`n"
+    [System.IO.File]::WriteAllText("$desktop\HelloTable POS.url", $urlContent, $enc)
+
+    # Collegamento gestione servizio
     $shell = New-Object -ComObject WScript.Shell
-
-    # Collegamento browser
-    $url = $shell.CreateShortcut("$desktop\HelloTable POS.url")
-    $url.TargetPath = "http://localhost:$PORT"
-    $url.Save()
-
-    # Collegamento gestione servizio (apre services.msc)
     $svcLink = $shell.CreateShortcut("$desktop\HelloTable Servizio.lnk")
     $svcLink.TargetPath = "services.msc"
     $svcLink.Description = "Gestione servizio HelloTable"
