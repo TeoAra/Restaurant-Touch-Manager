@@ -126,15 +126,13 @@ function CategoryForm({ initial, printers, onSave, onClose }: {
   );
 }
 
-const IVA_RATES = ["4", "10", "22"] as const;
-
 // ── ProductForm ───────────────────────────────────────────────────────────────
-type ProductExt = Product & { iva?: string; sku?: string; barcode?: string; price2?: string; price3?: string; price4?: string };
+type ProductExt = Product & { sku?: string; barcode?: string; price2?: string; price3?: string; price4?: string };
 
 function ProductForm({ initial, categories, onSave, onClose }: {
   initial?: Product;
   categories: Category[];
-  onSave: (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; available: boolean; sortOrder: number; iva: string; sku: string | null; barcode: string | null }) => void;
+  onSave: (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; available: boolean; sortOrder: number; sku: string | null; barcode: string | null }) => void;
   onClose: () => void
 }) {
   const ext = initial as ProductExt | undefined;
@@ -147,23 +145,15 @@ function ProductForm({ initial, categories, onSave, onClose }: {
   const [description, setDescription] = useState(ext?.description ?? "");
   const [available, setAvailable] = useState(ext?.available ?? true);
   const [sortOrder, setSortOrder] = useState(ext?.sortOrder ?? 0);
-  const [iva, setIva] = useState(ext?.iva ?? "10");
   const [sku, setSku] = useState(ext?.sku ?? "");
   const [barcode, setBarcode] = useState(ext?.barcode ?? "");
 
   return (
     <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="col-span-2">
+      <div className="grid grid-cols-1 gap-3">
+        <div>
           <Label>Nome prodotto *</Label>
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Es. Birra Chiara" className="mt-1" />
-        </div>
-        <div>
-          <Label>IVA %</Label>
-          <select value={iva} onChange={(e) => setIva(e.target.value)}
-            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-            {IVA_RATES.map(r => <option key={r} value={r}>{r}%</option>)}
-          </select>
         </div>
         <div>
           <Label>Categoria</Label>
@@ -219,7 +209,7 @@ function ProductForm({ initial, categories, onSave, onClose }: {
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Annulla</Button>
-        <Button onClick={() => onSave({ name, price, price2, price3, price4, categoryId, description: description || null, available, sortOrder, iva, sku: sku || null, barcode: barcode || null })} disabled={!name || !price}>Salva</Button>
+        <Button onClick={() => onSave({ name, price, price2, price3, price4, categoryId, description: description || null, available, sortOrder, sku: sku || null, barcode: barcode || null })} disabled={!name || !price}>Salva</Button>
       </DialogFooter>
     </div>
   );
@@ -684,7 +674,7 @@ export default function MenuPage() {
     }
   };
 
-  const handleSaveProduct = (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; available: boolean; sortOrder: number; iva: string; sku: string | null; barcode: string | null }) => {
+  const handleSaveProduct = (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; available: boolean; sortOrder: number; sku: string | null; barcode: string | null }) => {
     const opts = {
       onSuccess: () => {
         toast({ title: "Prodotto salvato" });
