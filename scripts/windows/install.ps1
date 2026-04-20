@@ -223,14 +223,11 @@ if (!(Test-Path $winswExe)) {
     Invoke-WebRequest $WINSW_URL -OutFile $winswExe
 }
 
-# Batch di avvio che carica .env
+# Batch di avvio — usa --env-file nativo di Node 22 (piu' robusto del parsing batch)
 $startBat = "$INSTALL_DIR\start-server.bat"
 @"
 @echo off
-for /f "usebackq tokens=1,* delims==" %%A in (`type "$INSTALL_DIR\.env" ^| findstr /v "^#" ^| findstr /v "^$"`) do (
-    set "%%A=%%B"
-)
-node --enable-source-maps "$INSTALL_DIR\artifacts\api-server\dist\index.mjs"
+node --env-file="$INSTALL_DIR\.env" --enable-source-maps "$INSTALL_DIR\artifacts\api-server\dist\index.mjs"
 "@ | Set-Content $startBat -Encoding ASCII
 
 New-Item "$INSTALL_DIR\logs" -ItemType Directory -Force | Out-Null
