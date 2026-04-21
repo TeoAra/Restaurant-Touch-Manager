@@ -109,6 +109,26 @@ export async function sendCgiCommand(
   }
 }
 
+// ── Parsing risposta RT (formato: {echoXml}{statusWord}H{errCode}H...H?) ───
+// La RT risponde con l'XML che abbiamo inviato seguito da una stringa H-delimitata:
+//   735H0H1H0H0H0H0.00H0.00H0.00H355596.88H?
+//   └── statusBitmap  ──┘  └── errCode (0=OK) ──┘
+function parseRtResponse(raw: string, ms: number): CgiResult {
+  // Cerca la stringa status H-delimitata DOPO il tag XML di chiusura
+  const hMatch = raw.match(/>\s*(\d+)H(\d+)H/);
+  let rtCode: string | undefined;
+  if (hMatch) {
+    // hMatch[2] = codice errore (0 = OK)
+    rtCode = hMatch[2] !== "0" ? hMatch[2] : undefined;
+  } else {
+    // Fallback: cerca attributo code="N" nell'XML di risposta
+    const codeMatch = raw.match(/code="(\d+)"/);
+    if (codeMatch && codeMatch[1] !== "0") rtCode = codeMatch[1];
+  }
+  const rtOk = !!raw && rtCode === undefined;
+  return { ok: rtOk, ms, body: raw, rtCode };
+}
+
 // ── Invia XML Protocol 7.0 su TCP raw (porta 1126) ──────────────────────────
 // Protocollo challenge-response:
 //   1. Client si connette
@@ -169,20 +189,15 @@ export function sendXmlCommand(ip: string, xml: string, timeoutMs = 12000, port 
 
     socket.on("end", () => {
       const data = responseData || greetingData;
-      const codeMatch = data.match(/code="(\d+)"/);
-      const rtCode = codeMatch?.[1];
-      const rtOk = !!responseData && (!rtCode || rtCode === "0");
-      finish({ ok: rtOk, ms: Date.now() - t0, body: `greeting=${greetingData} | response=${responseData}`, rtCode });
+      finish(parseRtResponse(data, Date.now() - t0));
     });
 
     socket.on("timeout", () => {
       const data = responseData || greetingData;
       if (data) {
-        const codeMatch = data.match(/code="(\d+)"/);
-        const rtCode = codeMatch?.[1];
-        finish({ ok: !rtCode || rtCode === "0", ms: Date.now() - t0, body: `greeting=${greetingData} | response=${responseData}`, rtCode });
+        finish(parseRtResponse(data, Date.now() - t0));
       } else {
-        finish({ ok: false, error: "timeout (nessun dato)", ms: Date.now() - t0 });
+        finish({ ok: false, error: "timeout (nessun dato dalla RT)", ms: Date.now() - t0 });
       }
     });
 
@@ -313,8 +328,8 @@ export async function emettiFiscalReceipt(opts: {
     const rtPort = printer.port ?? 80;
     const xml = buildReceiptXml({ righe, importo, metodoPagamento, lotteria, deptMap });
     console.log("[FISCAL] XML inviato alla RT:\n" + xml);
-    rt = await sendXmlCommand(printer.ip, xml, 12000, rtPort);
-    console.log("[FISCAL] RT risposta raw:", rt.body ?? rt.error ?? "nessuna risposta");
+    rt = await sendXmlCommand(printer.ip, xml, 15000, rtPort);
+    console.log("[FISCAL] RT risposta: ok=%s rtCode=%s body=%s", rt.ok, rt.rtCode ?? "OK", (rt.body ?? rt.error ?? "nessuna risposta").substring(0, 200));
   }
 
   return { receipt, rt };

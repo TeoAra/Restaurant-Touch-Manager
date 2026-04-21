@@ -1,0 +1,53 @@
+
+PS C:\WINDOWS\system32> Invoke-RestMethod http://localhost:8080/api/fiscal/test-receipt | ConvertTo-Json -Depth 5
+{
+    "avviso":  "Chiamare SOLO da server locale X1 Carbon: http://localhost:8080/api/fiscal/test-receipt",
+    "printer":  {
+                    "ip":  "192.168.8.162",
+                    "port":  1126
+                },
+    "statusCheck":  {
+                        "ok":  true,
+                        "body":  "greeting= | response=\u003c?xml version=\"1.0\" encoding=\"utf-8\"?\u003e\u003cprinterCommand\u003e\u003cqueryPrinterStatus operator=\"1\" statusType=\"0\"/\u003e\u003c/printerCommand\u003e735H0H1H0H0H0H0.00H0.00H0.00H355596.88H?"
+                    },
+    "reset":  {
+                  "body":  "greeting= | response=\u003c?xml version=\"1.0\" encoding=\"utf-8\"?\u003e\n\u003cprinterFiscalReceipt\u003e\n  \u003cendFiscalReceipt operator=\"1\"/\u003e\n\u003c/printerFiscalReceipt\u003e735H0H1H0H0H0H0.00H0.00H0.00H355596.88H?",
+                  "ok":  true
+              },
+    "risultati":  [
+                      {
+                          "variante":  "A - begin/end + dept=1 + qty=1.000 + price=1.10",
+                          "xmlInviato":  "\u003c?xml version=\"1.0\" encoding=\"utf-8\"?\u003e\n\u003cprinterFiscalReceipt\u003e\n  \u003cbeginFiscalReceipt operator=\"1\"/\u003e\n  \u003cprintRecItem operator=\"1\" description=\"TEST\" quantity=\"1.000\" unitPrice=\"1.10\" department=\"1\" justification=\"1\"/\u003e\n  \u003cprintRecTotal operator=\"1\" description=\"Contanti\" payment=\"1.10\" paymentType=\"0\" index=\"1\" justification=\"1\"/\u003e\n  \u003cendFiscalReceipt operator=\"1\"/\u003e\n\u003c/printerFiscalReceipt\u003e",
+                          "ok":  true,
+                          "risposta":  "greeting= | response=\u003c?xml version=\"1.0\" encoding=\"utf-8\"?\u003e\n\u003cprinterFiscalReceipt\u003e\n  \u003cbeginFiscalReceipt operator=\"1\"/\u003e\n  \u003cprintRecItem operator=\"1\" description=\"TEST\" quantity=\"1.000\" unitPrice=\"1.10\" department=\"1\" justification=\"1\"/\u003e\n  \u003cprintRecTotal operator=\"1\" description=\"Contanti\" payment=\"1.10\" paymentType=\"0\" index=\"1\" justification=\"1\"/\u003e\n  \u003cendFiscalReceipt operator=\"1\"/\u003e\n\u003c/printerFiscalReceipt\u003e735H0H1H0H0H0H0.00H0.00H0.00H355596.88H?",
+                          "ms":  10578
+                      }
+                  ],
+    "sequenza":  [
+                     {
+                         "cmd":  "1-beginFiscalReceipt",
+                         "ok":  true,
+                         "risposta":  "greeting= | response=\u003c?xml version=\"1.0\" encoding=\"utf-8\"?\u003e\n\u003cprinterFiscalReceipt\u003e\n  \u003cbeginFiscalReceipt operator=\"1\"/\u003e\n\u003c/printerFiscalReceipt\u003e735H0H1H0H0H0H0.00H0.00H0.00H355596.88H?",
+                         "ms":  8543
+                     },
+                     {
+                         "cmd":  "2-printRecItem",
+                         "ok":  true,
+                         "risposta":  "greeting= | response=\u003c?xml version=\"1.0\" encoding=\"utf-8\"?\u003e\n\u003cprinterFiscalReceipt\u003e\n  \u003cprintRecItem operator=\"1\" description=\"TEST\" quantity=\"1.000\" unitPrice=\"1.10\" department=\"1\" justification=\"1\"/\u003e\n\u003c/printerFiscalReceipt\u003e735H0H1H0H0H0H0.00H0.00H0.00H355596.88H?",
+                         "ms":  8528
+                     },
+                     {
+                         "cmd":  "3-printRecTotal",
+                         "ok":  true,
+                         "risposta":  "greeting= | response=\u003c?xml version=\"1.0\" encoding=\"utf-8\"?\u003e\n\u003cprinterFiscalReceipt\u003e\n  \u003cprintRecTotal operator=\"1\" description=\"Contanti\" payment=\"1.10\" paymentType=\"0\" index=\"1\" justification=\"1\"/\u003e\n\u003c/printerFiscalReceipt\u003e735H0H1H0H0H0H0.00H0.00H0.00H355596.88H?",
+                         "ms":  8464
+                     },
+                     {
+                         "cmd":  "4-endFiscalReceipt",
+                         "ok":  true,
+                         "risposta":  "greeting= | response=\u003c?xml version=\"1.0\" encoding=\"utf-8\"?\u003e\n\u003cprinterFiscalReceipt\u003e\n  \u003cendFiscalReceipt operator=\"1\"/\u003e\n\u003c/printerFiscalReceipt\u003e735H0H1H0H0H0H0.00H0.00H0.00H355596.88H?",
+                         "ms":  8521
+                     }
+                 ]
+}
+PS C:\WINDOWS\system32>
