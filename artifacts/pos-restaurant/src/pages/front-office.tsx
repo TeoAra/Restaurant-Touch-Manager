@@ -425,6 +425,8 @@ function NewCustomerForm({ onCreated, onCancel }: {
   );
 }
 
+type PosPhase = "idle" | "waiting" | "manual_confirm" | "approved" | "declined";
+
 function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
   open: boolean; onClose: () => void; total: number; orderId?: number;
   orderItems?: Array<{ productName: string; quantity: number; unitPrice: string; subtotal: string }>;
@@ -439,10 +441,20 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
 
+  // ── Terminale POS ──────────────────────────────────────────────────────────
+  const { data: pdSettings = {} } = useSettings();
+  const posType = pdSettings["pos_type"] ?? "none";
+  const [posPhase, setPosPhase] = useState<PosPhase>("idle");
+  const [posError, setPosError] = useState<string | null>(null);
+
   const change = method === "cash" && given ? Math.max(0, parseFloat(given) - total) : 0;
 
   useEffect(() => {
-    if (!open) { setGiven(""); setEmittiFattura(false); setSelectedCustomer(null); setCustomerSearch(""); setShowNewCustomer(false); }
+    if (!open) {
+      setGiven(""); setEmittiFattura(false); setSelectedCustomer(null);
+      setCustomerSearch(""); setShowNewCustomer(false);
+      setPosPhase("idle"); setPosError(null);
+    }
   }, [open]);
 
   useEffect(() => {
@@ -587,14 +599,101 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
           </div>
         </div>
 
+        {/* ── Terminale POS: fase waiting ───────────────────────────────── */}
+        {(posPhase === "waiting" || posPhase === "manual_confirm") && (
+          <div className="absolute inset-0 bg-white/95 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center gap-5 z-10 p-6">
+            {posPhase === "waiting" ? (
+              <>
+                <div className="h-16 w-16 rounded-full bg-blue-50 border-4 border-blue-200 flex items-center justify-center animate-pulse">
+                  <CreditCard className="h-7 w-7 text-blue-600" />
+                </div>
+                <div className="text-center">
+                  <p className="font-bold text-lg text-slate-800">In attesa del terminale…</p>
+                  <p className="text-sm text-slate-500 mt-1">
+                    {posType === "pax" ? "Avvicina/inserisci carta sul PAX D230" : "Inserisci l'importo sul terminale myPOS"}
+                  </p>
+                  <p className="text-2xl font-bold text-primary mt-2">€ {total.toFixed(2)}</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setPosPhase("idle")}>Annulla</Button>
+              </>
+            ) : (
+              <>
+                <div className="h-16 w-16 rounded-full bg-orange-50 border-4 border-orange-200 flex items-center justify-center">
+                  <CreditCard className="h-7 w-7 text-primary" />
+                </div>
+                <div className="text-center">
+                  <p className="font-bold text-lg text-slate-800">Pagamento sul terminale myPOS</p>
+                  <p className="text-sm text-slate-500 mt-1">Digita l'importo sul Go 2 e fai pagare il cliente</p>
+                  <p className="text-3xl font-bold text-primary mt-2">€ {total.toFixed(2)}</p>
+                </div>
+                <div className="flex gap-2 w-full">
+                  <Button variant="outline" className="flex-1" onClick={() => setPosPhase("idle")}>Annulla</Button>
+                  <Button className="flex-1" onClick={() => {
+                    setPosPhase("idle");
+                    onPay(method, parseFloat(given) || total, emittiFattura && selectedCustomer ? selectedCustomer.id : undefined);
+                  }}>
+                    <CheckCircle2 className="h-4 w-4 mr-2" /> Pagamento ricevuto
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {posPhase === "declined" && posError && (
+          <div className="flex items-start gap-2 p-3 bg-red-50 rounded-xl border border-red-200">
+            <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-red-700">Terminale: transazione rifiutata</p>
+              <p className="text-xs text-red-500 mt-0.5">{posError}</p>
+            </div>
+          </div>
+        )}
+
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose} className="flex-1">Annulla</Button>
           <Button
-            onClick={() => onPay(method, parseFloat(given) || total, emittiFattura && selectedCustomer ? selectedCustomer.id : undefined)}
-            disabled={!canConfirm}
+            onClick={async () => {
+              const customerId = emittiFattura && selectedCustomer ? selectedCustomer.id : undefined;
+              // Carta + terminale configurato → chiama prima il POS
+              if (method === "card" && posType !== "none") {
+                setPosPhase("waiting");
+                setPosError(null);
+                try {
+                  const resp = await fetch(`${API}/pos/sale`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ amountCents: Math.round(total * 100), orderId }),
+                  });
+                  const result = await resp.json();
+                  if (result.manualConfirmRequired) {
+                    setPosPhase("manual_confirm");
+                    return;
+                  }
+                  if (result.approved) {
+                    setPosPhase("idle");
+                    onPay(method, parseFloat(given) || total, customerId);
+                  } else {
+                    setPosPhase("declined");
+                    setPosError(result.error ?? result.responseMessage ?? "Transazione rifiutata");
+                  }
+                } catch (e) {
+                  setPosPhase("declined");
+                  setPosError(String(e));
+                }
+                return;
+              }
+              onPay(method, parseFloat(given) || total, customerId);
+            }}
+            disabled={!canConfirm || posPhase === "waiting"}
             className="flex-1"
           >
-            {emittiFattura ? "Incassa + Fattura" : `Incassa € ${total.toFixed(2)}`}
+            {posPhase === "waiting"
+              ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Terminale…</>
+              : method === "card" && posType !== "none"
+                ? <><CreditCard className="h-4 w-4 mr-2" />Avvia terminale</>
+                : emittiFattura ? "Incassa + Fattura" : `Incassa € ${total.toFixed(2)}`
+            }
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -661,7 +760,7 @@ function CoversDialog({ open, onClose, tableName, onConfirm, initialCovers = 2, 
 type RomanaQuota = {
   n: number;               // 1-based
   importo: number;
-  stato: "pending" | "paying" | "paid" | "error";
+  stato: "pending" | "paying" | "pos_waiting" | "pos_manual" | "paid" | "error";
   metodoPagamento?: "cash" | "card";
   rtOk?: boolean;
   rtError?: string;
@@ -673,6 +772,9 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
   total: number; orderId?: number; tableName?: string;
   onOrderClosed?: () => void;
 }) {
+  const { data: rdSettings = {} } = useSettings();
+  const rdPosType = rdSettings["pos_type"] ?? "none";
+
   const [phase, setPhase] = useState<"setup" | "pagamento">("setup");
   const [numSplits, setNumSplits] = useState(2);
   const [quote, setQuote] = useState<RomanaQuota[]>([]);
@@ -701,38 +803,91 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
   const tuttePagate = quote.length > 0 && quote.every(q => q.stato === "paid");
   const primaInAttesa = quote.find(q => q.stato === "pending");
 
+  // Invia scontrino + chiude ordine se isUltima
+  async function emettiSconto(n: number, metodo: "cash" | "card", quotaImporto: number) {
+    const isUltima = n === quote.length;
+    const resp = await fetch(`${API}/fiscal/romana`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        orderId,
+        importo: quotaImporto.toFixed(2),
+        metodoPagamento: metodo,
+        quotaNum: n,
+        quoteTotali: quote.length,
+        tableName: tableName ?? "",
+        isUltima,
+      }),
+    });
+    const data = await resp.json();
+    setQuote(prev => prev.map(q => q.n === n ? {
+      ...q,
+      stato: "paid",
+      rtOk: data.rtOk,
+      rtError: data.rtError,
+      receiptId: data.receiptId,
+    } : q));
+    if (isUltima && data.orderClosed) {
+      onOrderClosed?.();
+    }
+  }
+
   async function pagaQuota(n: number, metodo: "cash" | "card") {
     if (!orderId) return;
-    setQuote(prev => prev.map(q => q.n === n ? { ...q, stato: "paying", metodoPagamento: metodo } : q));
-
     const quota = quote.find(q => q.n === n)!;
-    const isUltima = n === quote.length;
 
-    try {
-      const resp = await fetch(`${API}/fiscal/romana`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId,
-          importo: quota.importo.toFixed(2),
-          metodoPagamento: metodo,
-          quotaNum: n,
-          quoteTotali: quote.length,
-          tableName: tableName ?? "",
-          isUltima,
-        }),
-      });
-      const data = await resp.json();
-      setQuote(prev => prev.map(q => q.n === n ? {
-        ...q,
-        stato: "paid",
-        rtOk: data.rtOk,
-        rtError: data.rtError,
-        receiptId: data.receiptId,
-      } : q));
-      if (isUltima && data.orderClosed) {
-        onOrderClosed?.();
+    // ── Carta + terminale POS configurato ─────────────────────────────────────
+    if (metodo === "card" && rdPosType !== "none") {
+      setQuote(prev => prev.map(q => q.n === n ? { ...q, stato: "pos_waiting", metodoPagamento: metodo } : q));
+      try {
+        const posResp = await fetch(`${API}/pos/sale`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            amountCents: Math.round(quota.importo * 100),
+            orderId,
+            reference: `O${orderId}-Q${n}`,
+          }),
+        });
+        const posData = await posResp.json();
+
+        if (posData.manualConfirmRequired) {
+          // myPOS: mostra il pulsante "Confermato" nella riga quota
+          setQuote(prev => prev.map(q => q.n === n ? { ...q, stato: "pos_manual" } : q));
+          return;
+        }
+        if (!posData.approved) {
+          setQuote(prev => prev.map(q => q.n === n ? {
+            ...q,
+            stato: "error",
+            rtError: posData.error ?? posData.responseMessage ?? "Terminale: transazione rifiutata",
+          } : q));
+          return;
+        }
+        // POS approvato → emetti scontrino
+        setQuote(prev => prev.map(q => q.n === n ? { ...q, stato: "paying" } : q));
+        await emettiSconto(n, metodo, quota.importo);
+      } catch (e) {
+        setQuote(prev => prev.map(q => q.n === n ? { ...q, stato: "error", rtError: String(e) } : q));
       }
+      return;
+    }
+
+    // ── Contanti o terminale non configurato ─────────────────────────────────
+    setQuote(prev => prev.map(q => q.n === n ? { ...q, stato: "paying", metodoPagamento: metodo } : q));
+    try {
+      await emettiSconto(n, metodo, quota.importo);
+    } catch (e) {
+      setQuote(prev => prev.map(q => q.n === n ? { ...q, stato: "error", rtError: String(e) } : q));
+    }
+  }
+
+  // Conferma manuale myPOS (utente ha visto il terminale approvare)
+  async function confermaManuale(n: number) {
+    const quota = quote.find(q => q.n === n)!;
+    setQuote(prev => prev.map(q => q.n === n ? { ...q, stato: "paying" } : q));
+    try {
+      await emettiSconto(n, "card", quota.importo);
     } catch (e) {
       setQuote(prev => prev.map(q => q.n === n ? { ...q, stato: "error", rtError: String(e) } : q));
     }
@@ -849,36 +1004,50 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
               {/* Lista quote */}
               <div className="space-y-2">
                 {quote.map(q => {
-                  const isPaying  = q.stato === "paying";
-                  const isPaid    = q.stato === "paid";
-                  const isError   = q.stato === "error";
-                  const isPending = q.stato === "pending";
-                  const isNext    = primaInAttesa?.n === q.n;
+                  const isPaying    = q.stato === "paying";
+                  const isPaid      = q.stato === "paid";
+                  const isError     = q.stato === "error";
+                  const isPending   = q.stato === "pending";
+                  const isPosWait   = q.stato === "pos_waiting";
+                  const isPosManual = q.stato === "pos_manual";
+                  const isNext      = primaInAttesa?.n === q.n;
+                  const isBusy      = isPaying || isPosWait || isPosManual;
 
                   return (
                     <div key={q.n} className={cn(
                       "rounded-xl border-2 p-3 transition-all",
-                      isPaid  ? "border-green-300 bg-green-50"
-                      : isError ? "border-red-300 bg-red-50"
-                      : isNext  ? "border-primary bg-orange-50"
+                      isPaid      ? "border-green-300 bg-green-50"
+                      : isError   ? "border-red-300 bg-red-50"
+                      : isPosWait ? "border-blue-300 bg-blue-50"
+                      : isPosManual ? "border-amber-300 bg-amber-50"
+                      : isNext    ? "border-primary bg-orange-50"
                       : "border-slate-200 bg-white opacity-60"
                     )}>
                       <div className="flex items-center gap-3">
                         {/* Numero quota */}
                         <div className={cn(
                           "h-9 w-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0",
-                          isPaid  ? "bg-green-500 text-white"
-                          : isError ? "bg-red-400 text-white"
-                          : isNext  ? "bg-primary text-white"
+                          isPaid      ? "bg-green-500 text-white"
+                          : isError   ? "bg-red-400 text-white"
+                          : isPosWait ? "bg-blue-500 text-white animate-pulse"
+                          : isPosManual ? "bg-amber-500 text-white"
+                          : isNext    ? "bg-primary text-white"
                           : "bg-slate-200 text-slate-500"
                         )}>
-                          {isPaid ? <CheckCircle2 className="h-4 w-4" /> : q.n}
+                          {isPaid ? <CheckCircle2 className="h-4 w-4" />
+                           : isPosWait ? <CreditCard className="h-4 w-4" />
+                           : isPosManual ? <CreditCard className="h-4 w-4" />
+                           : q.n}
                         </div>
 
                         {/* Info quota */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-baseline gap-2">
-                            <span className={cn("font-bold text-lg", isPaid ? "text-green-700" : "text-slate-800")}>
+                            <span className={cn("font-bold text-lg",
+                              isPaid ? "text-green-700"
+                              : isPosWait ? "text-blue-700"
+                              : isPosManual ? "text-amber-700"
+                              : "text-slate-800")}>
                               € {q.importo.toFixed(2)}
                             </span>
                             {isPaid && q.metodoPagamento && (
@@ -890,6 +1059,14 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
                               </span>
                             )}
                           </div>
+                          {isPosWait && (
+                            <p className="text-[10px] text-blue-600">
+                              {rdPosType === "pax" ? "Avvicina/inserisci carta sul PAX D230…" : "Attesa terminale…"}
+                            </p>
+                          )}
+                          {isPosManual && (
+                            <p className="text-[10px] text-amber-600">Digita € {q.importo.toFixed(2)} sul myPOS Go 2</p>
+                          )}
                           {isPaid && !q.rtOk && (
                             <p className="text-[10px] text-amber-600">RT non risposta — scontrino solo nel gestionale</p>
                           )}
@@ -898,13 +1075,21 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
                           )}
                         </div>
 
-                        {/* Bottoni pagamento */}
-                        {isPaying && (
+                        {/* Indicatori di stato / bottoni */}
+                        {(isPaying || isPosWait) && (
                           <div className="shrink-0 text-xs text-slate-400 flex items-center gap-1">
-                            <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Invio…
+                            <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                            {isPosWait ? "POS…" : "Invio…"}
                           </div>
                         )}
-                        {(isPending || isError) && (
+                        {isPosManual && (
+                          <button
+                            onClick={() => confermaManuale(q.n)}
+                            className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold border-2 border-amber-400 bg-amber-50 text-amber-700 hover:bg-amber-100 active:scale-95 transition-all">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Confermato
+                          </button>
+                        )}
+                        {(isPending || isError) && !isBusy && (
                           <MetodoPulsanti quotaN={q.n} disabled={!isNext && isPending} />
                         )}
                       </div>

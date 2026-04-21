@@ -1,11 +1,12 @@
 import { useState, useEffect, memo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Settings2, ShoppingBag, Truck, Zap, Users, Building2, Percent } from "lucide-react";
+import { Settings2, ShoppingBag, Truck, Zap, Users, Building2, Percent, CreditCard, Wifi, WifiOff, RefreshCw } from "lucide-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
@@ -108,6 +109,37 @@ export default function SettingsPage() {
       }));
     }
   }, [settings]);
+
+  const [posForm, setPosForm] = useState({
+    pos_type: "none",
+    pos_pax_ip: "192.168.8.163",
+    pos_pax_port: "10009",
+    pos_mypos_apikey: "",
+    pos_mypos_terminal_id: "",
+  });
+  useEffect(() => {
+    if (Object.keys(settings).length > 0) {
+      setPosForm(f => ({
+        pos_type:              settings.pos_type              ?? f.pos_type,
+        pos_pax_ip:            settings.pos_pax_ip            ?? f.pos_pax_ip,
+        pos_pax_port:          settings.pos_pax_port          ?? f.pos_pax_port,
+        pos_mypos_apikey:      settings.pos_mypos_apikey      ?? f.pos_mypos_apikey,
+        pos_mypos_terminal_id: settings.pos_mypos_terminal_id ?? f.pos_mypos_terminal_id,
+      }));
+    }
+  }, [settings]);
+
+  const [posPingResult, setPosPingResult] = useState<{ ok?: boolean; error?: string; loading?: boolean } | null>(null);
+  async function pingPos() {
+    setPosPingResult({ loading: true });
+    try {
+      const res = await fetch(`${API}/pos/ping`);
+      const data = await res.json();
+      setPosPingResult(data);
+    } catch (e) {
+      setPosPingResult({ ok: false, error: String(e) });
+    }
+  }
 
   async function saveMultiple(pairs: Record<string, string>) {
     for (const [key, value] of Object.entries(pairs)) {
@@ -338,6 +370,103 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Terminale POS ──────────────────────────────────────────────── */}
+      <div className="space-y-3">
+        <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 px-1 flex items-center gap-2">
+          <CreditCard className="h-3.5 w-3.5" /> Terminale POS
+        </h2>
+        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-5">
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Quando abilitato, premendo <span className="font-semibold text-slate-600">Carta/POS</span> in cassa il sistema comunica
+            automaticamente con il terminale fisico, attende l'approvazione e poi stampa lo scontrino fiscale sulla RT.
+          </p>
+
+          {/* Selezione tipo terminale */}
+          <div>
+            <Label className="text-xs text-slate-500 mb-2 block">Tipo terminale</Label>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { id: "none",  label: "Nessuno",       desc: "Conferma manuale" },
+                { id: "pax",   label: "PAX D230 (Nexi)",desc: "TCP POSLINK LAN" },
+                { id: "mypos", label: "myPOS Go 2",    desc: "Conferma manuale" },
+              ].map(t => (
+                <button key={t.id} onClick={() => setPosForm(f => ({ ...f, pos_type: t.id }))}
+                  className={cn(
+                    "rounded-xl border-2 p-3 text-left transition-all",
+                    posForm.pos_type === t.id
+                      ? "border-primary bg-orange-50"
+                      : "border-slate-200 hover:border-slate-300"
+                  )}>
+                  <div className={cn("text-sm font-semibold", posForm.pos_type === t.id ? "text-primary" : "text-slate-700")}>
+                    {t.label}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">{t.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Config PAX */}
+          {posForm.pos_type === "pax" && (
+            <div className="space-y-3 border-t border-slate-100 pt-4">
+              <p className="text-xs text-slate-500 font-semibold">Configurazione PAX D230</p>
+              <div className="grid grid-cols-2 gap-3">
+                <DField label="Indirizzo IP terminale" val={posForm.pos_pax_ip}
+                  setVal={v => setPosForm(f => ({ ...f, pos_pax_ip: v }))} placeholder="192.168.8.163" />
+                <DField label="Porta TCP (default 10009)" val={posForm.pos_pax_port}
+                  setVal={v => setPosForm(f => ({ ...f, pos_pax_port: v }))} placeholder="10009" />
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Protocollo: PAX POSLINK A30 over TCP/IP. Assicurati che il terminale sia nella stessa LAN e che
+                la porta ECR sia aperta (Menu terminale → Impostazioni → ECR/POSLINK → Abilita).
+              </p>
+              {/* Ping test */}
+              <div className="flex items-center gap-3">
+                <Button size="sm" variant="outline" onClick={pingPos} disabled={posPingResult?.loading}>
+                  {posPingResult?.loading
+                    ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />Test…</>
+                    : <><Wifi className="h-3.5 w-3.5 mr-1.5" />Test connessione</>
+                  }
+                </Button>
+                {posPingResult && !posPingResult.loading && (
+                  <span className={cn("text-xs flex items-center gap-1 font-medium",
+                    posPingResult.ok ? "text-emerald-600" : "text-red-500")}>
+                    {posPingResult.ok
+                      ? <><Wifi className="h-3.5 w-3.5" /> Connesso</>
+                      : <><WifiOff className="h-3.5 w-3.5" /> {posPingResult.error ?? "Irraggiungibile"}</>
+                    }
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Config myPOS */}
+          {posForm.pos_type === "mypos" && (
+            <div className="space-y-3 border-t border-slate-100 pt-4">
+              <p className="text-xs text-slate-500 font-semibold">Configurazione myPOS Go 2</p>
+              <div className="grid grid-cols-1 gap-3">
+                <DField label="myPOS API Key" val={posForm.pos_mypos_apikey}
+                  setVal={v => setPosForm(f => ({ ...f, pos_mypos_apikey: v }))} placeholder="Inserisci la tua API Key myPOS" />
+                <DField label="Serial Number terminale" val={posForm.pos_mypos_terminal_id}
+                  setVal={v => setPosForm(f => ({ ...f, pos_mypos_terminal_id: v }))} placeholder="es. M01234567" />
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                myPOS Go 2 è un terminale standalone. La cassa mostrerà l'importo da digitare sul terminale;
+                il cassiere conferma manualmente l'avvenuto pagamento. Il sistema emette poi lo scontrino RT.
+              </p>
+            </div>
+          )}
+
+          <div className="flex justify-end pt-1 border-t border-slate-100">
+            <Button size="sm" onClick={async () => { await saveMultiple(posForm); toast({ title: "Configurazione terminale POS salvata" }); }}>
+              Salva Terminale POS
+            </Button>
+          </div>
+        </div>
+      </div>
+
     </div>
     </BackofficeShell>
   );

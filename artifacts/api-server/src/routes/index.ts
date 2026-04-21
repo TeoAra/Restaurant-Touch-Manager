@@ -22,6 +22,7 @@ import couriersRouter from "./couriers";
 import combosRouter from "./combos";
 import happyHourRouter from "./happy-hour";
 import kpCommentsRouter from "./kp-comments";
+import posRouter from "./pos";
 
 const router: IRouter = Router();
 
@@ -48,5 +49,6 @@ router.use("/couriers", couriersRouter);
 router.use("/combos", combosRouter);
 router.use("/happy-hour", happyHourRouter);
 router.use("/kp-comments", kpCommentsRouter);
+router.use("/pos", posRouter);
 
 export default router;
