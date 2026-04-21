@@ -109,55 +109,80 @@ export async function sendCgiCommand(
   }
 }
 
-// ── Invia XML Protocol 7.0 su TCP raw (porta 1126 tipicamente) ──────────────
-// La RT NON usa HTTP su questa porta — riceve XML grezzo via TCP e risponde
-// con XML grezzo. Nessun header HTTP. Connessione: apri → manda XML → leggi
-// risposta → chiudi.
+// ── Invia XML Protocol 7.0 su TCP raw (porta 1126) ──────────────────────────
+// Protocollo challenge-response:
+//   1. Client si connette
+//   2. RT può mandare un "greeting" (aspettiamo GREETING_WAIT_MS)
+//   3. Client manda il comando XML
+//   4. RT manda la risposta XML
+//   5. Chiudiamo
 export function sendXmlCommand(ip: string, xml: string, timeoutMs = 12000, port = 9100): Promise<CgiResult> {
+  const GREETING_WAIT_MS = 400; // attesa greeting iniziale della RT
   const t0 = Date.now();
   const payload = Buffer.from(xml, "utf-8");
 
   return new Promise<CgiResult>((resolve) => {
     let resolved = false;
+    let greetingReceived = false;
+    let greetingData = "";
     let responseData = "";
+    let greetingTimer: ReturnType<typeof setTimeout> | null = null;
 
     const finish = (result: CgiResult) => {
       if (resolved) return;
       resolved = true;
+      if (greetingTimer) clearTimeout(greetingTimer);
       socket.destroy();
       resolve(result);
     };
 
-    const socket = new net.Socket();
+    const sendCommand = () => {
+      greetingReceived = true;
+      socket.write(payload);
+      // Non chiamiamo socket.end() — lasciamo la connessione aperta
+      // così la RT può rispondere senza confondersi
+    };
 
+    const socket = new net.Socket();
     socket.setTimeout(timeoutMs);
 
     socket.connect(port, ip, () => {
-      socket.write(payload);
-      // Dopo aver inviato tutto, segnala la fine dello stream in scrittura
-      // così la RT sa che abbiamo finito e può rispondere
-      socket.end();
+      // Aspettiamo il greeting prima di mandare il comando
+      greetingTimer = setTimeout(() => {
+        if (!greetingReceived) sendCommand();
+      }, GREETING_WAIT_MS);
     });
 
     socket.on("data", (chunk: Buffer) => {
-      responseData += chunk.toString("utf-8");
+      const text = chunk.toString("utf-8");
+      if (!greetingReceived) {
+        // Questo è il greeting della RT
+        greetingData += text;
+        // Ricevuto il greeting: mandiamo subito il comando
+        if (greetingTimer) { clearTimeout(greetingTimer); greetingTimer = null; }
+        sendCommand();
+      } else {
+        // Questa è la risposta al nostro comando
+        responseData += text;
+      }
     });
 
     socket.on("end", () => {
-      const codeMatch = responseData.match(/code="(\d+)"/);
+      const data = responseData || greetingData;
+      const codeMatch = data.match(/code="(\d+)"/);
       const rtCode = codeMatch?.[1];
       const rtOk = !!responseData && (!rtCode || rtCode === "0");
-      finish({ ok: rtOk, ms: Date.now() - t0, body: responseData, rtCode });
+      finish({ ok: rtOk, ms: Date.now() - t0, body: `greeting=${greetingData} | response=${responseData}`, rtCode });
     });
 
     socket.on("timeout", () => {
-      // Se abbiamo già ricevuto dati, consideriamo OK anche su timeout
-      if (responseData) {
-        const codeMatch = responseData.match(/code="(\d+)"/);
+      const data = responseData || greetingData;
+      if (data) {
+        const codeMatch = data.match(/code="(\d+)"/);
         const rtCode = codeMatch?.[1];
-        finish({ ok: !rtCode || rtCode === "0", ms: Date.now() - t0, body: responseData, rtCode });
+        finish({ ok: !rtCode || rtCode === "0", ms: Date.now() - t0, body: `greeting=${greetingData} | response=${responseData}`, rtCode });
       } else {
-        finish({ ok: false, error: "timeout", ms: Date.now() - t0 });
+        finish({ ok: false, error: "timeout (nessun dato)", ms: Date.now() - t0 });
       }
     });
 
