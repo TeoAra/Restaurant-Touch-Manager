@@ -76,6 +76,7 @@ export default function FiscalePage() {
   const [zLoading, setZLoading] = useState(false);
   const [repartiEdit, setRepartiEdit] = useState<Record<string, string>>({});
   const [repartiOpen, setRepartiOpen] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: receipts = [] } = useReceipts(searchParams);
@@ -167,6 +168,27 @@ export default function FiscalePage() {
     }
   }
 
+  async function handleCancelOpenReceipt() {
+    setCancelLoading(true);
+    try {
+      const resp = await fetch(`${API}/fiscal/cancel-open-receipt`, { method: "POST" });
+      const data = await resp.json();
+      if (data.ok) {
+        toast({ title: "Scontrino aperto annullato", description: "Ora puoi eseguire il Report Z" });
+      } else {
+        toast({
+          title: "Non è stato possibile annullare via software",
+          description: "Premi fisicamente ANNULLO sulla RT, poi riprova il Report Z",
+          variant: "destructive",
+        });
+      }
+    } catch {
+      toast({ title: "Errore comunicazione RT", variant: "destructive" });
+    } finally {
+      setCancelLoading(false);
+    }
+  }
+
   const printerOk = printerStatus?.found && printerStatus.connection?.ok;
 
   return (
@@ -199,6 +221,31 @@ export default function FiscalePage() {
           </div>
           <button onClick={() => refetchPrinter()} className="shrink-0 text-xs underline opacity-60 hover:opacity-100">Verifica</button>
         </div>
+
+        {/* Tasto emergenza: cancella scontrino aperto (errore 46/1) */}
+        {printerStatus?.found && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3 text-sm">
+            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="font-semibold text-amber-800">Errore 46 o Errore 1 sulla RT?</p>
+              <p className="text-amber-700 text-xs mt-0.5">
+                Se la RT mostra <strong>errore 46</strong> (documento aperto) o <strong>errore 1</strong> (non consentita),
+                clicca il pulsante per chiudere lo scontrino rimasto aperto.
+                Se non funziona, premi fisicamente <strong>ANNULLO</strong> sulla RT.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 border-amber-400 text-amber-800 hover:bg-amber-100"
+              onClick={handleCancelOpenReceipt}
+              disabled={cancelLoading}
+            >
+              {cancelLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
+              <span className="ml-1.5">{cancelLoading ? "…" : "Cancella Scontrino Aperto"}</span>
+            </Button>
+          </div>
+        )}
 
         {/* Configurazione Reparti RT */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">

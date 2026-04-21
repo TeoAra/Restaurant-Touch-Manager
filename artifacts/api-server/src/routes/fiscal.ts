@@ -136,6 +136,41 @@ router.post("/lotteria", async (req, res) => {
   });
 });
 
+// ── Cancella Scontrino Fiscale Aperto (errore 46) ───────────────────────────
+// Invia endFiscalReceipt + printCancel per chiudere un documento rimasto aperto.
+// Chiamare PRIMA di Z-report se la RT mostra errore 46 o errore 1.
+router.post("/cancel-open-receipt", async (req, res) => {
+  const { sendXmlCommand, getFiscalPrinter } = await import("../lib/fiscal-printer");
+  const printer = await getFiscalPrinter();
+  if (!printer) {
+    return res.status(400).json({ ok: false, error: "Nessuna stampante fiscale configurata" });
+  }
+  const rtPort = printer.port ?? 80;
+  const tentativi: Array<{ cmd: string; ok: boolean; body?: string; error?: string; ms: number }> = [];
+
+  const cmds = [
+    {
+      cmd: "endFiscalReceipt (chiude scontrino aperto)",
+      xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <endFiscalReceipt operator="1"/>\n</printerFiscalReceipt>`,
+    },
+    {
+      cmd: "printCancel (annulla documento aperto)",
+      xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printCancel operator="1"/>\n</printerFiscalReceipt>`,
+    },
+  ];
+
+  for (const c of cmds) {
+    const r = await sendXmlCommand(printer.ip, c.xml, 8000, rtPort);
+    console.log(`[FISCAL CANCEL] ${c.cmd}: ok=${r.ok} rtCode=${r.rtCode} body=${(r.body ?? r.error ?? "").substring(0, 200)}`);
+    tentativi.push({ cmd: c.cmd, ok: r.ok, body: r.body, error: r.error, ms: r.ms });
+    if (r.ok) break;
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  const ok = tentativi.some(t => t.ok);
+  return res.json({ ok, tentativi, note: ok ? "Scontrino aperto annullato — ora prova il Report Z" : "Nessun tentativo ha avuto successo — premi ANNULLO fisicamente sulla RT" });
+});
+
 // ── Report X — Lettura di giornata (non azzera) ─────────────────────────────
 router.post("/x-report", async (req, res) => {
   const anno = new Date().getFullYear();
@@ -317,58 +352,20 @@ router.get("/test-receipt", async (req, res) => {
   await new Promise(r => setTimeout(r, 800));
 
   // Importo 1.10 = 1.00 netto + 0.10 IVA 10% (nessun problema di arrotondamento)
-  const varianti = [
-    {
-      nome: "A - begin/end + dept=1 + qty=1.000 + price=1.10",
+  // Prova dept 1, 2, 3, 4 per trovare quello programmato sulla RT (errore 13 = reparto errato)
+  const varianti = [];
+  for (const dept of [1, 2, 3, 4]) {
+    varianti.push({
+      nome: `A${dept} - dept=${dept} (qty=1.000)`,
       xml: `<?xml version="1.0" encoding="utf-8"?>
 <printerFiscalReceipt>
   <beginFiscalReceipt operator="1"/>
-  <printRecItem operator="1" description="TEST" quantity="1.000" unitPrice="1.10" department="1" justification="1"/>
+  <printRecItem operator="1" description="TEST HELLOTABLE" quantity="1.000" unitPrice="1.10" department="${dept}" justification="1"/>
   <printRecTotal operator="1" description="Contanti" payment="1.10" paymentType="0" index="1" justification="1"/>
   <endFiscalReceipt operator="1"/>
 </printerFiscalReceipt>`,
-    },
-    {
-      nome: "B - begin/end + dept=1 + qty=1 (intero) + price=1.10",
-      xml: `<?xml version="1.0" encoding="utf-8"?>
-<printerFiscalReceipt>
-  <beginFiscalReceipt operator="1"/>
-  <printRecItem operator="1" description="TEST" quantity="1" unitPrice="1.10" department="1" justification="1"/>
-  <printRecTotal operator="1" description="Contanti" payment="1.10" paymentType="0" index="1" justification="1"/>
-  <endFiscalReceipt operator="1"/>
-</printerFiscalReceipt>`,
-    },
-    {
-      nome: "C - begin/end + plu=1 + qty=1.000 + price=1.10",
-      xml: `<?xml version="1.0" encoding="utf-8"?>
-<printerFiscalReceipt>
-  <beginFiscalReceipt operator="1"/>
-  <printRecItemSale operator="1" description="TEST" quantity="1.000" unitPrice="1.10" plu="1" justification="1"/>
-  <printRecTotal operator="1" description="Contanti" payment="1.10" paymentType="0" index="1" justification="1"/>
-  <endFiscalReceipt operator="1"/>
-</printerFiscalReceipt>`,
-    },
-    {
-      nome: "D - begin/end + dept=1 senza description + qty=1.000",
-      xml: `<?xml version="1.0" encoding="utf-8"?>
-<printerFiscalReceipt>
-  <beginFiscalReceipt operator="1"/>
-  <printRecItem operator="1" quantity="1.000" unitPrice="1.10" department="1" justification="1"/>
-  <printRecTotal operator="1" description="Contanti" payment="1.10" paymentType="0" index="1" justification="1"/>
-  <endFiscalReceipt operator="1"/>
-</printerFiscalReceipt>`,
-    },
-    {
-      nome: "E - begin/end + dept=1 + printRecTotal senza index",
-      xml: `<?xml version="1.0" encoding="utf-8"?>
-<printerFiscalReceipt>
-  <beginFiscalReceipt operator="1"/>
-  <printRecItem operator="1" description="TEST" quantity="1.000" unitPrice="1.10" department="1" justification="1"/>
-  <printRecTotal operator="1" description="Contanti" payment="1.10" paymentType="0" justification="1"/>
-  <endFiscalReceipt operator="1"/>
-</printerFiscalReceipt>`,
-    },
-  ];
+    });
+  }
 
   const risultati = [];
   for (const v of varianti) {
