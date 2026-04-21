@@ -109,100 +109,83 @@ export async function sendCgiCommand(
   }
 }
 
-// ── Parsing risposta RT (formato: {echoXml}{statusWord}H{errCode}H...H?) ───
-// La RT risponde con l'XML che abbiamo inviato seguito da una stringa H-delimitata:
-//   735H0H1H0H0H0H0.00H0.00H0.00H355596.88H?
-//   └── statusBitmap  ──┘  └── errCode (0=OK) ──┘
-function parseRtResponse(raw: string, ms: number): CgiResult {
-  // Cerca la stringa status H-delimitata DOPO il tag XML di chiusura
-  const hMatch = raw.match(/>\s*(\d+)H(\d+)H/);
-  let rtCode: string | undefined;
-  if (hMatch) {
-    // hMatch[2] = codice errore (0 = OK)
-    rtCode = hMatch[2] !== "0" ? hMatch[2] : undefined;
-  } else {
-    // Fallback: cerca attributo code="N" nell'XML di risposta
-    const codeMatch = raw.match(/code="(\d+)"/);
-    if (codeMatch && codeMatch[1] !== "0") rtCode = codeMatch[1];
-  }
-  const rtOk = !!raw && rtCode === undefined;
-  return { ok: rtOk, ms, body: raw, rtCode };
-}
-
-// ── Invia XML Protocol 7.0 su TCP raw (porta 1126) ──────────────────────────
-// Protocollo challenge-response:
-//   1. Client si connette
-//   2. RT può mandare un "greeting" (aspettiamo GREETING_WAIT_MS)
-//   3. Client manda il comando XML
-//   4. RT manda la risposta XML
-//   5. Chiudiamo
-export function sendXmlCommand(ip: string, xml: string, timeoutMs = 12000, port = 9100): Promise<CgiResult> {
-  const GREETING_WAIT_MS = 400; // attesa greeting iniziale della RT
+// ── Invia XML Protocol 7.0 — doppia modalità: HTTP/CGI + fallback TCP raw ───
+// La RT risponde via HTTP/CGI su /cgi-bin/fpmate.cgi (protocollo corretto).
+// Se HTTP fallisce tenta TCP raw diretto sulla stessa porta.
+export async function sendXmlCommand(ip: string, xml: string, timeoutMs = 15000, port = 80): Promise<CgiResult> {
   const t0 = Date.now();
-  const payload = Buffer.from(xml, "utf-8");
+  const portStr = port !== 80 ? `:${port}` : "";
+  const url = `http://${ip}${portStr}/cgi-bin/fpmate.cgi`;
 
+  // ── Tentativo 1: HTTP/CGI (protocollo standard RT) ─────────────────────
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const res = await fetch(url, {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: {
+        "Content-Type": "text/xml; charset=utf-8",
+        "Content-Length": String(Buffer.byteLength(xml, "utf-8")),
+        "Connection": "close",
+      },
+      body: xml,
+    });
+    clearTimeout(timer);
+    const text = await res.text();
+    console.log("[FISCAL] HTTP risposta grezza:", text.substring(0, 300));
+    // Parsing: cerca code="N" nell'XML di risposta
+    const codeMatch = text.match(/code="(\d+)"/);
+    const rtCode = codeMatch?.[1];
+    const rtOk = res.ok && (!rtCode || rtCode === "0");
+    return { ok: rtOk, ms: Date.now() - t0, body: text, rtCode };
+  } catch (httpErr: unknown) {
+    const httpMsg = httpErr instanceof Error ? httpErr.message : String(httpErr);
+    console.log("[FISCAL] HTTP fallito (%s), tento TCP raw...", httpMsg);
+  }
+
+  // ── Tentativo 2: TCP raw (la RT NON usa HTTP su questa porta) ───────────
+  // Risposta formato: {echoXml}{statusBitmap}H{errCode}H...H?
   return new Promise<CgiResult>((resolve) => {
     let resolved = false;
-    let greetingReceived = false;
-    let greetingData = "";
     let responseData = "";
-    let greetingTimer: ReturnType<typeof setTimeout> | null = null;
+    const elapsed = Date.now() - t0;
+    const remaining = Math.max(3000, timeoutMs - elapsed);
 
     const finish = (result: CgiResult) => {
       if (resolved) return;
       resolved = true;
-      if (greetingTimer) clearTimeout(greetingTimer);
       socket.destroy();
       resolve(result);
     };
 
-    const sendCommand = () => {
-      greetingReceived = true;
-      socket.write(payload);
-      // Non chiamiamo socket.end() — lasciamo la connessione aperta
-      // così la RT può rispondere senza confondersi
-    };
-
     const socket = new net.Socket();
-    socket.setTimeout(timeoutMs);
+    socket.setTimeout(remaining);
 
     socket.connect(port, ip, () => {
-      // Aspettiamo il greeting prima di mandare il comando
-      greetingTimer = setTimeout(() => {
-        if (!greetingReceived) sendCommand();
-      }, GREETING_WAIT_MS);
+      socket.write(Buffer.from(xml, "utf-8"));
+      socket.end();
     });
 
-    socket.on("data", (chunk: Buffer) => {
-      const text = chunk.toString("utf-8");
-      if (!greetingReceived) {
-        // Questo è il greeting della RT
-        greetingData += text;
-        // Ricevuto il greeting: mandiamo subito il comando
-        if (greetingTimer) { clearTimeout(greetingTimer); greetingTimer = null; }
-        sendCommand();
-      } else {
-        // Questa è la risposta al nostro comando
-        responseData += text;
-      }
-    });
+    socket.on("data", (chunk: Buffer) => { responseData += chunk.toString("utf-8"); });
 
-    socket.on("end", () => {
-      const data = responseData || greetingData;
-      finish(parseRtResponse(data, Date.now() - t0));
-    });
+    const parseTcp = () => {
+      if (!responseData) return { ok: false, error: "nessuna risposta TCP", ms: Date.now() - t0 };
+      // Parsing stringa H-delimitata: ...>{statusBitmap}H{errCode}H
+      const hMatch = responseData.match(/>\s*(\d+)H(\d+)H/);
+      const rtCode = hMatch && hMatch[2] !== "0" ? hMatch[2] : undefined;
+      const codeMatch = !hMatch ? responseData.match(/code="(\d+)"/) : null;
+      const altCode = codeMatch && codeMatch[1] !== "0" ? codeMatch[1] : undefined;
+      const errCode = rtCode ?? altCode;
+      console.log("[FISCAL] TCP risposta grezza:", responseData.substring(0, 300));
+      return { ok: !!responseData && !errCode, ms: Date.now() - t0, body: responseData, rtCode: errCode };
+    };
 
-    socket.on("timeout", () => {
-      const data = responseData || greetingData;
-      if (data) {
-        finish(parseRtResponse(data, Date.now() - t0));
-      } else {
-        finish({ ok: false, error: "timeout (nessun dato dalla RT)", ms: Date.now() - t0 });
-      }
-    });
-
+    socket.on("end", () => finish(parseTcp()));
+    socket.on("timeout", () => finish(parseTcp()));
     socket.on("error", (err: Error) => {
-      finish({ ok: false, error: err.message, ms: Date.now() - t0 });
+      if (responseData) finish(parseTcp());
+      else finish({ ok: false, error: err.message, ms: Date.now() - t0 });
     });
   });
 }
