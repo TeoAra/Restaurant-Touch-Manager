@@ -274,7 +274,10 @@ router.get("/diagnostica", async (req, res) => {
 
 // GET /api/fiscal/test-receipt
 // Invia un scontrino di prova da €0.10 alla RT e restituisce XML inviato + risposta grezza.
-// Usa 3 varianti XML per diagnosticare quale formato accetta la RT.
+// ⚠️  DEVE essere chiamato dal server LOCALE (X1 Carbon), non da Replit cloud.
+//     URL locale:  http://localhost:8080/api/fiscal/test-receipt
+// Prima manda un annullo XML per chiudere eventuali scontrini aperti (errore 46),
+// poi prova 4 varianti XML in sequenza finché una funziona.
 router.get("/test-receipt", async (req, res) => {
   const { sendXmlCommand, getFiscalPrinter } = await import("../lib/fiscal-printer");
   const printer = await getFiscalPrinter();
@@ -284,9 +287,17 @@ router.get("/test-receipt", async (req, res) => {
   }
   const rtPort = printer.port ?? 80;
 
+  // ── Passo 0: tenta di chiudere eventuali documenti aperti (errore 46) ──────
+  const cancelXml = `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printCancel operator="1"/>\n</printerFiscalReceipt>`;
+  const cancelRes = await sendXmlCommand(printer.ip, cancelXml, 6000, rtPort);
+  console.log("[FISCAL TEST] Reset/cancel:", cancelRes.body ?? cancelRes.error);
+
+  // piccola pausa dopo cancel
+  await new Promise(r => setTimeout(r, 800));
+
   const varianti = [
     {
-      nome: "A - beginFiscalReceipt + department (attuale)",
+      nome: "A - beginFiscalReceipt + department=1",
       xml: `<?xml version="1.0" encoding="utf-8"?>
 <printerFiscalReceipt>
   <beginFiscalReceipt operator="1"/>
@@ -296,7 +307,7 @@ router.get("/test-receipt", async (req, res) => {
 </printerFiscalReceipt>`,
     },
     {
-      nome: "B - senza beginFiscalReceipt (vecchio formato)",
+      nome: "B - senza begin/end (vecchio formato)",
       xml: `<?xml version="1.0" encoding="utf-8"?>
 <printerFiscalReceipt operator="1">
   <printRecItem operator="1" description="TEST" quantity="1" unitPrice="0.10" department="1" justification="1"/>
@@ -304,11 +315,21 @@ router.get("/test-receipt", async (req, res) => {
 </printerFiscalReceipt>`,
     },
     {
-      nome: "C - printRecItemSale con plu=1",
+      nome: "C - begin/end + printRecItemSale plu=1",
       xml: `<?xml version="1.0" encoding="utf-8"?>
 <printerFiscalReceipt>
   <beginFiscalReceipt operator="1"/>
   <printRecItemSale operator="1" description="TEST" quantity="1" unitPrice="0.10" plu="1" justification="1"/>
+  <printRecTotal operator="1" description="Contanti" payment="0.10" paymentType="0" index="1" justification="1"/>
+  <endFiscalReceipt operator="1"/>
+</printerFiscalReceipt>`,
+    },
+    {
+      nome: "D - begin/end + department=1 senza description",
+      xml: `<?xml version="1.0" encoding="utf-8"?>
+<printerFiscalReceipt>
+  <beginFiscalReceipt operator="1"/>
+  <printRecItem operator="1" quantity="1" unitPrice="0.10" department="1" justification="1"/>
   <printRecTotal operator="1" description="Contanti" payment="0.10" paymentType="0" index="1" justification="1"/>
   <endFiscalReceipt operator="1"/>
 </printerFiscalReceipt>`,
@@ -319,7 +340,7 @@ router.get("/test-receipt", async (req, res) => {
   for (const v of varianti) {
     console.log(`[FISCAL TEST] Variante ${v.nome}:\n${v.xml}`);
     const r = await sendXmlCommand(printer.ip, v.xml, 10000, rtPort);
-    console.log(`[FISCAL TEST] Risposta ${v.nome}:`, r.body ?? r.error);
+    console.log(`[FISCAL TEST] Risposta ${v.nome}: ok=${r.ok} rtCode=${r.rtCode} body=${r.body ?? r.error}`);
     risultati.push({
       variante: v.nome,
       xmlInviato: v.xml,
@@ -328,11 +349,17 @@ router.get("/test-receipt", async (req, res) => {
       risposta: r.body ?? r.error ?? "nessuna risposta",
       ms: r.ms,
     });
-    // Se una variante ha funzionato (ok=true), ci fermiamo
+    // Se una variante ha funzionato fermati, altrimenti pausa e prova la prossima
     if (r.ok) break;
+    await new Promise(r2 => setTimeout(r2, 600));
   }
 
-  res.json({ printer: { ip: printer.ip, port: rtPort }, risultati });
+  res.json({
+    avviso: "Chiamare SOLO da server locale X1 Carbon: http://localhost:8080/api/fiscal/test-receipt",
+    printer: { ip: printer.ip, port: rtPort },
+    reset: { body: cancelRes.body ?? cancelRes.error, ok: cancelRes.ok },
+    risultati,
+  });
 });
 
 export default router;
