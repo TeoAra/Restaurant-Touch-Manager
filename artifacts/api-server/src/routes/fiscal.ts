@@ -351,20 +351,45 @@ router.get("/test-receipt", async (req, res) => {
   // piccola pausa dopo cancel
   await new Promise(r => setTimeout(r, 800));
 
-  // Importo 1.10 = 1.00 netto + 0.10 IVA 10% (nessun problema di arrotondamento)
-  // Prova dept 1, 2, 3, 4 per trovare quello programmato sulla RT (errore 13 = reparto errato)
-  const varianti = [];
-  for (const dept of [1, 2, 3, 4]) {
-    varianti.push({
-      nome: `A${dept} - dept=${dept} (qty=1.000)`,
-      xml: `<?xml version="1.0" encoding="utf-8"?>
-<printerFiscalReceipt>
-  <beginFiscalReceipt operator="0"/>
-  <printRecItem operator="0" description="TEST HELLOTABLE" quantity="1.000" unitPrice="1.10" department="${dept}" justification="1"/>
-  <printRecTotal operator="0" description="Contanti" payment="1.10" paymentType="0" index="1" justification="1"/>
-  <endFiscalReceipt operator="0"/>
-</printerFiscalReceipt>`,
+  // ── Test diagnostico HTTP diretto ────────────────────────────────────────
+  let httpDiag: { ok: boolean; status?: number; body?: string; error?: string; ms?: number } = { ok: false };
+  try {
+    const t = Date.now();
+    const resp = await fetch(`http://${printer.ip}:${rtPort}/cgi-bin/fpmate.cgi`, {
+      method: "POST",
+      headers: { "Content-Type": "text/xml; charset=utf-8" },
+      body: `<?xml version="1.0" encoding="utf-8"?><printerCommand><queryPrinterStatus operator="1" statusType="0"/></printerCommand>`,
+      signal: AbortSignal.timeout(4000),
     });
+    const body = await resp.text();
+    httpDiag = { ok: resp.ok, status: resp.status, body: body.substring(0, 300), ms: Date.now() - t };
+  } catch (e: unknown) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+    httpDiag = { ok: false, error: `${err.message}${cause?.code ? ` (${cause.code})` : ""}`, ms: -1 };
+  }
+  console.log("[FISCAL TEST] HTTP diag:", JSON.stringify(httpDiag));
+
+  // ── Varianti scontrino: combinazioni operator × dept ──────────────────────
+  // operator="1"  → era accettato via HTTP (funzionava, dava errore 13 non 11)
+  // operator="0"  → master/default su alcuni modelli
+  // senza attr    → alcune RT usano il default interno
+  // dept 1..4     → trova il reparto programmato sulla RT
+  const varianti: { nome: string; xml: string }[] = [];
+  for (const op of ["1", "0", ""]) {
+    for (const dept of [1, 2, 3, 4]) {
+      const opAttr = op !== "" ? ` operator="${op}"` : "";
+      varianti.push({
+        nome: `op=${op !== "" ? op : "omesso"} dept=${dept}`,
+        xml: `<?xml version="1.0" encoding="utf-8"?>
+<printerFiscalReceipt>
+  <beginFiscalReceipt${opAttr}/>
+  <printRecItem${opAttr} description="TEST HELLOTABLE" quantity="1.000" unitPrice="1.10" department="${dept}" justification="1"/>
+  <printRecTotal${opAttr} description="Contanti" payment="1.10" paymentType="0" index="1" justification="1"/>
+  <endFiscalReceipt${opAttr}/>
+</printerFiscalReceipt>`,
+      });
+    }
   }
 
   const risultati = [];
@@ -420,6 +445,7 @@ router.get("/test-receipt", async (req, res) => {
   res.json({
     avviso: "Chiamare SOLO da server locale X1 Carbon: http://localhost:8080/api/fiscal/test-receipt",
     printer: { ip: printer.ip, port: rtPort },
+    httpDiag,
     statusCheck,
     reset: { body: cancelRes.body ?? cancelRes.error, ok: cancelRes.ok },
     risultati,
