@@ -109,7 +109,7 @@ export async function sendCgiCommand(
 }
 
 // ── Invia XML Protocol 7.0 a /cgi-bin/fpmate.cgi ───────────────────────────
-async function sendXmlCommand(ip: string, xml: string, timeoutMs = 12000, port = 80): Promise<CgiResult> {
+export async function sendXmlCommand(ip: string, xml: string, timeoutMs = 12000, port = 80): Promise<CgiResult> {
   const portStr = port && port !== 80 ? `:${port}` : "";
   const url = `http://${ip}${portStr}/cgi-bin/fpmate.cgi`;
   const ctrl = new AbortController();
