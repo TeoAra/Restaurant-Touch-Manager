@@ -1,8 +1,9 @@
 import { Router } from "express";
-import { db, fiscalReceiptsTable, ordersTable } from "@workspace/db";
+import { db, fiscalReceiptsTable, ordersTable, paymentsTable, tablesTable } from "@workspace/db";
 import { eq, desc, and, sql } from "drizzle-orm";
 import {
   getFiscalPrinter,
+  emettiFiscalReceipt,
   inviaLotteriaRt,
   sendXonXoff,
   sendXonXoffCommand,
@@ -424,6 +425,119 @@ router.get("/test-receipt", async (req, res) => {
     note: okDept > 0
       ? `Reparto ${okDept} funzionante — configura questo reparto nel Backoffice → Reparti RT`
       : "Nessun reparto ha funzionato — controlla display RT e verifica reparti configurati",
+  });
+});
+
+// ── Pagamento alla Romana ─────────────────────────────────────────────────────
+// POST /api/fiscal/romana
+// Emette un singolo scontrino fiscale per una quota "alla romana".
+// Ogni chiamata emette un scontrino separato sulla RT.
+// Se isUltima=true (ultima quota), chiude anche l'ordine nel gestionale.
+//
+// Body: { orderId, importo, metodoPagamento, quotaNum, quoteTotali, tableName?, isUltima? }
+router.post("/romana", async (req, res) => {
+  const {
+    orderId,
+    importo,
+    metodoPagamento,
+    quotaNum   = 1,
+    quoteTotali = 1,
+    tableName,
+    isUltima   = false,
+  } = req.body as {
+    orderId: number;
+    importo: string;
+    metodoPagamento: "cash" | "card" | "other";
+    quotaNum?: number;
+    quoteTotali?: number;
+    tableName?: string;
+    isUltima?: boolean;
+  };
+
+  if (!orderId || !importo || parseFloat(importo) <= 0) {
+    return res.status(400).json({ error: "orderId e importo sono obbligatori" });
+  }
+
+  const printer = await getFiscalPrinter();
+  const settings = await getSettings();
+
+  // Recupera info ordine per IVA e descrizione
+  const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, orderId));
+  const modalita = (order as never as { modalita?: string })?.modalita ?? "tavolo";
+  const aliquotaIva = settings[`iva_${modalita}`] ?? settings["iva_tavolo"] ?? "10";
+
+  // Descrizione quota per la RT (max 32 char)
+  const tavolo = tableName ? tableName.substring(0, 12) : `ORD.${orderId}`;
+  const desc = quoteTotali > 1
+    ? `QUOTA ${quotaNum}/${quoteTotali} ${tavolo}`.substring(0, 32)
+    : `CONTO ${tavolo}`.substring(0, 32);
+
+  // Emetti scontrino fiscale (crea record in fiscal_receipts)
+  let rtOk = false;
+  let rtError: string | undefined;
+  let receiptId: number | undefined;
+  let rtBody: string | undefined;
+
+  try {
+    const { receipt, rt } = await emettiFiscalReceipt({
+      orderId,
+      importo,
+      metodoPagamento,
+      righe: [{ desc, qta: 1, prezzoUnitario: importo, aliquotaIva }],
+      printer,
+    });
+    receiptId = receipt.id;
+    rtOk = rt.ok;
+    rtError = rt.error;
+    rtBody = rt.body?.substring(0, 200);
+    console.log(`[ROMANA] Quota ${quotaNum}/${quoteTotali} ordine ${orderId}: rtOk=${rt.ok} importo=${importo} metodo=${metodoPagamento}`);
+  } catch (e) {
+    rtError = e instanceof Error ? e.message : String(e);
+    console.error(`[ROMANA] Eccezione quota ${quotaNum}:`, rtError);
+  }
+
+  // Se è l'ultima quota: chiudi l'ordine nel gestionale
+  let orderClosed = false;
+  if (isUltima) {
+    try {
+      // Inserisci record di pagamento riepilogativo
+      const [payment] = await db.insert(paymentsTable).values({
+        orderId,
+        method: metodoPagamento,
+        amount: importo,
+        change: null,
+      }).returning();
+
+      // Marca ordine come pagato
+      const [updatedOrder] = await db.update(ordersTable)
+        .set({ status: "paid" })
+        .where(eq(ordersTable.id, orderId))
+        .returning();
+
+      // Libera tavolo se non ci sono altri ordini aperti
+      if (updatedOrder?.tableId) {
+        const openOrders = await db.select().from(ordersTable)
+          .where(and(eq(ordersTable.tableId, updatedOrder.tableId), eq(ordersTable.status, "open")));
+        if (openOrders.length === 0) {
+          await db.update(tablesTable).set({ status: "free" }).where(eq(tablesTable.id, updatedOrder.tableId));
+        }
+      }
+
+      orderClosed = true;
+      console.log(`[ROMANA] Ordine ${orderId} chiuso, payment id=${payment.id}`);
+    } catch (e) {
+      console.error("[ROMANA] Errore chiusura ordine:", e);
+    }
+  }
+
+  res.json({
+    ok: true,
+    receiptId,
+    rtOk,
+    rtError: rtError ?? null,
+    rtBody: rtBody ?? null,
+    orderClosed,
+    quota: { num: quotaNum, total: quoteTotali, importo, metodoPagamento },
   });
 });
 

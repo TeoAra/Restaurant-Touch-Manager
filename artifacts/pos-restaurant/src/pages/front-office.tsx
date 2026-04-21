@@ -654,32 +654,280 @@ function CoversDialog({ open, onClose, tableName, onConfirm, initialCovers = 2, 
 }
 
 // ─── Romana Dialog ────────────────────────────────────────────────────────────
-function RomanaDialog({ open, onClose, total }: { open: boolean; onClose: () => void; total: number }) {
-  const [people, setPeople] = useState(2);
-  const share = people > 0 ? total / people : 0;
+// Ogni quota può avere metodo di pagamento diverso (contanti / carta).
+// Ogni pagamento emette uno scontrino separato sulla RT (XonXoff).
+// Il totale residuo scala ad ogni quota pagata.
+// All'ultima quota l'ordine viene chiuso automaticamente.
+type RomanaQuota = {
+  n: number;               // 1-based
+  importo: number;
+  stato: "pending" | "paying" | "paid" | "error";
+  metodoPagamento?: "cash" | "card";
+  rtOk?: boolean;
+  rtError?: string;
+  receiptId?: number;
+};
+
+function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed }: {
+  open: boolean; onClose: () => void;
+  total: number; orderId?: number; tableName?: string;
+  onOrderClosed?: () => void;
+}) {
+  const [phase, setPhase] = useState<"setup" | "pagamento">("setup");
+  const [numSplits, setNumSplits] = useState(2);
+  const [quote, setQuote] = useState<RomanaQuota[]>([]);
+
+  useEffect(() => {
+    if (!open) { setPhase("setup"); setNumSplits(2); setQuote([]); }
+  }, [open]);
+
+  function calcolaQuote(n: number): RomanaQuota[] {
+    const base = Math.floor((total * 100) / n);        // centesimi base per quota
+    const resto = Math.round(total * 100) - base * n;   // centesimi residui
+    return Array.from({ length: n }, (_, i) => ({
+      n: i + 1,
+      importo: (base + (i === n - 1 ? resto : 0)) / 100, // ultima quota assorbe il resto
+      stato: "pending" as const,
+    }));
+  }
+
+  function avviaRomana() {
+    setQuote(calcolaQuote(numSplits));
+    setPhase("pagamento");
+  }
+
+  const totalePagato = quote.filter(q => q.stato === "paid").reduce((s, q) => s + q.importo, 0);
+  const rimanente   = Math.max(0, total - totalePagato);
+  const tuttePagate = quote.length > 0 && quote.every(q => q.stato === "paid");
+  const primaInAttesa = quote.find(q => q.stato === "pending");
+
+  async function pagaQuota(n: number, metodo: "cash" | "card") {
+    if (!orderId) return;
+    setQuote(prev => prev.map(q => q.n === n ? { ...q, stato: "paying", metodoPagamento: metodo } : q));
+
+    const quota = quote.find(q => q.n === n)!;
+    const isUltima = n === quote.length;
+
+    try {
+      const resp = await fetch(`${API}/fiscal/romana`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId,
+          importo: quota.importo.toFixed(2),
+          metodoPagamento: metodo,
+          quotaNum: n,
+          quoteTotali: quote.length,
+          tableName: tableName ?? "",
+          isUltima,
+        }),
+      });
+      const data = await resp.json();
+      setQuote(prev => prev.map(q => q.n === n ? {
+        ...q,
+        stato: "paid",
+        rtOk: data.rtOk,
+        rtError: data.rtError,
+        receiptId: data.receiptId,
+      } : q));
+      if (isUltima && data.orderClosed) {
+        onOrderClosed?.();
+      }
+    } catch (e) {
+      setQuote(prev => prev.map(q => q.n === n ? { ...q, stato: "error", rtError: String(e) } : q));
+    }
+  }
+
+  const MetodoPulsanti = ({ quotaN, disabled }: { quotaN: number; disabled: boolean }) => (
+    <div className="flex gap-1.5 shrink-0">
+      <button
+        disabled={disabled}
+        onClick={() => pagaQuota(quotaN, "cash")}
+        className={cn(
+          "flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold border-2 transition-all active:scale-95",
+          disabled ? "opacity-40 cursor-not-allowed border-slate-200 text-slate-400"
+                   : "border-emerald-400 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+        )}>
+        <Banknote className="h-3.5 w-3.5" /> Contanti
+      </button>
+      <button
+        disabled={disabled}
+        onClick={() => pagaQuota(quotaN, "card")}
+        className={cn(
+          "flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold border-2 transition-all active:scale-95",
+          disabled ? "opacity-40 cursor-not-allowed border-slate-200 text-slate-400"
+                   : "border-blue-400 bg-blue-50 text-blue-700 hover:bg-blue-100"
+        )}>
+        <CreditCard className="h-3.5 w-3.5" /> Carta
+      </button>
+    </div>
+  );
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-xs">
-        <DialogHeader><DialogTitle className="flex items-center gap-2"><Divide className="h-4 w-4" /> Divisione alla Romana</DialogTitle></DialogHeader>
-        <div className="py-3 text-center space-y-4">
-          <div className="text-3xl font-bold">€ {total.toFixed(2)}</div>
-          <div className="flex items-center justify-center gap-4">
-            <button onClick={() => setPeople(p => Math.max(1, p - 1))}
-              className="h-10 w-10 rounded-full border-2 border-slate-200 flex items-center justify-center hover:border-primary transition-all">
-              <Minus className="h-4 w-4" />
-            </button>
-            <span className="text-3xl font-bold w-10 text-center">{people}</span>
-            <button onClick={() => setPeople(p => p + 1)}
-              className="h-10 w-10 rounded-full border-2 border-slate-200 flex items-center justify-center hover:border-primary transition-all">
-              <Plus className="h-4 w-4" />
-            </button>
-          </div>
-          <div className="p-4 bg-orange-50 rounded-xl">
-            <p className="text-sm text-slate-600 mb-1">Ognuno paga</p>
-            <p className="text-3xl font-bold text-primary">€ {share.toFixed(2)}</p>
-          </div>
-        </div>
-        <DialogFooter><Button onClick={onClose} className="w-full">Chiudi</Button></DialogFooter>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Divide className="h-4 w-4 text-primary" /> Pagamento alla Romana
+          </DialogTitle>
+        </DialogHeader>
+
+        {phase === "setup" && (
+          <>
+            <div className="py-3 text-center space-y-5">
+              {/* Totale */}
+              <div className="bg-slate-50 rounded-xl py-3 px-4">
+                <p className="text-xs text-slate-500 mb-0.5">Totale da dividere</p>
+                <p className="text-4xl font-bold text-slate-900">€ {total.toFixed(2)}</p>
+              </div>
+
+              {/* Stepper persone */}
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-slate-600">Numero di persone</p>
+                <div className="flex items-center justify-center gap-5">
+                  <button onClick={() => setNumSplits(p => Math.max(2, p - 1))}
+                    className="h-12 w-12 rounded-full border-2 border-slate-200 flex items-center justify-center hover:border-primary active:scale-90 transition-all text-slate-700">
+                    <Minus className="h-5 w-5" />
+                  </button>
+                  <span className="text-5xl font-bold w-16 text-center tabular-nums">{numSplits}</span>
+                  <button onClick={() => setNumSplits(p => Math.min(20, p + 1))}
+                    className="h-12 w-12 rounded-full border-2 border-slate-200 flex items-center justify-center hover:border-primary active:scale-90 transition-all text-slate-700">
+                    <Plus className="h-5 w-5" />
+                  </button>
+                </div>
+                {/* Quick-select */}
+                <div className="flex items-center justify-center gap-2 flex-wrap">
+                  {[2,3,4,5,6,8].map(n => (
+                    <button key={n} onClick={() => setNumSplits(n)}
+                      className={cn("h-9 w-9 rounded-lg border-2 text-sm font-bold transition-all",
+                        numSplits === n ? "border-primary bg-orange-50 text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300")}>
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Quota */}
+              <div className="p-4 bg-orange-50 border border-orange-200 rounded-xl">
+                <p className="text-sm text-slate-600 mb-1">Ognuno paga circa</p>
+                <p className="text-4xl font-bold text-primary">
+                  € {numSplits > 0 ? (total / numSplits).toFixed(2) : "0.00"}
+                </p>
+              </div>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={onClose} className="flex-1">Annulla</Button>
+              <Button onClick={avviaRomana} className="flex-1" disabled={!orderId}>
+                Avvia divisione →
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+
+        {phase === "pagamento" && (
+          <>
+            <div className="space-y-3 py-1 max-h-[70vh] overflow-y-auto">
+              {/* Residuo */}
+              <div className={cn(
+                "rounded-xl px-4 py-2.5 text-center transition-all",
+                tuttePagate
+                  ? "bg-green-50 border border-green-200"
+                  : "bg-orange-50 border border-orange-200"
+              )}>
+                {tuttePagate ? (
+                  <div className="flex items-center justify-center gap-2 text-green-700 font-bold">
+                    <CheckCircle2 className="h-5 w-5" /> Conto chiuso — tutti hanno pagato
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs text-slate-500">Rimanente da incassare</p>
+                    <p className="text-3xl font-bold text-primary">€ {rimanente.toFixed(2)}</p>
+                  </>
+                )}
+              </div>
+
+              {/* Lista quote */}
+              <div className="space-y-2">
+                {quote.map(q => {
+                  const isPaying  = q.stato === "paying";
+                  const isPaid    = q.stato === "paid";
+                  const isError   = q.stato === "error";
+                  const isPending = q.stato === "pending";
+                  const isNext    = primaInAttesa?.n === q.n;
+
+                  return (
+                    <div key={q.n} className={cn(
+                      "rounded-xl border-2 p-3 transition-all",
+                      isPaid  ? "border-green-300 bg-green-50"
+                      : isError ? "border-red-300 bg-red-50"
+                      : isNext  ? "border-primary bg-orange-50"
+                      : "border-slate-200 bg-white opacity-60"
+                    )}>
+                      <div className="flex items-center gap-3">
+                        {/* Numero quota */}
+                        <div className={cn(
+                          "h-9 w-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0",
+                          isPaid  ? "bg-green-500 text-white"
+                          : isError ? "bg-red-400 text-white"
+                          : isNext  ? "bg-primary text-white"
+                          : "bg-slate-200 text-slate-500"
+                        )}>
+                          {isPaid ? <CheckCircle2 className="h-4 w-4" /> : q.n}
+                        </div>
+
+                        {/* Info quota */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline gap-2">
+                            <span className={cn("font-bold text-lg", isPaid ? "text-green-700" : "text-slate-800")}>
+                              € {q.importo.toFixed(2)}
+                            </span>
+                            {isPaid && q.metodoPagamento && (
+                              <span className={cn("text-xs font-semibold px-1.5 py-0.5 rounded-full",
+                                q.metodoPagamento === "cash"
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : "bg-blue-100 text-blue-700")}>
+                                {q.metodoPagamento === "cash" ? "Contanti" : "Carta"}
+                              </span>
+                            )}
+                          </div>
+                          {isPaid && !q.rtOk && (
+                            <p className="text-[10px] text-amber-600">RT non risposta — scontrino solo nel gestionale</p>
+                          )}
+                          {isError && (
+                            <p className="text-[10px] text-red-600 truncate">{q.rtError}</p>
+                          )}
+                        </div>
+
+                        {/* Bottoni pagamento */}
+                        {isPaying && (
+                          <div className="shrink-0 text-xs text-slate-400 flex items-center gap-1">
+                            <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Invio…
+                          </div>
+                        )}
+                        {(isPending || isError) && (
+                          <MetodoPulsanti quotaN={q.n} disabled={!isNext && isPending} />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2">
+              {tuttePagate ? (
+                <Button className="w-full" onClick={onClose}>
+                  <CheckCircle2 className="h-4 w-4 mr-2" /> Chiudi
+                </Button>
+              ) : (
+                <>
+                  <Button variant="outline" onClick={() => setPhase("setup")}>← Modifica</Button>
+                  <Button variant="outline" onClick={onClose} className="flex-1 text-slate-600">Chiudi senza pagare</Button>
+                </>
+              )}
+            </DialogFooter>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -2330,7 +2578,20 @@ export default function FrontOffice() {
         onPay={handlePay}
       />
 
-      <RomanaDialog open={showRomana} onClose={() => setShowRomana(false)} total={total} />
+      <RomanaDialog
+        open={showRomana}
+        onClose={() => setShowRomana(false)}
+        total={total}
+        orderId={activeOrderId}
+        tableName={orderLabel}
+        onOrderClosed={() => {
+          setShowRomana(false);
+          setSelectedTableId(null);
+          setIsQuickMode(null);
+          setQuickOrderId(null);
+          refresh();
+        }}
+      />
       <PrecontoDialog open={showPreconto} onClose={() => setShowPreconto(false)}
         order={activeOrder as never} items={items as never} />
       <SplitBillDialog
