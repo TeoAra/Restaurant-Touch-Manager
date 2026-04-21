@@ -11,7 +11,7 @@
  *   - Department: 1=IVA10%, 2=IVA22%, 3=IVA4%, 4=IVA0%
  */
 
-import http from "http";
+import net from "net";
 import { db, fiscalReceiptsTable } from "@workspace/db";
 import { printersTable } from "@workspace/db/schema";
 import { and, eq, sql } from "drizzle-orm";
@@ -109,46 +109,61 @@ export async function sendCgiCommand(
   }
 }
 
-// ── Invia XML Protocol 7.0 a /cgi-bin/fpmate.cgi ───────────────────────────
-// Usa http nativo (non fetch) con Connection: close e Content-Length esplicito.
-// I firmware RT embedded non gestiscono bene HTTP/1.1 keep-alive di fetch.
-export function sendXmlCommand(ip: string, xml: string, timeoutMs = 12000, port = 80): Promise<CgiResult> {
+// ── Invia XML Protocol 7.0 su TCP raw (porta 1126 tipicamente) ──────────────
+// La RT NON usa HTTP su questa porta — riceve XML grezzo via TCP e risponde
+// con XML grezzo. Nessun header HTTP. Connessione: apri → manda XML → leggi
+// risposta → chiudi.
+export function sendXmlCommand(ip: string, xml: string, timeoutMs = 12000, port = 9100): Promise<CgiResult> {
   const t0 = Date.now();
-  const body = Buffer.from(xml, "utf-8");
+  const payload = Buffer.from(xml, "utf-8");
+
   return new Promise<CgiResult>((resolve) => {
-    const req = http.request(
-      {
-        hostname: ip,
-        port,
-        path: "/cgi-bin/fpmate.cgi",
-        method: "POST",
-        headers: {
-          "Content-Type": "text/xml; charset=utf-8",
-          "Content-Length": body.length,
-          "Connection": "close",
-        },
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (chunk: Buffer) => chunks.push(chunk));
-        res.on("end", () => {
-          const text = Buffer.concat(chunks).toString("utf-8");
-          const codeMatch = text.match(/code="(\d+)"/);
-          const rtCode = codeMatch?.[1];
-          const rtOk = res.statusCode === 200 && (!rtCode || rtCode === "0");
-          resolve({ ok: rtOk, ms: Date.now() - t0, body: text, rtCode });
-        });
+    let resolved = false;
+    let responseData = "";
+
+    const finish = (result: CgiResult) => {
+      if (resolved) return;
+      resolved = true;
+      socket.destroy();
+      resolve(result);
+    };
+
+    const socket = new net.Socket();
+
+    socket.setTimeout(timeoutMs);
+
+    socket.connect(port, ip, () => {
+      socket.write(payload);
+      // Dopo aver inviato tutto, segnala la fine dello stream in scrittura
+      // così la RT sa che abbiamo finito e può rispondere
+      socket.end();
+    });
+
+    socket.on("data", (chunk: Buffer) => {
+      responseData += chunk.toString("utf-8");
+    });
+
+    socket.on("end", () => {
+      const codeMatch = responseData.match(/code="(\d+)"/);
+      const rtCode = codeMatch?.[1];
+      const rtOk = !!responseData && (!rtCode || rtCode === "0");
+      finish({ ok: rtOk, ms: Date.now() - t0, body: responseData, rtCode });
+    });
+
+    socket.on("timeout", () => {
+      // Se abbiamo già ricevuto dati, consideriamo OK anche su timeout
+      if (responseData) {
+        const codeMatch = responseData.match(/code="(\d+)"/);
+        const rtCode = codeMatch?.[1];
+        finish({ ok: !rtCode || rtCode === "0", ms: Date.now() - t0, body: responseData, rtCode });
+      } else {
+        finish({ ok: false, error: "timeout", ms: Date.now() - t0 });
       }
-    );
-    req.setTimeout(timeoutMs, () => {
-      req.destroy();
-      resolve({ ok: false, error: "timeout", ms: Date.now() - t0 });
     });
-    req.on("error", (err: Error) => {
-      resolve({ ok: false, error: err.message, ms: Date.now() - t0 });
+
+    socket.on("error", (err: Error) => {
+      finish({ ok: false, error: err.message, ms: Date.now() - t0 });
     });
-    req.write(body);
-    req.end();
   });
 }
 
