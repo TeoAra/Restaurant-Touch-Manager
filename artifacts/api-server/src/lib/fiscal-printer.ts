@@ -117,71 +117,96 @@ export async function sendXmlCommand(ip: string, xml: string, timeoutMs = 15000,
   const portStr = port !== 80 ? `:${port}` : "";
   const url = `http://${ip}${portStr}/cgi-bin/fpmate.cgi`;
 
-  // ── Tentativo 1: HTTP/CGI (protocollo standard RT) ─────────────────────
+  // ── Tentativo 1: HTTP/CGI su porta RT (con timeout breve) ──────────────
+  // La RT su porta 1126 risponde HTTP se riceve header HTTP, altrimenti raw TCP.
+  // Proviamo prima HTTP (dà errori XML precisi come code="13", code="46"…).
   try {
+    const HTTP_TIMEOUT = Math.min(4000, timeoutMs - 500);
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const timer = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT);
     const res = await fetch(url, {
       method: "POST",
       signal: ctrl.signal,
       headers: {
         "Content-Type": "text/xml; charset=utf-8",
-        "Content-Length": String(Buffer.byteLength(xml, "utf-8")),
         "Connection": "close",
       },
       body: xml,
     });
     clearTimeout(timer);
     const text = await res.text();
-    console.log("[FISCAL] HTTP risposta grezza:", text.substring(0, 300));
-    // Parsing: cerca code="N" nell'XML di risposta
+    console.log("[FISCAL] HTTP risposta grezza:", text.substring(0, 400));
     const codeMatch = text.match(/code="(\d+)"/);
     const rtCode = codeMatch?.[1];
     const rtOk = res.ok && (!rtCode || rtCode === "0");
     return { ok: rtOk, ms: Date.now() - t0, body: text, rtCode };
   } catch (httpErr: unknown) {
     const httpMsg = httpErr instanceof Error ? httpErr.message : String(httpErr);
-    console.log("[FISCAL] HTTP fallito (%s), tento TCP raw...", httpMsg);
+    console.log("[FISCAL] HTTP fallito (%s) → TCP raw", httpMsg);
   }
 
-  // ── Tentativo 2: TCP raw (la RT NON usa HTTP su questa porta) ───────────
-  // Risposta formato: {echoXml}{statusBitmap}H{errCode}H...H?
+  // ── Tentativo 2: TCP raw ────────────────────────────────────────────────
+  // La RT su porta 1126 riceve XML grezzo e risponde con:
+  //   {echoXml}{statusBitmap}H{errCode}H…H?
+  // NON chiamare socket.end() dopo write — la RT chiude lei quando ha finito.
+  // Attesa greeting: la RT può mandare un saluto iniziale (GREETING_WAIT_MS ms).
+  const GREETING_WAIT_MS = 400;
+  const elapsed = Date.now() - t0;
+  const remaining = Math.max(5000, timeoutMs - elapsed);
+
   return new Promise<CgiResult>((resolve) => {
     let resolved = false;
+    let greetingReceived = false;
     let responseData = "";
-    const elapsed = Date.now() - t0;
-    const remaining = Math.max(3000, timeoutMs - elapsed);
+    let greetingTimer: ReturnType<typeof setTimeout> | null = null;
 
     const finish = (result: CgiResult) => {
       if (resolved) return;
       resolved = true;
+      if (greetingTimer) clearTimeout(greetingTimer);
       socket.destroy();
       resolve(result);
+    };
+
+    const sendCommand = () => {
+      greetingReceived = true;
+      socket.write(Buffer.from(xml, "utf-8"));
+      // NON chiamare socket.end() — la RT chiude la connessione quando ha risposto
+    };
+
+    const parseTcp = (): CgiResult => {
+      if (!responseData) return { ok: false, error: "nessuna risposta TCP", ms: Date.now() - t0 };
+      const hMatch = responseData.match(/>\s*(\d+)H(\d+)H/);
+      const hCode  = hMatch && hMatch[2] !== "0" ? hMatch[2] : undefined;
+      const xmlMatch = !hMatch ? responseData.match(/code="(\d+)"/) : null;
+      const xmlCode  = xmlMatch && xmlMatch[1] !== "0" ? xmlMatch[1] : undefined;
+      const errCode  = hCode ?? xmlCode;
+      console.log("[FISCAL] TCP risposta: errCode=%s raw=%s", errCode ?? "OK", responseData.substring(0, 300));
+      return { ok: !errCode, ms: Date.now() - t0, body: responseData, rtCode: errCode };
     };
 
     const socket = new net.Socket();
     socket.setTimeout(remaining);
 
     socket.connect(port, ip, () => {
-      socket.write(Buffer.from(xml, "utf-8"));
-      socket.end();
+      greetingTimer = setTimeout(() => {
+        if (!greetingReceived) sendCommand();
+      }, GREETING_WAIT_MS);
     });
 
-    socket.on("data", (chunk: Buffer) => { responseData += chunk.toString("utf-8"); });
+    socket.on("data", (chunk: Buffer) => {
+      const text = chunk.toString("utf-8");
+      if (!greetingReceived) {
+        // Greeting dalla RT — mandiamo subito il comando
+        if (greetingTimer) { clearTimeout(greetingTimer); greetingTimer = null; }
+        sendCommand();
+        // Il greeting non fa parte della risposta, ignoriamolo
+      } else {
+        responseData += text;
+      }
+    });
 
-    const parseTcp = () => {
-      if (!responseData) return { ok: false, error: "nessuna risposta TCP", ms: Date.now() - t0 };
-      // Parsing stringa H-delimitata: ...>{statusBitmap}H{errCode}H
-      const hMatch = responseData.match(/>\s*(\d+)H(\d+)H/);
-      const rtCode = hMatch && hMatch[2] !== "0" ? hMatch[2] : undefined;
-      const codeMatch = !hMatch ? responseData.match(/code="(\d+)"/) : null;
-      const altCode = codeMatch && codeMatch[1] !== "0" ? codeMatch[1] : undefined;
-      const errCode = rtCode ?? altCode;
-      console.log("[FISCAL] TCP risposta grezza:", responseData.substring(0, 300));
-      return { ok: !!responseData && !errCode, ms: Date.now() - t0, body: responseData, rtCode: errCode };
-    };
-
-    socket.on("end", () => finish(parseTcp()));
+    socket.on("end",     () => finish(parseTcp()));
     socket.on("timeout", () => finish(parseTcp()));
     socket.on("error", (err: Error) => {
       if (responseData) finish(parseTcp());
