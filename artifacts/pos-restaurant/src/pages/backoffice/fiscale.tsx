@@ -54,7 +54,7 @@ function usePrinterStatus() {
 
 // Mappature IVA→reparto configurabili
 const REPARTI_CONFIG = [
-  { key: "rt_reparto_22", label: "IVA 22%", default: "2" },
+  { key: "rt_reparto_22", label: "IVA 22%", default: "1" },
   { key: "rt_reparto_10", label: "IVA 10%", default: "1" },
   { key: "rt_reparto_5",  label: "IVA 5%",  default: "1" },
   { key: "rt_reparto_4",  label: "IVA 4%",  default: "1" },

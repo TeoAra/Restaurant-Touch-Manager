@@ -33,9 +33,9 @@ export interface CgiResult {
 }
 
 // ── IVA → Reparto RT ────────────────────────────────────────────────────────
-// Defaults: reparto 1=10%, 2=22% (i più comuni; configurable da backoffice)
+// Default: tutto reparto 1. Chi ha più reparti configura da Backoffice → Gestione Fiscale → Reparti RT
 const IVA_TO_DEPT_DEFAULT: Record<string, string> = {
-  "22": "2",
+  "22": "1",
   "10": "1",
   "5": "1",
   "4": "1",
