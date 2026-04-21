@@ -295,42 +295,55 @@ router.get("/test-receipt", async (req, res) => {
   // piccola pausa dopo cancel
   await new Promise(r => setTimeout(r, 800));
 
+  // Importo 1.10 = 1.00 netto + 0.10 IVA 10% (nessun problema di arrotondamento)
   const varianti = [
     {
-      nome: "A - beginFiscalReceipt + department=1",
+      nome: "A - begin/end + dept=1 + qty=1.000 + price=1.10",
       xml: `<?xml version="1.0" encoding="utf-8"?>
 <printerFiscalReceipt>
   <beginFiscalReceipt operator="1"/>
-  <printRecItem operator="1" description="TEST" quantity="1" unitPrice="0.10" department="1" justification="1"/>
-  <printRecTotal operator="1" description="Contanti" payment="0.10" paymentType="0" index="1" justification="1"/>
+  <printRecItem operator="1" description="TEST" quantity="1.000" unitPrice="1.10" department="1" justification="1"/>
+  <printRecTotal operator="1" description="Contanti" payment="1.10" paymentType="0" index="1" justification="1"/>
   <endFiscalReceipt operator="1"/>
 </printerFiscalReceipt>`,
     },
     {
-      nome: "B - senza begin/end (vecchio formato)",
-      xml: `<?xml version="1.0" encoding="utf-8"?>
-<printerFiscalReceipt operator="1">
-  <printRecItem operator="1" description="TEST" quantity="1" unitPrice="0.10" department="1" justification="1"/>
-  <printRecTotal operator="1" description="Contanti" payment="0.10" paymentType="0" index="1" justification="1"/>
-</printerFiscalReceipt>`,
-    },
-    {
-      nome: "C - begin/end + printRecItemSale plu=1",
+      nome: "B - begin/end + dept=1 + qty=1 (intero) + price=1.10",
       xml: `<?xml version="1.0" encoding="utf-8"?>
 <printerFiscalReceipt>
   <beginFiscalReceipt operator="1"/>
-  <printRecItemSale operator="1" description="TEST" quantity="1" unitPrice="0.10" plu="1" justification="1"/>
-  <printRecTotal operator="1" description="Contanti" payment="0.10" paymentType="0" index="1" justification="1"/>
+  <printRecItem operator="1" description="TEST" quantity="1" unitPrice="1.10" department="1" justification="1"/>
+  <printRecTotal operator="1" description="Contanti" payment="1.10" paymentType="0" index="1" justification="1"/>
   <endFiscalReceipt operator="1"/>
 </printerFiscalReceipt>`,
     },
     {
-      nome: "D - begin/end + department=1 senza description",
+      nome: "C - begin/end + plu=1 + qty=1.000 + price=1.10",
       xml: `<?xml version="1.0" encoding="utf-8"?>
 <printerFiscalReceipt>
   <beginFiscalReceipt operator="1"/>
-  <printRecItem operator="1" quantity="1" unitPrice="0.10" department="1" justification="1"/>
-  <printRecTotal operator="1" description="Contanti" payment="0.10" paymentType="0" index="1" justification="1"/>
+  <printRecItemSale operator="1" description="TEST" quantity="1.000" unitPrice="1.10" plu="1" justification="1"/>
+  <printRecTotal operator="1" description="Contanti" payment="1.10" paymentType="0" index="1" justification="1"/>
+  <endFiscalReceipt operator="1"/>
+</printerFiscalReceipt>`,
+    },
+    {
+      nome: "D - begin/end + dept=1 senza description + qty=1.000",
+      xml: `<?xml version="1.0" encoding="utf-8"?>
+<printerFiscalReceipt>
+  <beginFiscalReceipt operator="1"/>
+  <printRecItem operator="1" quantity="1.000" unitPrice="1.10" department="1" justification="1"/>
+  <printRecTotal operator="1" description="Contanti" payment="1.10" paymentType="0" index="1" justification="1"/>
+  <endFiscalReceipt operator="1"/>
+</printerFiscalReceipt>`,
+    },
+    {
+      nome: "E - begin/end + dept=1 + printRecTotal senza index",
+      xml: `<?xml version="1.0" encoding="utf-8"?>
+<printerFiscalReceipt>
+  <beginFiscalReceipt operator="1"/>
+  <printRecItem operator="1" description="TEST" quantity="1.000" unitPrice="1.10" department="1" justification="1"/>
+  <printRecTotal operator="1" description="Contanti" payment="1.10" paymentType="0" justification="1"/>
   <endFiscalReceipt operator="1"/>
 </printerFiscalReceipt>`,
     },
