@@ -117,29 +117,59 @@ router.post("/receipts/:id/void", async (req, res) => {
   res.json({ receipt, printer: printerResult });
 });
 
-// ── Lotteria degli Scontrini — valida RT e codice (XML Protocol 7.0) ────────
-// Con protocollo XML 7.0 il codice lotteria viene incluso nel documento al momento
-// della stampa tramite <printRecLottery>. Questo endpoint verifica la raggiungibilità
-// della RT e valida il codice, che verrà applicato automaticamente al prossimo incasso.
+// ── Lotteria degli Scontrini ─────────────────────────────────────────────────
+// Il codice lotteria viene salvato nelle impostazioni (lotteria_codice).
+// Alla prossima emissione scontrino viene inserito automaticamente come "CODICE"L
+// nel flusso XonXoff (prima del pagamento).
+
+// GET /api/fiscal/lotteria → leggi codice salvato
+router.get("/lotteria", async (req, res) => {
+  const settings = await getSettings();
+  res.json({ codice: settings["lotteria_codice"] ?? null });
+});
+
+// POST /api/fiscal/lotteria → valida + salva codice
 router.post("/lotteria", async (req, res) => {
   const { codice } = req.body as { codice?: string };
-  if (!codice || codice.length !== 8) {
-    return res.status(400).json({ error: "Il codice lotteria deve essere di 8 caratteri" });
+
+  // Cancellazione codice
+  if (!codice || codice === "") {
+    await db.execute(sql`
+      INSERT INTO app_settings (key, value) VALUES ('lotteria_codice', '')
+      ON CONFLICT (key) DO UPDATE SET value = ''
+    `);
+    return res.json({ ok: true, codice: null, nota: "Codice lotteria rimosso" });
   }
-  const codicePulito = codice.toUpperCase().trim();
+
+  const codicePulito = codice.toUpperCase().replace(/[^A-Z0-9]/g, "").trim();
+  if (codicePulito.length !== 8) {
+    return res.status(400).json({ error: "Il codice lotteria deve essere esattamente 8 caratteri alfanumerici" });
+  }
+
+  // Salva in settings
+  await db.execute(sql`
+    INSERT INTO app_settings (key, value) VALUES ('lotteria_codice', ${codicePulito})
+    ON CONFLICT (key) DO UPDATE SET value = ${codicePulito}
+  `);
+
+  // Verifica connettività RT (XonXoff "?")
   const printer = await getFiscalPrinter();
-  if (!printer) {
-    // Nessuna RT configurata: salviamo il codice e lo includeremo al prossimo incasso
-    return res.json({ ok: true, codice: codicePulito, nota: "RT non configurata — codice salvato, verrà applicato all'incasso" });
+  let rtCheck: { ok: boolean; error?: string; stato?: number } = { ok: true };
+  if (printer) {
+    const rtPort = printer.port ?? 1126;
+    const sq = await inviaLotteriaRt(printer.ip, codicePulito, rtPort);
+    rtCheck = { ok: sq.ok, error: sq.error };
   }
-  // Verifica connettività RT via XML (queryPrinterStatus)
-  const result = await inviaLotteriaRt(printer.ip, codicePulito, printer.port ?? 80);
+
   res.json({
-    ok: result.ok,
-    ms: result.ms,
-    error: result.error ?? null,
+    ok: true,
     codice: codicePulito,
-    nota: "Codice salvato — verrà incluso nel documento commerciale al momento dell'incasso",
+    rtConnessa: printer ? rtCheck.ok : null,
+    nota: printer
+      ? (rtCheck.ok
+        ? "Codice salvato — sarà incluso automaticamente nel prossimo scontrino"
+        : `Codice salvato, ma RT non raggiungibile: ${rtCheck.error ?? "timeout"}`)
+      : "Codice salvato — RT non configurata, verrà usato all'incasso",
   });
 });
 

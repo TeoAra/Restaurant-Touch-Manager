@@ -253,6 +253,7 @@ export async function getStatus2X(ip: string, port: number): Promise<{ ok: boole
 // ── Costruisce il comando XonXoff per un documento commerciale ───────────────
 // Formato articolo:  "desc"centiH deptR
 // Formato pagamento: totaleCentiH 1T  (contanti)  |  totaleCentiH 3T  (carta)
+// Lotteria scontrini: "CODICE"L  (deve precedere il pagamento)
 export function buildXonXoffReceipt(opts: {
   righe: { desc: string; qta: number; prezzoUnitario: string; aliquotaIva: string }[];
   importo: string;
@@ -260,8 +261,9 @@ export function buildXonXoffReceipt(opts: {
   deptMap?: Record<string, string>;
   operatore?: string;   // es. "1"  (n del comando "nPPPP"O) — opzionale
   operatorePin?: string; // es. "0000"
+  lotteria?: string;    // codice 8 char lotteria scontrini
 }): string {
-  const { righe, importo, metodoPagamento, deptMap, operatore, operatorePin } = opts;
+  const { righe, importo, metodoPagamento, deptMap, operatore, operatorePin, lotteria } = opts;
   const parts: string[] = [];
 
   // Selezione operatore (solo se configurato)
@@ -288,6 +290,15 @@ export function buildXonXoffReceipt(opts: {
     }
 
     parts.push(`"${desc}"${qtaStr}${centi}H${dept}R`);
+  }
+
+  // Codice lotteria scontrini (prima del pagamento)
+  // Formato XonXoff: "CODICEXXXXXX"L  (max 8 char alfanumerici maiuscoli)
+  if (lotteria) {
+    const cod = lotteria.toUpperCase().replace(/[^A-Z0-9]/g, "").substring(0, 8);
+    if (cod.length === 8) {
+      parts.push(`"${cod}"L`);
+    }
   }
 
   // Pagamento + chiusura
@@ -378,6 +389,9 @@ export async function emettiFiscalReceipt(opts: {
     const opNum  = settings["rt_operatore"]     ?? "";
     const opPin  = settings["rt_operatore_pin"] ?? "";
 
+    // Codice lotteria: da parametro (da POS, se cliente l'ha fornito) oppure da settings
+    const lotteriaCode = lotteria || settings["lotteria_codice"] || undefined;
+
     // Costruisci comando XonXoff
     const cmd = buildXonXoffReceipt({
       righe,
@@ -386,6 +400,7 @@ export async function emettiFiscalReceipt(opts: {
       deptMap,
       operatore:    opNum  || undefined,
       operatorePin: opPin  || undefined,
+      lotteria:     lotteriaCode,
     });
     console.log("[FISCAL] XonXoff cmd:", cmd);
 

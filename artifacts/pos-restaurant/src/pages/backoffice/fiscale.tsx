@@ -5,7 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Receipt, AlertTriangle, BarChart3, CheckCircle2, XCircle, Printer, RefreshCw, Search, Activity, FileText, Settings2 } from "lucide-react";
+import {
+  Receipt, AlertTriangle, BarChart3, CheckCircle2, XCircle, Printer,
+  RefreshCw, Search, Activity, FileText, Settings2, Ticket, X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -22,15 +25,16 @@ type FiscalReceipt = {
 type ReportResult = {
   tipo: "X" | "Z";
   data: string; anno: number; scontrini: number; totale: string; totale_iva: string;
-  printer?: { ok: boolean; status?: number; body?: string; error?: string };
+  printer?: { ok: boolean; body?: string; error?: string; rtCode?: string; ms?: number };
   printer_name?: string; printer_matricola?: string; simulated: boolean;
 };
 
 type PrinterStatus = {
   found: boolean;
   error?: string;
-  printer?: { name: string; ip: string; model?: string; matricola?: string };
-  connection?: { ok: boolean; status?: number; body?: string; error?: string };
+  printer?: { name: string; ip: string; port?: number; matricola?: string };
+  stato2X?: { ok: boolean; status?: { errCode?: string; carta?: boolean; scontrinoAperto?: boolean } | null };
+  statoQ?:  { ok: boolean; status?: { stato?: number } | null };
 };
 
 function useReceipts(q?: { anno?: number; numero?: number }) {
@@ -52,7 +56,13 @@ function usePrinterStatus() {
   });
 }
 
-// Mappature IVA→reparto configurabili
+function useLotteria() {
+  return useQuery<{ codice: string | null }>({
+    queryKey: ["fiscal_lotteria"],
+    queryFn: () => fetch(`${API}/fiscal/lotteria`).then(r => r.json()),
+  });
+}
+
 const REPARTI_CONFIG = [
   { key: "rt_reparto_22", label: "IVA 22%", default: "1" },
   { key: "rt_reparto_10", label: "IVA 10%", default: "1" },
@@ -62,7 +72,7 @@ const REPARTI_CONFIG = [
 ];
 
 export default function FiscalePage() {
-  const [tab, setTab] = useState<"receipts" | "xreport" | "zreport">("receipts");
+  const [tab, setTab] = useState<"receipts" | "xreport" | "zreport" | "lotteria">("receipts");
   const [searchNumero, setSearchNumero] = useState("");
   const [searchAnno, setSearchAnno] = useState(String(new Date().getFullYear()));
   const [searchParams, setSearchParams] = useState<{ anno?: number; numero?: number }>({});
@@ -77,10 +87,17 @@ export default function FiscalePage() {
   const [repartiEdit, setRepartiEdit] = useState<Record<string, string>>({});
   const [repartiOpen, setRepartiOpen] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
+
+  // Lotteria
+  const [lotteriaInput, setLotteriaInput] = useState("");
+  const [lotteriaLoading, setLotteriaLoading] = useState(false);
+  const [lotteriaResult, setLotteriaResult] = useState<{ ok: boolean; codice?: string | null; nota?: string; error?: string } | null>(null);
+
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: receipts = [] } = useReceipts(searchParams);
   const { data: printerStatus, refetch: refetchPrinter } = usePrinterStatus();
+  const { data: lotteriaData, refetch: refetchLotteria } = useLotteria();
   const { data: settings = {} } = useQuery<Record<string, string>>({
     queryKey: ["settings"],
     queryFn: () => fetch(`${API}/settings`).then(r => r.json()),
@@ -94,6 +111,11 @@ export default function FiscalePage() {
       }).then(r => r.json()),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
   });
+
+  // Printer OK: 2X risponde senza errori, oppure statoQ risponde
+  const printerOk = printerStatus?.found && (
+    printerStatus.stato2X?.ok || printerStatus.statoQ?.ok
+  );
 
   function handleSearch() {
     setSearchParams({
@@ -124,48 +146,39 @@ export default function FiscalePage() {
     const data = await resp.json();
     qc.invalidateQueries({ queryKey: ["fiscal_receipts"] });
     setVoidDialog({ open: false });
-    setMotivo("");
-    setVoidChiusura("");
-    setVoidDocumento("");
-    setVoidData("");
+    setMotivo(""); setVoidChiusura(""); setVoidDocumento(""); setVoidData("");
     toast({
       title: "Scontrino annullato",
       description: data.printer?.ok
-        ? "Annullo inviato alla stampante fiscale"
+        ? "Storno inviato alla RT (XonXoff)"
         : data.printer
-          ? "Annullo registrato (stampante non raggiunta)"
-          : "Annullo registrato (nessuna stampante fiscale configurata)",
+          ? "Annullo registrato (RT non raggiunta)"
+          : "Annullo registrato (nessuna RT configurata)",
     });
   }
 
   async function handleXReport() {
-    setXLoading(true);
-    setReportResult(null);
+    setXLoading(true); setReportResult(null);
     try {
       const resp = await fetch(`${API}/fiscal/x-report`, { method: "POST" });
       const data: ReportResult = await resp.json();
       setReportResult(data);
-      toast({ title: "Report X eseguito" });
+      toast({ title: data.printer?.ok ? "Report X eseguito sulla RT" : "Report X (solo DB)" });
     } catch {
       toast({ title: "Errore report X", variant: "destructive" });
-    } finally {
-      setXLoading(false);
-    }
+    } finally { setXLoading(false); }
   }
 
   async function handleZReport() {
-    setZLoading(true);
-    setReportResult(null);
+    setZLoading(true); setReportResult(null);
     try {
       const resp = await fetch(`${API}/fiscal/z-report`, { method: "POST" });
       const data: ReportResult = await resp.json();
       setReportResult(data);
-      toast({ title: "Chiusura fiscale eseguita" });
+      toast({ title: data.printer?.ok ? "Chiusura Z eseguita sulla RT" : "Chiusura Z (solo DB)" });
     } catch {
       toast({ title: "Errore chiusura fiscale", variant: "destructive" });
-    } finally {
-      setZLoading(false);
-    }
+    } finally { setZLoading(false); }
   }
 
   async function handleCancelOpenReceipt() {
@@ -184,63 +197,105 @@ export default function FiscalePage() {
       }
     } catch {
       toast({ title: "Errore comunicazione RT", variant: "destructive" });
-    } finally {
-      setCancelLoading(false);
-    }
+    } finally { setCancelLoading(false); }
   }
 
-  const printerOk = printerStatus?.found && printerStatus.connection?.ok;
+  async function handleSalvaLotteria() {
+    setLotteriaLoading(true); setLotteriaResult(null);
+    try {
+      const resp = await fetch(`${API}/fiscal/lotteria`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ codice: lotteriaInput }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        setLotteriaResult({ ok: false, error: data.error });
+        toast({ title: data.error ?? "Errore", variant: "destructive" });
+      } else {
+        setLotteriaResult({ ok: true, codice: data.codice, nota: data.nota });
+        refetchLotteria();
+        if (!lotteriaInput) setLotteriaInput("");
+        toast({ title: data.codice ? "Codice lotteria salvato" : "Codice lotteria rimosso" });
+      }
+    } catch {
+      toast({ title: "Errore comunicazione server", variant: "destructive" });
+    } finally { setLotteriaLoading(false); }
+  }
+
+  async function handleRimuoviLotteria() {
+    setLotteriaInput("");
+    setLotteriaLoading(true); setLotteriaResult(null);
+    try {
+      const resp = await fetch(`${API}/fiscal/lotteria`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ codice: "" }),
+      });
+      const data = await resp.json();
+      setLotteriaResult({ ok: true, codice: null, nota: data.nota });
+      refetchLotteria();
+      toast({ title: "Codice lotteria rimosso" });
+    } catch {
+      toast({ title: "Errore rimozione", variant: "destructive" });
+    } finally { setLotteriaLoading(false); }
+  }
 
   return (
-    <BackofficeShell title="Gestione Fiscale" subtitle="Scontrini, Report X, Chiusura Z">
+    <BackofficeShell title="Gestione Fiscale" subtitle="Scontrini, Report X/Z, Chiusura, Lotteria">
       <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-4">
 
         {/* Stato stampante fiscale */}
         <div className={cn(
           "rounded-xl border px-4 py-3 flex items-center gap-3 text-sm",
           !printerStatus ? "bg-slate-50 border-slate-200 text-slate-400"
-            : printerStatus.found
-              ? printerOk ? "bg-green-50 border-green-200 text-green-800" : "bg-amber-50 border-amber-200 text-amber-800"
-              : "bg-red-50 border-red-200 text-red-700"
+            : !printerStatus.found ? "bg-red-50 border-red-200 text-red-700"
+              : printerOk ? "bg-green-50 border-green-200 text-green-800"
+                : "bg-amber-50 border-amber-200 text-amber-800"
         )}>
           <Printer className="h-4 w-4 shrink-0" />
           <div className="flex-1 min-w-0">
             {!printerStatus
               ? "Verifica stampante fiscale…"
               : !printerStatus.found
-                ? "Nessuna stampante fiscale (RT) configurata — imposta una stampante con spunta «Fiscale» in Stampanti"
+                ? "Nessuna RT configurata — imposta una stampante con spunta «Fiscale» in Stampanti"
                 : (
                   <span>
                     <span className="font-semibold">{printerStatus.printer?.name}</span>
-                    {printerStatus.printer?.model && <span className="text-xs ml-1.5 opacity-70">{printerStatus.printer.model}</span>}
-                    {printerStatus.printer?.matricola && <span className="text-xs ml-1.5 font-mono opacity-70">Matr. {printerStatus.printer.matricola}</span>}
-                    <span className="ml-2">{printerOk ? "— connessa" : "— non raggiungibile"}</span>
+                    <span className="text-xs ml-1.5 font-mono opacity-70">{printerStatus.printer?.ip}:{printerStatus.printer?.port ?? 1126}</span>
+                    {printerStatus.printer?.matricola && (
+                      <span className="text-xs ml-1.5 font-mono opacity-70">Matr. {printerStatus.printer.matricola}</span>
+                    )}
+                    <span className="ml-2 text-xs">
+                      {printerOk ? "— connessa (XonXoff OK)" : "— non raggiungibile"}
+                    </span>
+                    {printerStatus.stato2X?.status?.errCode && printerStatus.stato2X.status.errCode !== "000" && (
+                      <span className="ml-2 text-xs text-red-600">Errore RT: {printerStatus.stato2X.status.errCode}</span>
+                    )}
                   </span>
                 )
             }
           </div>
-          <button onClick={() => refetchPrinter()} className="shrink-0 text-xs underline opacity-60 hover:opacity-100">Verifica</button>
+          <button onClick={() => refetchPrinter()} className="shrink-0 text-xs underline opacity-60 hover:opacity-100">
+            Verifica
+          </button>
         </div>
 
-        {/* Tasto emergenza: cancella scontrino aperto (errore 46/1) */}
+        {/* Emergenza: scontrino aperto */}
         {printerStatus?.found && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3 text-sm">
             <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
             <div className="flex-1">
-              <p className="font-semibold text-amber-800">Errore 46 o Errore 1 sulla RT?</p>
+              <p className="font-semibold text-amber-800">Errore sulla RT?</p>
               <p className="text-amber-700 text-xs mt-0.5">
-                Se la RT mostra <strong>errore 46</strong> (documento aperto) o <strong>errore 1</strong> (non consentita),
-                clicca il pulsante per chiudere lo scontrino rimasto aperto.
+                Se la RT mostra errori o è rimasto uno scontrino aperto,
+                clicca per inviare il comando di annullo via XonXoff (<code className="bg-amber-100 px-1 rounded">k</code> + <code className="bg-amber-100 px-1 rounded">K</code>).
                 Se non funziona, premi fisicamente <strong>ANNULLO</strong> sulla RT.
               </p>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
+            <Button size="sm" variant="outline"
               className="shrink-0 border-amber-400 text-amber-800 hover:bg-amber-100"
-              onClick={handleCancelOpenReceipt}
-              disabled={cancelLoading}
-            >
+              onClick={handleCancelOpenReceipt} disabled={cancelLoading}>
               {cancelLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
               <span className="ml-1.5">{cancelLoading ? "…" : "Cancella Scontrino Aperto"}</span>
             </Button>
@@ -260,14 +315,18 @@ export default function FiscalePage() {
               setRepartiOpen(v => !v);
             }}
           >
-            <div className="flex items-center gap-2"><Settings2 className="h-4 w-4 text-slate-400" /> Reparti RT (IVA → N° Reparto)</div>
+            <div className="flex items-center gap-2">
+              <Settings2 className="h-4 w-4 text-slate-400" />
+              Reparti RT (IVA → N° Reparto)
+            </div>
             <span className="text-slate-400 text-xs">{repartiOpen ? "▲" : "▼"}</span>
           </button>
           {repartiOpen && (
             <div className="border-t border-slate-100 px-4 py-3 space-y-3">
               <p className="text-xs text-slate-500">
                 Associa ogni aliquota IVA al numero di <strong>reparto</strong> programmato sulla RT.
-                Errore <code className="bg-slate-100 px-1 rounded">13 PLU non trovato</code> = reparto non configurato sulla stampante.
+                Errore <code className="bg-slate-100 px-1 rounded">XOFF</code> = reparto non configurato sulla stampante.
+                Usa <strong>test-receipt</strong> per trovare il reparto corretto.
               </p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {REPARTI_CONFIG.map(({ key, label, default: def }) => (
@@ -282,17 +341,13 @@ export default function FiscalePage() {
                   </div>
                 ))}
               </div>
-              <Button
-                size="sm"
-                onClick={async () => {
-                  for (const [key, value] of Object.entries(repartiEdit)) {
-                    if (value) await saveSetting.mutateAsync({ key, value });
-                  }
-                  toast({ title: "Reparti RT salvati" });
-                  setRepartiOpen(false);
-                }}
-                disabled={saveSetting.isPending}
-              >
+              <Button size="sm" onClick={async () => {
+                for (const [key, value] of Object.entries(repartiEdit)) {
+                  if (value) await saveSetting.mutateAsync({ key, value });
+                }
+                toast({ title: "Reparti RT salvati" });
+                setRepartiOpen(false);
+              }} disabled={saveSetting.isPending}>
                 Salva reparti
               </Button>
             </div>
@@ -300,14 +355,15 @@ export default function FiscalePage() {
         </div>
 
         {/* Tab switcher */}
-        <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
+        <div className="flex gap-1 bg-slate-100 rounded-xl p-1 flex-wrap">
           {[
-            { k: "receipts", l: "Scontrini & Annulli", icon: Receipt },
-            { k: "xreport", l: "Report X", icon: FileText },
-            { k: "zreport", l: "Chiusura Z", icon: BarChart3 },
+            { k: "receipts", l: "Scontrini",  icon: Receipt },
+            { k: "xreport",  l: "Report X",   icon: Activity },
+            { k: "zreport",  l: "Chiusura Z", icon: BarChart3 },
+            { k: "lotteria", l: "Lotteria",   icon: Ticket },
           ].map(({ k, l, icon: Icon }) => (
-            <button key={k} onClick={() => { setTab(k as typeof tab); setReportResult(null); }}
-              className={cn("flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors",
+            <button key={k} onClick={() => { setTab(k as typeof tab); setReportResult(null); setLotteriaResult(null); }}
+              className={cn("flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors min-w-[80px]",
                 tab === k ? "bg-white shadow-sm text-slate-800" : "text-slate-500 hover:text-slate-700")}>
               <Icon className="h-4 w-4 shrink-0" /> {l}
             </button>
@@ -322,11 +378,14 @@ export default function FiscalePage() {
               <div className="flex gap-2 items-end flex-wrap">
                 <div>
                   <Label className="text-xs text-slate-500 mb-1 block">Anno</Label>
-                  <Input className="h-9 w-24 text-sm" value={searchAnno} onChange={e => setSearchAnno(e.target.value)} placeholder={String(new Date().getFullYear())} />
+                  <Input className="h-9 w-24 text-sm" value={searchAnno}
+                    onChange={e => setSearchAnno(e.target.value)}
+                    placeholder={String(new Date().getFullYear())} />
                 </div>
                 <div>
                   <Label className="text-xs text-slate-500 mb-1 block">Numero</Label>
-                  <Input className="h-9 w-32 text-sm" value={searchNumero} onChange={e => setSearchNumero(e.target.value)} placeholder="es. 42" type="number" />
+                  <Input className="h-9 w-32 text-sm" value={searchNumero}
+                    onChange={e => setSearchNumero(e.target.value)} placeholder="es. 42" type="number" />
                 </div>
                 <Button onClick={handleSearch} className="gap-1.5"><Search className="h-4 w-4" /> Cerca</Button>
                 <Button variant="outline" onClick={handleReset}>Reset</Button>
@@ -350,7 +409,8 @@ export default function FiscalePage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-slate-800">N° {r.numero}/{r.anno}</span>
-                      <Badge variant="outline" className={cn("text-xs", r.annullato ? "bg-red-50 text-red-600 border-red-200" : "bg-green-50 text-green-700 border-green-200")}>
+                      <Badge variant="outline" className={cn("text-xs",
+                        r.annullato ? "bg-red-50 text-red-600 border-red-200" : "bg-green-50 text-green-700 border-green-200")}>
                         {r.annullato ? "Annullato" : "Emesso"}
                       </Badge>
                       <span className="text-xs text-slate-500">{r.metodoPagamento}</span>
@@ -365,10 +425,10 @@ export default function FiscalePage() {
                     </div>
                   </div>
                   {!r.annullato && (
-                    <button onClick={() => {
+                    <button
+                      onClick={() => {
                         setVoidDialog({ open: true, receipt: r });
-                        setMotivo("");
-                        setVoidChiusura("");
+                        setMotivo(""); setVoidChiusura("");
                         setVoidDocumento(String(r.numero));
                         setVoidData(r.data);
                       }}
@@ -392,13 +452,12 @@ export default function FiscalePage() {
               <div>
                 <h3 className="font-bold text-lg text-slate-800">Report X — Lettura di Giornata</h3>
                 <p className="text-sm text-slate-500 mt-1">
-                  Visualizza i totali del giorno senza azzerare i contatori della stampante fiscale.<br />
-                  Operazione ripetibile in qualsiasi momento.
+                  Invia il comando <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-xs">1f</code> alla RT via XonXoff — visualizza i totali senza azzerare i contatori.
                 </p>
               </div>
               <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700 text-left">
                 <div className="flex items-center gap-2 font-semibold mb-1"><FileText className="h-3.5 w-3.5" /> Non azzera nulla</div>
-                <p>Il Report X è una lettura di controllo. Puoi richiederlo quante volte vuoi durante la giornata. Non sostituisce il Report Z di chiusura.</p>
+                <p>Il Report X è una lettura di controllo. Puoi richiederlo quante volte vuoi durante la giornata.</p>
               </div>
               <Button size="lg" onClick={handleXReport} disabled={xLoading}
                 className="w-full gap-2 text-base bg-blue-600 hover:bg-blue-700">
@@ -420,13 +479,12 @@ export default function FiscalePage() {
               <div>
                 <h3 className="font-bold text-lg text-slate-800">Chiusura Fiscale Giornaliera (Z)</h3>
                 <p className="text-sm text-slate-500 mt-1">
-                  Esegue il Report Z sulla stampante RT e azzera i contatori del giorno.<br />
-                  Da eseguire una sola volta a fine giornata, dopo l'ultimo incasso.
+                  Invia il comando <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-xs">1F</code> alla RT — azzera i contatori e trasmette all'AdE.
                 </p>
               </div>
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700 text-left">
                 <div className="flex items-center gap-2 font-semibold mb-1"><AlertTriangle className="h-3.5 w-3.5" /> Operazione irreversibile</div>
-                <p>La chiusura Z azzera i totali giornalieri della stampante fiscale e invia i dati all'Agenzia delle Entrate. Eseguire solo a fine servizio.</p>
+                <p>La chiusura Z azzera i totali giornalieri della RT. Eseguire solo a fine servizio, dopo l'ultimo incasso.</p>
               </div>
               <Button size="lg" onClick={handleZReport} disabled={zLoading}
                 className="w-full gap-2 text-base bg-amber-600 hover:bg-amber-700 text-white">
@@ -437,9 +495,111 @@ export default function FiscalePage() {
             <ReportResultCard result={reportResult} />
           </div>
         )}
+
+        {/* ── TAB: LOTTERIA SCONTRINI ─────────────────────────────────────── */}
+        {tab === "lotteria" && (
+          <div className="space-y-4">
+            {/* Codice attualmente salvato */}
+            <div className={cn(
+              "rounded-xl border px-4 py-3 flex items-center gap-3 text-sm",
+              lotteriaData?.codice
+                ? "bg-green-50 border-green-200 text-green-800"
+                : "bg-slate-50 border-slate-200 text-slate-500"
+            )}>
+              <Ticket className="h-4 w-4 shrink-0" />
+              <div className="flex-1">
+                {lotteriaData?.codice
+                  ? <>Codice attivo: <span className="font-mono font-bold text-base tracking-widest ml-1">{lotteriaData.codice}</span></>
+                  : "Nessun codice lotteria configurato — ogni scontrino sarà senza codice"
+                }
+              </div>
+              {lotteriaData?.codice && (
+                <button onClick={handleRimuoviLotteria} disabled={lotteriaLoading}
+                  className="shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="Rimuovi codice">
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Form inserimento codice */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="h-14 w-14 bg-violet-50 rounded-full flex items-center justify-center shrink-0">
+                  <Ticket className="h-7 w-7 text-violet-600" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-slate-800">Lotteria degli Scontrini</h3>
+                  <p className="text-sm text-slate-500 mt-0.5">
+                    Il codice (8 caratteri alfanumerici) viene inserito automaticamente in ogni scontrino tramite il comando
+                    <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-xs mx-1">"XXXXXXXX"L</code>
+                    prima del pagamento (XonXoff).
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-violet-50 border border-violet-200 rounded-xl p-3 text-xs text-violet-700">
+                <p className="font-semibold mb-1">Come funziona</p>
+                <ol className="list-decimal ml-4 space-y-0.5">
+                  <li>Il cliente cerca il suo codice su <strong>lotteriadegliscontrini.it</strong></li>
+                  <li>Il cassiere inserisce il codice qui sotto</li>
+                  <li>Il codice viene aggiunto automaticamente ad ogni scontrino fino alla prossima modifica</li>
+                  <li>La RT stampa il codice e lo trasmette all'AdE</li>
+                </ol>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-slate-700">Codice Lotteria (8 caratteri)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    className="h-11 font-mono text-lg tracking-widest text-center uppercase flex-1"
+                    placeholder="es. ABCD1234"
+                    maxLength={8}
+                    value={lotteriaInput}
+                    onChange={e => setLotteriaInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+                  />
+                  <Button
+                    size="lg"
+                    onClick={handleSalvaLotteria}
+                    disabled={lotteriaLoading || lotteriaInput.length !== 8}
+                    className="bg-violet-600 hover:bg-violet-700 px-6"
+                  >
+                    {lotteriaLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                    <span className="ml-2">Salva</span>
+                  </Button>
+                </div>
+                <p className="text-xs text-slate-400">
+                  {lotteriaInput.length}/8 caratteri
+                  {lotteriaInput.length > 0 && lotteriaInput.length < 8 && " — inserisci tutti gli 8 caratteri"}
+                </p>
+              </div>
+
+              {lotteriaResult && (
+                <div className={cn(
+                  "rounded-xl border px-4 py-3 text-sm",
+                  lotteriaResult.ok ? "bg-green-50 border-green-200 text-green-800" : "bg-red-50 border-red-200 text-red-700"
+                )}>
+                  <div className="flex items-center gap-2 font-semibold">
+                    {lotteriaResult.ok ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                    {lotteriaResult.ok
+                      ? (lotteriaResult.codice ? `Codice ${lotteriaResult.codice} attivato` : "Codice rimosso")
+                      : "Errore"}
+                  </div>
+                  <p className="mt-1 text-xs opacity-80">{lotteriaResult.nota ?? lotteriaResult.error}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Info normativa */}
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-500 space-y-1">
+              <p className="font-semibold text-slate-600">Note normative</p>
+              <p>Il codice lotteria viene applicato al singolo scontrino, non al cliente. È facoltativo: se il cliente non partecipa, lasciare il campo vuoto.</p>
+              <p>Il codice deve essere richiesto dal cliente <strong>prima</strong> dell'emissione dello scontrino — non è possibile aggiungerlo a posteriori.</p>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Void dialog */}
+      {/* Annullo scontrino dialog */}
       <Dialog open={voidDialog.open} onOpenChange={o => !o && setVoidDialog({ open: false })}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -455,7 +615,6 @@ export default function FiscalePage() {
               </div>
             )}
 
-            {/* Dati RT obbligatori per annullo */}
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-3">
               <p className="text-xs font-semibold text-amber-800 flex items-center gap-1">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -464,37 +623,28 @@ export default function FiscalePage() {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <Label className="text-xs text-slate-600 mb-1 block">N° Chiusura (Z)</Label>
-                  <Input
-                    value={voidChiusura}
+                  <Input value={voidChiusura}
                     onChange={e => setVoidChiusura(e.target.value.replace(/\D/g, ""))}
-                    placeholder="es. 42"
-                    className="h-9 text-sm font-mono text-center"
-                  />
+                    placeholder="es. 42" className="h-9 text-sm font-mono text-center" />
                 </div>
                 <div>
                   <Label className="text-xs text-slate-600 mb-1 block">N° Documento RT</Label>
-                  <Input
-                    value={voidDocumento}
+                  <Input value={voidDocumento}
                     onChange={e => setVoidDocumento(e.target.value.replace(/\D/g, ""))}
-                    placeholder="es. 734"
-                    className="h-9 text-sm font-mono text-center"
-                  />
+                    placeholder="es. 7" className="h-9 text-sm font-mono text-center" />
                 </div>
               </div>
               <div>
                 <Label className="text-xs text-slate-600 mb-1 block">Data documento</Label>
-                <Input
-                  type="date"
-                  value={voidData}
-                  onChange={e => setVoidData(e.target.value)}
-                  className="h-9 text-sm"
-                />
+                <Input type="date" value={voidData}
+                  onChange={e => setVoidData(e.target.value)} className="h-9 text-sm" />
               </div>
             </div>
 
             <div>
               <Label className="text-xs text-slate-500 mb-1 block">Motivo annullo</Label>
-              <Input value={motivo} onChange={e => setMotivo(e.target.value)} placeholder="Es. errore importo, reso merce, ecc." className="h-9 text-sm" />
+              <Input value={motivo} onChange={e => setMotivo(e.target.value)}
+                placeholder="Es. errore importo, reso merce, ecc." className="h-9 text-sm" />
             </div>
           </div>
           <DialogFooter className="gap-2">
@@ -510,12 +660,17 @@ export default function FiscalePage() {
 function ReportResultCard({ result }: { result: ReportResult | null }) {
   if (!result) return null;
   const isX = result.tipo === "X";
+  const rtOk = result.printer?.ok;
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-3">
       <div className="flex items-center gap-2 font-semibold text-slate-800">
         <CheckCircle2 className="h-5 w-5 text-green-600" />
         Report {result.tipo} — {result.data}
-        {result.printer_name && <span className="text-xs font-normal text-slate-400 ml-1">({result.printer_name}{result.printer_matricola ? ` · Matr. ${result.printer_matricola}` : ""})</span>}
+        {result.printer_name && (
+          <span className="text-xs font-normal text-slate-400 ml-1">
+            ({result.printer_name}{result.printer_matricola ? ` · Matr. ${result.printer_matricola}` : ""})
+          </span>
+        )}
       </div>
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-slate-50 rounded-lg p-3 text-center border border-slate-200">
@@ -531,19 +686,27 @@ function ReportResultCard({ result }: { result: ReportResult | null }) {
           <div className="text-xs text-slate-500">di cui IVA</div>
         </div>
       </div>
+
+      {/* Stato RT */}
       {result.simulated && (
         <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 border border-amber-200">
-          Nessuna stampante fiscale raggiunta — configurare una stampante con spunta «Fiscale» in Stampanti
+          Nessuna RT raggiunta — configura una stampante con spunta «Fiscale» in Stampanti
         </p>
       )}
       {result.printer && !result.simulated && (
-        <p className={cn("text-xs rounded-lg px-3 py-2 border", result.printer.ok
+        <div className={cn("text-xs rounded-lg px-3 py-2 border", rtOk
           ? "text-green-700 bg-green-50 border-green-200"
           : "text-red-600 bg-red-50 border-red-200")}>
-          Stampante: {result.printer.ok
-            ? `${isX ? "Lettura" : "Chiusura"} inviata correttamente`
-            : `Errore: ${result.printer.error ?? "Non raggiungibile"}`}
-        </p>
+          <div className="font-semibold">
+            RT (XonXoff): {rtOk
+              ? `${isX ? "1f inviato" : "1F inviato"} — ${isX ? "lettura" : "chiusura"} OK`
+              : `Errore: ${result.printer.error ?? result.printer.rtCode ?? "Non raggiungibile"}`}
+          </div>
+          {result.printer.body && (
+            <div className="mt-1 font-mono opacity-60 truncate">Echo: {result.printer.body.substring(0, 80)}</div>
+          )}
+          {result.printer.ms != null && <div className="mt-0.5 opacity-60">{result.printer.ms}ms</div>}
+        </div>
       )}
     </div>
   );
