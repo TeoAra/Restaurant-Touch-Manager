@@ -1,7 +1,15 @@
 import { Router } from "express";
 import { db, fiscalReceiptsTable, ordersTable } from "@workspace/db";
 import { eq, desc, and, sql } from "drizzle-orm";
-import { getFiscalPrinter, sendCgiCommand, inviaLotteriaRt } from "../lib/fiscal-printer";
+import {
+  getFiscalPrinter,
+  inviaLotteriaRt,
+  sendXonXoff,
+  sendXonXoffCommand,
+  getStatusQ,
+  getStatus2X,
+  parseStatusQ,
+} from "../lib/fiscal-printer";
 import { getSettings } from "../lib/settings";
 
 const router = Router();
@@ -95,14 +103,13 @@ router.post("/receipts/:id/void", async (req, res) => {
     const nChiusura  = numeroChiusura    ?? (receipt as never as { numeroChiusura?: number }).numeroChiusura    ?? 1;
     const nDocumento = numeroDocumentoRt ?? (receipt as never as { numeroDocumentoRt?: number }).numeroDocumentoRt ?? receipt.numero;
 
-    printerResult = await sendCgiCommand(
-      printer.ip,
-      "/cgi-bin/annullo.cgi",
-      "POST",
-      `data=${dataCgi}&chiusura=${nChiusura}&documento=${nDocumento}&importo=${receipt.importo}`,
-      6000,
-      printer.port ?? 80
-    );
+    // Storno RT: "ZZZZ-NNNN-DDMMYYYY"105M (XonXoff)
+    const rtPort = printer.port ?? 1126;
+    const zzzz = String(nChiusura).padStart(4, "0");
+    const nnnn = String(nDocumento).padStart(4, "0");
+    const stornoRef = `${zzzz}-${nnnn}-${dataCgi}`;
+    const stornoCmd = `"${stornoRef}"105M`;
+    printerResult = await sendXonXoffCommand(printer.ip, rtPort, stornoCmd, 8000);
   } else {
     printerResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
   }
@@ -136,39 +143,39 @@ router.post("/lotteria", async (req, res) => {
   });
 });
 
-// ── Cancella Scontrino Fiscale Aperto (errore 46) ───────────────────────────
-// Invia endFiscalReceipt + printCancel per chiudere un documento rimasto aperto.
-// Chiamare PRIMA di Z-report se la RT mostra errore 46 o errore 1.
+// ── Cancella Scontrino Fiscale Aperto ────────────────────────────────────────
+// XonXoff: "k" = Annullo scontrino in corso; "K" = Tasto C (reset errore)
 router.post("/cancel-open-receipt", async (req, res) => {
-  const { sendXmlCommand, getFiscalPrinter } = await import("../lib/fiscal-printer");
   const printer = await getFiscalPrinter();
   if (!printer) {
     return res.status(400).json({ ok: false, error: "Nessuna stampante fiscale configurata" });
   }
-  const rtPort = printer.port ?? 80;
+  const rtPort = printer.port ?? 1126;
   const tentativi: Array<{ cmd: string; ok: boolean; body?: string; error?: string; ms: number }> = [];
 
-  const cmds = [
-    {
-      cmd: "endFiscalReceipt (chiude scontrino aperto)",
-      xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <endFiscalReceipt operator="0"/>\n</printerFiscalReceipt>`,
-    },
-    {
-      cmd: "printCancel (annulla documento aperto)",
-      xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printCancel operator="0"/>\n</printerFiscalReceipt>`,
-    },
-  ];
-
-  for (const c of cmds) {
-    const r = await sendXmlCommand(printer.ip, c.xml, 8000, rtPort);
-    console.log(`[FISCAL CANCEL] ${c.cmd}: ok=${r.ok} rtCode=${r.rtCode} body=${(r.body ?? r.error ?? "").substring(0, 200)}`);
-    tentativi.push({ cmd: c.cmd, ok: r.ok, body: r.body, error: r.error, ms: r.ms });
-    if (r.ok) break;
-    await new Promise(resolve => setTimeout(resolve, 500));
+  for (const [label, cmd] of [
+    ["k — annullo scontrino in corso", "k"],
+    ["K — tasto C (reset errore)", "K"],
+    ["? — verifica stato", "?"],
+  ] as [string, string][]) {
+    const r = await sendXonXoffCommand(printer.ip, rtPort, cmd, 3000);
+    console.log(`[FISCAL CANCEL] ${label}: ok=${r.ok} xoff=${r.rtCode} ascii=${(r.body ?? "").substring(0, 80)}`);
+    tentativi.push({ cmd: label, ok: r.ok, body: r.body, error: r.error, ms: r.ms ?? 0 });
+    await new Promise(resolve => setTimeout(resolve, 400));
   }
 
-  const ok = tentativi.some(t => t.ok);
-  return res.json({ ok, tentativi, note: ok ? "Scontrino aperto annullato — ora prova il Report Z" : "Nessun tentativo ha avuto successo — premi ANNULLO fisicamente sulla RT" });
+  // Leggi stato finale
+  const statusFinal = await getStatusQ(printer.ip, rtPort);
+  const ok = statusFinal.status?.stato === 0; // 0 = chiuso
+
+  return res.json({
+    ok,
+    stato: statusFinal.status,
+    tentativi,
+    note: ok
+      ? "Scontrino chiuso — ora prova il Report Z"
+      : "Premi ANNULLO fisicamente sulla RT, poi riprova",
+  });
 });
 
 // ── Report X — Lettura di giornata (non azzera) ─────────────────────────────
@@ -188,8 +195,9 @@ router.post("/x-report", async (req, res) => {
   const printer = await getFiscalPrinter();
   let printerResult = null;
   if (printer) {
-    // Lettura di giornata — CGI standard RT italiano
-    printerResult = await sendCgiCommand(printer.ip, "/cgi-bin/lettura.cgi", "GET", undefined, 8000, printer.port ?? 80);
+    // X-report: "1f" = Rapporto Finanziario Giorno (XonXoff)
+    const rtPort = printer.port ?? 1126;
+    printerResult = await sendXonXoffCommand(printer.ip, rtPort, "1f", 8000);
   } else {
     printerResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
   }
@@ -225,8 +233,9 @@ router.post("/z-report", async (req, res) => {
   const printer = await getFiscalPrinter();
   let printerResult = null;
   if (printer) {
-    // Chiusura fiscale — CGI standard RT italiano
-    printerResult = await sendCgiCommand(printer.ip, "/cgi-bin/chiusura.cgi", "POST", undefined, 10000, printer.port ?? 80);
+    // Z-report: "1F" = Chiusura Fiscale Giorno (XonXoff)
+    const rtPort = printer.port ?? 1126;
+    printerResult = await sendXonXoffCommand(printer.ip, rtPort, "1F", 12000);
   } else {
     printerResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
   }
@@ -251,16 +260,14 @@ router.get("/printer-status", async (req, res) => {
   if (!printer) {
     return res.json({ found: false, error: "Nessuna stampante fiscale (RT) configurata e attiva" });
   }
-  const result = await sendCgiCommand(printer.ip, "/cgi-bin/stato.cgi", "GET", undefined, 4000, printer.port ?? 80);
+  const rtPort = printer.port ?? 1126;
+  const stato2X = await getStatus2X(printer.ip, rtPort);
+  const statoQ  = await getStatusQ(printer.ip, rtPort);
   res.json({
     found: true,
-    printer: {
-      name: printer.name,
-      ip: printer.ip,
-      model: printer.model,
-      matricola: printer.matricola,
-    },
-    connection: result,
+    printer: { name: printer.name, ip: printer.ip, port: rtPort, matricola: printer.matricola },
+    stato2X,
+    statoQ,
   });
 });
 
@@ -272,27 +279,12 @@ router.get("/diagnostica", async (req, res) => {
 
   const fiscalPrinter = await getFiscalPrinter();
 
-  let rtTest: { ok: boolean; ms?: number; error?: string; body?: string; url?: string } | null = null;
+  let rtTest: { ok: boolean; ms?: number; error?: string; stato2X?: unknown; statoQ?: unknown } | null = null;
   if (fiscalPrinter) {
-    const rtPort = fiscalPrinter.port && fiscalPrinter.port !== 9100 ? fiscalPrinter.port : 80;
-    const portStr = rtPort !== 80 ? `:${rtPort}` : "";
-    const cgiUrl = `http://${fiscalPrinter.ip}${portStr}/cgi-bin/fpmate.cgi`;
-    const t0 = Date.now();
-    try {
-      const resp = await fetch(cgiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "text/xml; charset=utf-8" },
-        body: `<?xml version="1.0" encoding="utf-8"?><printerCommand><queryPrinterStatus operator="0" statusType="0"/></printerCommand>`,
-        signal: AbortSignal.timeout(5000),
-      });
-      const body = await resp.text();
-      rtTest = { ok: resp.ok, ms: Date.now() - t0, body: body.substring(0, 400), url: cgiUrl };
-    } catch (e: unknown) {
-      const err = e instanceof Error ? e : new Error(String(e));
-      const cause = (err as unknown as { cause?: { code?: string; message?: string } }).cause;
-      const detail = cause?.code ?? cause?.message ?? err.message;
-      rtTest = { ok: false, ms: Date.now() - t0, error: detail, url: cgiUrl };
-    }
+    const rtPort = fiscalPrinter.port ?? 1126;
+    const s2x = await getStatus2X(fiscalPrinter.ip, rtPort);
+    const sq  = await getStatusQ(fiscalPrinter.ip, rtPort);
+    rtTest = { ok: s2x.ok || sq.ok, stato2X: s2x, statoQ: sq };
   }
 
   res.json({
@@ -308,148 +300,100 @@ router.get("/diagnostica", async (req, res) => {
 });
 
 // GET /api/fiscal/test-receipt
-// Invia un scontrino di prova da €0.10 alla RT e restituisce XML inviato + risposta grezza.
 // ⚠️  DEVE essere chiamato dal server LOCALE (X1 Carbon), non da Replit cloud.
-//     URL locale:  http://localhost:8080/api/fiscal/test-receipt
-// Prima manda un annullo XML per chiudere eventuali scontrini aperti (errore 46),
-// poi prova 4 varianti XML in sequenza finché una funziona.
+//     URL locale: http://localhost:8080/api/fiscal/test-receipt
+//
+// Protocollo: DTR XonXoff su TCP (non XML).
+// Invia scontrino TEST €1.10 su reparti 1-4 finché uno funziona.
+// Verifica successo con "?" (stato scontrino: F=0 = chiuso = OK).
 router.get("/test-receipt", async (req, res) => {
-  const { sendXmlCommand, getFiscalPrinter } = await import("../lib/fiscal-printer");
   const printer = await getFiscalPrinter();
   if (!printer) {
     res.json({ error: "Nessuna stampante fiscale attiva configurata" });
     return;
   }
-  const rtPort = printer.port ?? 80;
+  const rtPort = printer.port ?? 1126;
 
-  // ── Passo -1: verifica connettività RT con queryPrinterStatus ────────────
-  let statusCheck: { ok: boolean; body?: string; error?: string } = { ok: false };
-  try {
-    const statusXml = `<?xml version="1.0" encoding="utf-8"?><printerCommand><queryPrinterStatus operator="0" statusType="0"/></printerCommand>`;
-    const statusRes = await sendXmlCommand(printer.ip, statusXml, 5000, rtPort);
-    statusCheck = { ok: statusRes.ok, body: statusRes.body ?? statusRes.error };
-    console.log("[FISCAL TEST] Status check:", statusRes.body ?? statusRes.error);
-  } catch (e) {
-    statusCheck = { ok: false, error: String(e) };
+  // ── Passo 1: Stato iniziale RT (2X) ─────────────────────────────────────
+  console.log("[FISCAL TEST] Stato iniziale 2X...");
+  const stato2X = await getStatus2X(printer.ip, rtPort);
+  console.log("[FISCAL TEST] 2X:", JSON.stringify(stato2X));
+  await new Promise(r => setTimeout(r, 300));
+
+  // ── Passo 2: Stato scontrino (?) ─────────────────────────────────────────
+  console.log("[FISCAL TEST] Stato scontrino ?...");
+  const statoQ = await getStatusQ(printer.ip, rtPort);
+  console.log("[FISCAL TEST] ?:", JSON.stringify(statoQ));
+  const docPrima = statoQ.status?.docCommerciali ?? -1;
+  await new Promise(r => setTimeout(r, 300));
+
+  // ── Passo 3: Chiudi eventuale scontrino aperto ───────────────────────────
+  let cancelResult = null;
+  if (statoQ.status?.stato === 1 || statoQ.status?.stato === 2) {
+    console.log("[FISCAL TEST] Scontrino aperto — invio 'k' (annullo)...");
+    const cr = await sendXonXoff(printer.ip, rtPort, "k", 3000);
+    cancelResult = { cmd: "k", ok: cr.xoffCount === 0, xoff: cr.xoffCount, ascii: cr.ascii };
+    await new Promise(r => setTimeout(r, 500));
   }
 
-  // ── Passo 0: tenta di chiudere documenti aperti (errore 46) ─────────────
-  // Prova endFiscalReceipt (se receipt è aperto) poi printCancel
-  const cancelXmls = [
-    `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <endFiscalReceipt operator="0"/>\n</printerFiscalReceipt>`,
-    `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printCancel operator="0"/>\n</printerFiscalReceipt>`,
-  ];
-  let cancelRes = { ok: false, body: "non inviato", error: undefined as string | undefined };
-  for (const cx of cancelXmls) {
-    const r = await sendXmlCommand(printer.ip, cx, 6000, rtPort);
-    console.log("[FISCAL TEST] Reset/cancel:", r.body ?? r.error);
-    cancelRes = { ok: r.ok, body: r.body ?? "", error: r.error };
-    if (r.ok) break;
-    await new Promise(r2 => setTimeout(r2, 500));
-  }
+  // ── Passo 4: Prova scontrino €1.10 su reparti 1-4 (XonXoff) ─────────────
+  // Formato: "desc"priceHdeptR  priceH1T  ?
+  // Price 1.10 → 110 centesimi.  Pagamento contanti immediato con 1T.
+  const risultati: Array<{
+    variante: string; cmd: string; xoffCount: number; ascii: string;
+    ok: boolean; statoDopoF: number | null; docDopoB: number | null; ms: number;
+  }> = [];
 
-  // piccola pausa dopo cancel
-  await new Promise(r => setTimeout(r, 800));
+  let okDept = -1;
+  for (const dept of [1, 2, 3, 4]) {
+    const cmd = `"TEST HELLOTABLE"110H${dept}R110H1T?`;
+    console.log(`[FISCAL TEST] Reparto ${dept}: ${cmd}`);
+    const r = await sendXonXoff(printer.ip, rtPort, cmd, 5000);
+    const statusDopo = parseStatusQ(r.ascii);
+    console.log(`[FISCAL TEST] R${dept}: xoff=${r.xoffCount} ok=${r.ok} stato=${statusDopo?.stato} ascii=${r.ascii.substring(0, 100)}`);
 
-  // ── Test diagnostico HTTP diretto ────────────────────────────────────────
-  let httpDiag: { ok: boolean; status?: number; body?: string; error?: string; ms?: number } = { ok: false };
-  try {
-    const t = Date.now();
-    const resp = await fetch(`http://${printer.ip}:${rtPort}/cgi-bin/fpmate.cgi`, {
-      method: "POST",
-      headers: { "Content-Type": "text/xml; charset=utf-8" },
-      body: `<?xml version="1.0" encoding="utf-8"?><printerCommand><queryPrinterStatus operator="1" statusType="0"/></printerCommand>`,
-      signal: AbortSignal.timeout(4000),
-    });
-    const body = await resp.text();
-    httpDiag = { ok: resp.ok, status: resp.status, body: body.substring(0, 300), ms: Date.now() - t };
-  } catch (e: unknown) {
-    const err = e instanceof Error ? e : new Error(String(e));
-    const cause = (err as { cause?: { code?: string; message?: string } }).cause;
-    httpDiag = { ok: false, error: `${err.message}${cause?.code ? ` (${cause.code})` : ""}`, ms: -1 };
-  }
-  console.log("[FISCAL TEST] HTTP diag:", JSON.stringify(httpDiag));
-
-  // ── Varianti scontrino: combinazioni operator × dept ──────────────────────
-  // operator="1"  → era accettato via HTTP (funzionava, dava errore 13 non 11)
-  // operator="0"  → master/default su alcuni modelli
-  // senza attr    → alcune RT usano il default interno
-  // dept 1..4     → trova il reparto programmato sulla RT
-  const varianti: { nome: string; xml: string }[] = [];
-  for (const op of ["1", "0", ""]) {
-    for (const dept of [1, 2, 3, 4]) {
-      const opAttr = op !== "" ? ` operator="${op}"` : "";
-      varianti.push({
-        nome: `op=${op !== "" ? op : "omesso"} dept=${dept}`,
-        xml: `<?xml version="1.0" encoding="utf-8"?>
-<printerFiscalReceipt>
-  <beginFiscalReceipt${opAttr}/>
-  <printRecItem${opAttr} description="TEST HELLOTABLE" quantity="1.000" unitPrice="1.10" department="${dept}" justification="1"/>
-  <printRecTotal${opAttr} description="Contanti" payment="1.10" paymentType="0" index="1" justification="1"/>
-  <endFiscalReceipt${opAttr}/>
-</printerFiscalReceipt>`,
-      });
-    }
-  }
-
-  const risultati = [];
-  let okDept = 1; // reparto che ha funzionato (aggiornato sotto)
-  for (const v of varianti) {
-    console.log(`[FISCAL TEST] Variante ${v.nome}:\n${v.xml}`);
-    const r = await sendXmlCommand(printer.ip, v.xml, 10000, rtPort);
-    console.log(`[FISCAL TEST] Risposta ${v.nome}: ok=${r.ok} rtCode=${r.rtCode} body=${r.body ?? r.error}`);
-    risultati.push({
-      variante: v.nome,
-      xmlInviato: v.xml,
-      ok: r.ok,
-      rtCode: r.rtCode,
-      risposta: r.body ?? r.error ?? "nessuna risposta",
+    const v = {
+      variante: `Reparto ${dept}`,
+      cmd,
+      xoffCount: r.xoffCount,
+      ascii: r.ascii.substring(0, 200),
+      ok: r.xoffCount === 0 && statusDopo?.stato === 0,
+      statoDopoF: statusDopo?.stato ?? null,
+      docDopoB:   statusDopo?.docCommerciali ?? null,
       ms: r.ms,
-    });
-    if (r.ok) {
-      // Estrai il numero dept dalla variante (es. "A2 - dept=2" → 2)
-      const deptMatch = v.nome.match(/dept=(\d+)/);
-      if (deptMatch) okDept = Number(deptMatch[1]);
+    };
+    risultati.push(v);
+
+    if (v.ok && (statusDopo?.docCommerciali ?? 0) > docPrima) {
+      // Scontrino emesso con successo!
+      okDept = dept;
       break;
     }
-    await new Promise(r2 => setTimeout(r2, 600));
+
+    // Se XOFF: la RT è in errore — manda K (C) per resettare
+    if (r.xoffCount > 0) {
+      await sendXonXoff(printer.ip, rtPort, "K", 1000);
+    }
+    await new Promise(r2 => setTimeout(r2, 800));
   }
 
-  // ── Test sequenza comandi separati (un TCP per comando) ──────────────────
-  // Alcune RT aspettano ogni comando in una connessione TCP separata
-  await new Promise(r => setTimeout(r, 1000));
-  const cmds = [
-    { nome: "1-beginFiscalReceipt", xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <beginFiscalReceipt operator="0"/>\n</printerFiscalReceipt>` },
-    { nome: "2-printRecItem (dept dal primo ok)", xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printRecItem operator="0" description="TEST" quantity="1.000" unitPrice="1.10" department="${okDept}" justification="1"/>\n</printerFiscalReceipt>` },
-    { nome: "3-printRecTotal", xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printRecTotal operator="0" description="Contanti" payment="1.10" paymentType="0" index="1" justification="1"/>\n</printerFiscalReceipt>` },
-    { nome: "4-endFiscalReceipt", xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <endFiscalReceipt operator="0"/>\n</printerFiscalReceipt>` },
-  ];
-  const sequenza = [];
-  for (const c of cmds) {
-    const r = await sendXmlCommand(printer.ip, c.xml, 8000, rtPort);
-    console.log(`[FISCAL SEQ] ${c.nome}: ok=${r.ok} rtCode=${r.rtCode} body=${r.body ?? r.error}`);
-    sequenza.push({
-      cmd: c.nome,
-      ok: r.ok,
-      rtCode: r.rtCode,
-      risposta: r.body ?? r.error ?? "",
-      ms: r.ms,
-    });
-    if (!r.ok) {
-      console.log(`[FISCAL SEQ] Stop alla sequenza su errore: ${c.nome}`);
-      break;
-    }
-    await new Promise(r2 => setTimeout(r2, 300));
-  }
+  // ── Passo 5: Stato finale ─────────────────────────────────────────────────
+  await new Promise(r => setTimeout(r, 400));
+  const statoFinale = await getStatusQ(printer.ip, rtPort);
 
   res.json({
     avviso: "Chiamare SOLO da server locale X1 Carbon: http://localhost:8080/api/fiscal/test-receipt",
+    protocollo: "DTR XonXoff su TCP",
     printer: { ip: printer.ip, port: rtPort },
-    httpDiag,
-    statusCheck,
-    reset: { body: cancelRes.body ?? cancelRes.error, ok: cancelRes.ok },
+    stato2X,
+    statoIniziale: statoQ,
+    cancelResult,
     risultati,
-    sequenza,
+    okDept: okDept > 0 ? okDept : null,
+    statoFinale,
+    note: okDept > 0
+      ? `Reparto ${okDept} funzionante — configura questo reparto nel Backoffice → Reparti RT`
+      : "Nessun reparto ha funzionato — controlla display RT e verifica reparti configurati",
   });
 });
 
