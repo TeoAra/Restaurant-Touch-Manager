@@ -287,6 +287,17 @@ router.get("/test-receipt", async (req, res) => {
   }
   const rtPort = printer.port ?? 80;
 
+  // ── Passo -1: verifica connettività RT con queryPrinterStatus ────────────
+  let statusCheck: { ok: boolean; body?: string; error?: string } = { ok: false };
+  try {
+    const statusXml = `<?xml version="1.0" encoding="utf-8"?><printerCommand><queryPrinterStatus operator="1" statusType="0"/></printerCommand>`;
+    const statusRes = await sendXmlCommand(printer.ip, statusXml, 5000, rtPort);
+    statusCheck = { ok: statusRes.ok, body: statusRes.body ?? statusRes.error };
+    console.log("[FISCAL TEST] Status check:", statusRes.body ?? statusRes.error);
+  } catch (e) {
+    statusCheck = { ok: false, error: String(e) };
+  }
+
   // ── Passo 0: tenta di chiudere documenti aperti (errore 46) ─────────────
   // Prova endFiscalReceipt (se receipt è aperto) poi printCancel
   const cancelXmls = [
@@ -380,6 +391,7 @@ router.get("/test-receipt", async (req, res) => {
   res.json({
     avviso: "Chiamare SOLO da server locale X1 Carbon: http://localhost:8080/api/fiscal/test-receipt",
     printer: { ip: printer.ip, port: rtPort },
+    statusCheck,
     reset: { body: cancelRes.body ?? cancelRes.error, ok: cancelRes.ok },
     risultati,
   });
