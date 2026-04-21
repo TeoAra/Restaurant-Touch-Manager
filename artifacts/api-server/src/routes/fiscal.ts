@@ -151,11 +151,11 @@ router.post("/cancel-open-receipt", async (req, res) => {
   const cmds = [
     {
       cmd: "endFiscalReceipt (chiude scontrino aperto)",
-      xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <endFiscalReceipt operator="1"/>\n</printerFiscalReceipt>`,
+      xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <endFiscalReceipt operator="0"/>\n</printerFiscalReceipt>`,
     },
     {
       cmd: "printCancel (annulla documento aperto)",
-      xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printCancel operator="1"/>\n</printerFiscalReceipt>`,
+      xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printCancel operator="0"/>\n</printerFiscalReceipt>`,
     },
   ];
 
@@ -282,7 +282,7 @@ router.get("/diagnostica", async (req, res) => {
       const resp = await fetch(cgiUrl, {
         method: "POST",
         headers: { "Content-Type": "text/xml; charset=utf-8" },
-        body: `<?xml version="1.0" encoding="utf-8"?><printerCommand><queryPrinterStatus operator="1" statusType="0"/></printerCommand>`,
+        body: `<?xml version="1.0" encoding="utf-8"?><printerCommand><queryPrinterStatus operator="0" statusType="0"/></printerCommand>`,
         signal: AbortSignal.timeout(5000),
       });
       const body = await resp.text();
@@ -325,7 +325,7 @@ router.get("/test-receipt", async (req, res) => {
   // ── Passo -1: verifica connettività RT con queryPrinterStatus ────────────
   let statusCheck: { ok: boolean; body?: string; error?: string } = { ok: false };
   try {
-    const statusXml = `<?xml version="1.0" encoding="utf-8"?><printerCommand><queryPrinterStatus operator="1" statusType="0"/></printerCommand>`;
+    const statusXml = `<?xml version="1.0" encoding="utf-8"?><printerCommand><queryPrinterStatus operator="0" statusType="0"/></printerCommand>`;
     const statusRes = await sendXmlCommand(printer.ip, statusXml, 5000, rtPort);
     statusCheck = { ok: statusRes.ok, body: statusRes.body ?? statusRes.error };
     console.log("[FISCAL TEST] Status check:", statusRes.body ?? statusRes.error);
@@ -336,8 +336,8 @@ router.get("/test-receipt", async (req, res) => {
   // ── Passo 0: tenta di chiudere documenti aperti (errore 46) ─────────────
   // Prova endFiscalReceipt (se receipt è aperto) poi printCancel
   const cancelXmls = [
-    `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <endFiscalReceipt operator="1"/>\n</printerFiscalReceipt>`,
-    `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printCancel operator="1"/>\n</printerFiscalReceipt>`,
+    `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <endFiscalReceipt operator="0"/>\n</printerFiscalReceipt>`,
+    `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printCancel operator="0"/>\n</printerFiscalReceipt>`,
   ];
   let cancelRes = { ok: false, body: "non inviato", error: undefined as string | undefined };
   for (const cx of cancelXmls) {
@@ -359,15 +359,16 @@ router.get("/test-receipt", async (req, res) => {
       nome: `A${dept} - dept=${dept} (qty=1.000)`,
       xml: `<?xml version="1.0" encoding="utf-8"?>
 <printerFiscalReceipt>
-  <beginFiscalReceipt operator="1"/>
-  <printRecItem operator="1" description="TEST HELLOTABLE" quantity="1.000" unitPrice="1.10" department="${dept}" justification="1"/>
-  <printRecTotal operator="1" description="Contanti" payment="1.10" paymentType="0" index="1" justification="1"/>
-  <endFiscalReceipt operator="1"/>
+  <beginFiscalReceipt operator="0"/>
+  <printRecItem operator="0" description="TEST HELLOTABLE" quantity="1.000" unitPrice="1.10" department="${dept}" justification="1"/>
+  <printRecTotal operator="0" description="Contanti" payment="1.10" paymentType="0" index="1" justification="1"/>
+  <endFiscalReceipt operator="0"/>
 </printerFiscalReceipt>`,
     });
   }
 
   const risultati = [];
+  let okDept = 1; // reparto che ha funzionato (aggiornato sotto)
   for (const v of varianti) {
     console.log(`[FISCAL TEST] Variante ${v.nome}:\n${v.xml}`);
     const r = await sendXmlCommand(printer.ip, v.xml, 10000, rtPort);
@@ -380,7 +381,12 @@ router.get("/test-receipt", async (req, res) => {
       risposta: r.body ?? r.error ?? "nessuna risposta",
       ms: r.ms,
     });
-    if (r.ok) break;
+    if (r.ok) {
+      // Estrai il numero dept dalla variante (es. "A2 - dept=2" → 2)
+      const deptMatch = v.nome.match(/dept=(\d+)/);
+      if (deptMatch) okDept = Number(deptMatch[1]);
+      break;
+    }
     await new Promise(r2 => setTimeout(r2, 600));
   }
 
@@ -388,10 +394,10 @@ router.get("/test-receipt", async (req, res) => {
   // Alcune RT aspettano ogni comando in una connessione TCP separata
   await new Promise(r => setTimeout(r, 1000));
   const cmds = [
-    { nome: "1-beginFiscalReceipt", xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <beginFiscalReceipt operator="1"/>\n</printerFiscalReceipt>` },
-    { nome: "2-printRecItem", xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printRecItem operator="1" description="TEST" quantity="1.000" unitPrice="1.10" department="1" justification="1"/>\n</printerFiscalReceipt>` },
-    { nome: "3-printRecTotal", xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printRecTotal operator="1" description="Contanti" payment="1.10" paymentType="0" index="1" justification="1"/>\n</printerFiscalReceipt>` },
-    { nome: "4-endFiscalReceipt", xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <endFiscalReceipt operator="1"/>\n</printerFiscalReceipt>` },
+    { nome: "1-beginFiscalReceipt", xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <beginFiscalReceipt operator="0"/>\n</printerFiscalReceipt>` },
+    { nome: "2-printRecItem (dept dal primo ok)", xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printRecItem operator="0" description="TEST" quantity="1.000" unitPrice="1.10" department="${okDept}" justification="1"/>\n</printerFiscalReceipt>` },
+    { nome: "3-printRecTotal", xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printRecTotal operator="0" description="Contanti" payment="1.10" paymentType="0" index="1" justification="1"/>\n</printerFiscalReceipt>` },
+    { nome: "4-endFiscalReceipt", xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <endFiscalReceipt operator="0"/>\n</printerFiscalReceipt>` },
   ];
   const sequenza = [];
   for (const c of cmds) {

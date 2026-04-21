@@ -176,12 +176,20 @@ export async function sendXmlCommand(ip: string, xml: string, timeoutMs = 15000,
 
     const parseTcp = (): CgiResult => {
       if (!responseData) return { ok: false, error: "nessuna risposta TCP", ms: Date.now() - t0 };
+      // La RT appende lo status H-delimitato SOLO se il comando è stato elaborato:
+      //   {echoXml}{statusBitmap}H{errCode}H…H?
+      // Se la risposta è SOLO l'echo XML (nessun H-string) → comando RIFIUTATO
+      // (errori 11/13/46 visibili sul display RT ma non nell'echo)
       const hMatch = responseData.match(/>\s*(\d+)H(\d+)H/);
-      const hCode  = hMatch && hMatch[2] !== "0" ? hMatch[2] : undefined;
-      const xmlMatch = !hMatch ? responseData.match(/code="(\d+)"/) : null;
-      const xmlCode  = xmlMatch && xmlMatch[1] !== "0" ? xmlMatch[1] : undefined;
-      const errCode  = hCode ?? xmlCode;
-      console.log("[FISCAL] TCP risposta: errCode=%s raw=%s", errCode ?? "OK", responseData.substring(0, 300));
+      if (!hMatch) {
+        const xmlMatch = responseData.match(/code="(\d+)"/);
+        const rtCode   = xmlMatch && xmlMatch[1] !== "0" ? xmlMatch[1] : "ERR";
+        console.log("[FISCAL] TCP solo echo senza status → rifiutato. raw=%s", responseData.substring(0, 200));
+        return { ok: false, ms: Date.now() - t0, body: responseData, rtCode,
+          error: "Comando rifiutato (controlla display RT: errore 11/13/46)" };
+      }
+      const errCode = hMatch[2] !== "0" ? hMatch[2] : undefined;
+      console.log("[FISCAL] TCP status OK: errCode=%s bitmap=%s", errCode ?? "0", hMatch[1]);
       return { ok: !errCode, ms: Date.now() - t0, body: responseData, rtCode: errCode };
     };
 
@@ -234,11 +242,11 @@ function buildReceiptXml(opts: {
   lines.push(`<printerFiscalReceipt>`);
 
   // beginFiscalReceipt apre la transazione (obbligatorio per Custom/DTR)
-  lines.push(`  <beginFiscalReceipt operator="1"/>`);
+  lines.push(`  <beginFiscalReceipt operator="0"/>`);
 
   // Lotteria degli Scontrini (deve precedere le righe articolo)
   if (lotteria && lotteria.length === 8) {
-    lines.push(`  <printRecLottery operator="1" code="${lotteria.toUpperCase()}"/>`);
+    lines.push(`  <printRecLottery operator="0" code="${lotteria.toUpperCase()}"/>`);
   }
 
   // Righe articolo
@@ -250,19 +258,19 @@ function buildReceiptXml(opts: {
     const qty = Number.isInteger(qtyNum) ? String(qtyNum) : qtyNum.toFixed(3);
     const desc = xmlAttr(r.desc);
     lines.push(
-      `  <printRecItem operator="1" description="${desc}" quantity="${qty}" ` +
+      `  <printRecItem operator="0" description="${desc}" quantity="${qty}" ` +
       `unitPrice="${unitPrice}" department="${dept}" justification="1"/>`
     );
   }
 
   // Totale + metodo di pagamento
   lines.push(
-    `  <printRecTotal operator="1" description="${paymentDesc}" payment="${importoFmt}" ` +
+    `  <printRecTotal operator="0" description="${paymentDesc}" payment="${importoFmt}" ` +
     `paymentType="${paymentType}" index="1" justification="1"/>`
   );
 
   // endFiscalReceipt chiude la transazione e stampa lo scontrino
-  lines.push(`  <endFiscalReceipt operator="1"/>`);
+  lines.push(`  <endFiscalReceipt operator="0"/>`);
 
   lines.push(`</printerFiscalReceipt>`);
   return lines.join("\n");
@@ -276,7 +284,7 @@ export async function inviaLotteriaRt(ip: string, codice: string, port = 80): Pr
   const xml = [
     `<?xml version="1.0" encoding="utf-8"?>`,
     `<printerCommand>`,
-    `  <queryPrinterStatus operator="1" statusType="1"/>`,
+    `  <queryPrinterStatus operator="0" statusType="1"/>`,
     `</printerCommand>`,
   ].join("\n");
   // Verifichiamo la connettività alla RT; il codice viene applicato al momento della stampa
