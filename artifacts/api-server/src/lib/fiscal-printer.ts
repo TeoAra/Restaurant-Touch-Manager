@@ -11,6 +11,7 @@
  *   - Department: 1=IVA10%, 2=IVA22%, 3=IVA4%, 4=IVA0%
  */
 
+import http from "http";
 import { db, fiscalReceiptsTable } from "@workspace/db";
 import { printersTable } from "@workspace/db/schema";
 import { and, eq, sql } from "drizzle-orm";
@@ -109,32 +110,46 @@ export async function sendCgiCommand(
 }
 
 // ── Invia XML Protocol 7.0 a /cgi-bin/fpmate.cgi ───────────────────────────
-export async function sendXmlCommand(ip: string, xml: string, timeoutMs = 12000, port = 80): Promise<CgiResult> {
-  const portStr = port && port !== 80 ? `:${port}` : "";
-  const url = `http://${ip}${portStr}/cgi-bin/fpmate.cgi`;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+// Usa http nativo (non fetch) con Connection: close e Content-Length esplicito.
+// I firmware RT embedded non gestiscono bene HTTP/1.1 keep-alive di fetch.
+export function sendXmlCommand(ip: string, xml: string, timeoutMs = 12000, port = 80): Promise<CgiResult> {
   const t0 = Date.now();
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      signal: ctrl.signal,
-      headers: { "Content-Type": "text/xml; charset=utf-8" },
-      body: xml,
+  const body = Buffer.from(xml, "utf-8");
+  return new Promise<CgiResult>((resolve) => {
+    const req = http.request(
+      {
+        hostname: ip,
+        port,
+        path: "/cgi-bin/fpmate.cgi",
+        method: "POST",
+        headers: {
+          "Content-Type": "text/xml; charset=utf-8",
+          "Content-Length": body.length,
+          "Connection": "close",
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const text = Buffer.concat(chunks).toString("utf-8");
+          const codeMatch = text.match(/code="(\d+)"/);
+          const rtCode = codeMatch?.[1];
+          const rtOk = res.statusCode === 200 && (!rtCode || rtCode === "0");
+          resolve({ ok: rtOk, ms: Date.now() - t0, body: text, rtCode });
+        });
+      }
+    );
+    req.setTimeout(timeoutMs, () => {
+      req.destroy();
+      resolve({ ok: false, error: "timeout", ms: Date.now() - t0 });
     });
-    clearTimeout(timer);
-    const text = await res.text();
-    // Cerca codice RT nella risposta XML (es. <addInfo><elementList>...</elementList></addInfo>)
-    const codeMatch = text.match(/code="(\d+)"/);
-    const rtCode = codeMatch?.[1];
-    // Risposta OK se HTTP 200 e niente codice di errore (codice 0 o assente = OK)
-    const rtOk = res.ok && (!rtCode || rtCode === "0");
-    return { ok: rtOk, ms: Date.now() - t0, body: text, rtCode };
-  } catch (err: unknown) {
-    clearTimeout(timer);
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: msg.includes("abort") ? "timeout" : msg, ms: Date.now() - t0 };
-  }
+    req.on("error", (err: Error) => {
+      resolve({ ok: false, error: err.message, ms: Date.now() - t0 });
+    });
+    req.write(body);
+    req.end();
+  });
 }
 
 // ── Costruisce XML Protocol 7.0 per documento commerciale ──────────────────

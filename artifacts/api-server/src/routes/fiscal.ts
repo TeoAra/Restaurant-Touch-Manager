@@ -287,10 +287,20 @@ router.get("/test-receipt", async (req, res) => {
   }
   const rtPort = printer.port ?? 80;
 
-  // ── Passo 0: tenta di chiudere eventuali documenti aperti (errore 46) ──────
-  const cancelXml = `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printCancel operator="1"/>\n</printerFiscalReceipt>`;
-  const cancelRes = await sendXmlCommand(printer.ip, cancelXml, 6000, rtPort);
-  console.log("[FISCAL TEST] Reset/cancel:", cancelRes.body ?? cancelRes.error);
+  // ── Passo 0: tenta di chiudere documenti aperti (errore 46) ─────────────
+  // Prova endFiscalReceipt (se receipt è aperto) poi printCancel
+  const cancelXmls = [
+    `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <endFiscalReceipt operator="1"/>\n</printerFiscalReceipt>`,
+    `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printCancel operator="1"/>\n</printerFiscalReceipt>`,
+  ];
+  let cancelRes = { ok: false, body: "non inviato", error: undefined as string | undefined };
+  for (const cx of cancelXmls) {
+    const r = await sendXmlCommand(printer.ip, cx, 6000, rtPort);
+    console.log("[FISCAL TEST] Reset/cancel:", r.body ?? r.error);
+    cancelRes = { ok: r.ok, body: r.body ?? "", error: r.error };
+    if (r.ok) break;
+    await new Promise(r2 => setTimeout(r2, 500));
+  }
 
   // piccola pausa dopo cancel
   await new Promise(r => setTimeout(r, 800));
