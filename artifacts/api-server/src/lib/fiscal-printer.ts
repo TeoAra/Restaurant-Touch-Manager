@@ -152,7 +152,11 @@ function buildReceiptXml(opts: {
 
   const lines: string[] = [];
   lines.push(`<?xml version="1.0" encoding="utf-8"?>`);
-  lines.push(`<printerFiscalReceipt operator="1">`);
+  // NOTA: operator NON va sul tag radice per Custom/DTR — va sui singoli comandi
+  lines.push(`<printerFiscalReceipt>`);
+
+  // beginFiscalReceipt apre la transazione (obbligatorio per Custom/DTR)
+  lines.push(`  <beginFiscalReceipt operator="1"/>`);
 
   // Lotteria degli Scontrini (deve precedere le righe articolo)
   if (lotteria && lotteria.length === 8) {
@@ -163,7 +167,9 @@ function buildReceiptXml(opts: {
   for (const r of righe) {
     const dept = ivaToRtDept(r.aliquotaIva, deptMap);
     const unitPrice = parseFloat(r.prezzoUnitario).toFixed(2);
-    const qty = parseFloat(String(r.qta)).toFixed(3);
+    // qty: intero se senza decimali, altrimenti 3 decimali
+    const qtyNum = parseFloat(String(r.qta));
+    const qty = Number.isInteger(qtyNum) ? String(qtyNum) : qtyNum.toFixed(3);
     const desc = xmlAttr(r.desc);
     lines.push(
       `  <printRecItem operator="1" description="${desc}" quantity="${qty}" ` +
@@ -176,6 +182,9 @@ function buildReceiptXml(opts: {
     `  <printRecTotal operator="1" description="${paymentDesc}" payment="${importoFmt}" ` +
     `paymentType="${paymentType}" index="1" justification="1"/>`
   );
+
+  // endFiscalReceipt chiude la transazione e stampa lo scontrino
+  lines.push(`  <endFiscalReceipt operator="1"/>`);
 
   lines.push(`</printerFiscalReceipt>`);
   return lines.join("\n");
@@ -248,7 +257,9 @@ export async function emettiFiscalReceipt(opts: {
   if (printer) {
     const rtPort = printer.port ?? 80;
     const xml = buildReceiptXml({ righe, importo, metodoPagamento, lotteria, deptMap });
+    console.log("[FISCAL] XML inviato alla RT:\n" + xml);
     rt = await sendXmlCommand(printer.ip, xml, 12000, rtPort);
+    console.log("[FISCAL] RT risposta raw:", rt.body ?? rt.error ?? "nessuna risposta");
   }
 
   return { receipt, rt };
