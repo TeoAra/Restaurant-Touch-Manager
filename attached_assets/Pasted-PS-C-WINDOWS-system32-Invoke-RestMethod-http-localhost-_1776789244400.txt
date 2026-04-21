@@ -1,0 +1,53 @@
+PS C:\WINDOWS\system32> Invoke-RestMethod http://localhost:8080/api/fiscal/test-receipt | ConvertTo-Json -Depth 5
+{
+    "avviso":  "Chiamare SOLO da server locale X1 Carbon: http://localhost:8080/api/fiscal/test-receipt",
+    "printer":  {
+                    "ip":  "192.168.8.162",
+                    "port":  1126
+                },
+    "statusCheck":  {
+                        "ok":  false,
+                        "body":  ""
+                    },
+    "reset":  {
+                  "body":  "\u003c?xml version=\"1.0\" encoding=\"utf-8\"?\u003e\n\u003cprinterFiscalReceipt\u003e\n  \u003cprintCancel operator=\"1\"/\u003e\n\u003c/printerFiscalReceipt\u003e",
+                  "ok":  true
+              },
+    "risultati":  [
+                      {
+                          "variante":  "A - begin/end + dept=1 + qty=1.000 + price=1.10",
+                          "xmlInviato":  "\u003c?xml version=\"1.0\" encoding=\"utf-8\"?\u003e\n\u003cprinterFiscalReceipt\u003e\n  \u003cbeginFiscalReceipt operator=\"1\"/\u003e\n  \u003cprintRecItem operator=\"1\" description=\"TEST\" quantity=\"1.000\" unitPrice=\"1.10\" department=\"1\" justification=\"1\"/\u003e\n  \u003cprintRecTotal operator=\"1\" description=\"Contanti\" payment=\"1.10\" paymentType=\"0\" index=\"1\" justification=\"1\"/\u003e\n  \u003cendFiscalReceipt operator=\"1\"/\u003e\n\u003c/printerFiscalReceipt\u003e",
+                          "ok":  false,
+                          "risposta":  "",
+                          "ms":  7
+                      },
+                      {
+                          "variante":  "B - begin/end + dept=1 + qty=1 (intero) + price=1.10",
+                          "xmlInviato":  "\u003c?xml version=\"1.0\" encoding=\"utf-8\"?\u003e\n\u003cprinterFiscalReceipt\u003e\n  \u003cbeginFiscalReceipt operator=\"1\"/\u003e\n  \u003cprintRecItem operator=\"1\" description=\"TEST\" quantity=\"1\" unitPrice=\"1.10\" department=\"1\" justification=\"1\"/\u003e\n  \u003cprintRecTotal operator=\"1\" description=\"Contanti\" payment=\"1.10\" paymentType=\"0\" index=\"1\" justification=\"1\"/\u003e\n  \u003cendFiscalReceipt operator=\"1\"/\u003e\n\u003c/printerFiscalReceipt\u003e",
+                          "ok":  false,
+                          "risposta":  "",
+                          "ms":  15
+                      },
+                      {
+                          "variante":  "C - begin/end + plu=1 + qty=1.000 + price=1.10",
+                          "xmlInviato":  "\u003c?xml version=\"1.0\" encoding=\"utf-8\"?\u003e\n\u003cprinterFiscalReceipt\u003e\n  \u003cbeginFiscalReceipt operator=\"1\"/\u003e\n  \u003cprintRecItemSale operator=\"1\" description=\"TEST\" quantity=\"1.000\" unitPrice=\"1.10\" plu=\"1\" justification=\"1\"/\u003e\n  \u003cprintRecTotal operator=\"1\" description=\"Contanti\" payment=\"1.10\" paymentType=\"0\" index=\"1\" justification=\"1\"/\u003e\n  \u003cendFiscalReceipt operator=\"1\"/\u003e\n\u003c/printerFiscalReceipt\u003e",
+                          "ok":  false,
+                          "risposta":  "",
+                          "ms":  10
+                      },
+                      {
+                          "variante":  "D - begin/end + dept=1 senza description + qty=1.000",
+                          "xmlInviato":  "\u003c?xml version=\"1.0\" encoding=\"utf-8\"?\u003e\n\u003cprinterFiscalReceipt\u003e\n  \u003cbeginFiscalReceipt operator=\"1\"/\u003e\n  \u003cprintRecItem operator=\"1\" quantity=\"1.000\" unitPrice=\"1.10\" department=\"1\" justification=\"1\"/\u003e\n  \u003cprintRecTotal operator=\"1\" description=\"Contanti\" payment=\"1.10\" paymentType=\"0\" index=\"1\" justification=\"1\"/\u003e\n  \u003cendFiscalReceipt operator=\"1\"/\u003e\n\u003c/printerFiscalReceipt\u003e",
+                          "ok":  false,
+                          "risposta":  "",
+                          "ms":  7
+                      },
+                      {
+                          "variante":  "E - begin/end + dept=1 + printRecTotal senza index",
+                          "xmlInviato":  "\u003c?xml version=\"1.0\" encoding=\"utf-8\"?\u003e\n\u003cprinterFiscalReceipt\u003e\n  \u003cbeginFiscalReceipt operator=\"1\"/\u003e\n  \u003cprintRecItem operator=\"1\" description=\"TEST\" quantity=\"1.000\" unitPrice=\"1.10\" department=\"1\" justification=\"1\"/\u003e\n  \u003cprintRecTotal operator=\"1\" description=\"Contanti\" payment=\"1.10\" paymentType=\"0\" justification=\"1\"/\u003e\n  \u003cendFiscalReceipt operator=\"1\"/\u003e\n\u003c/printerFiscalReceipt\u003e",
+                          "ok":  false,
+                          "risposta":  "",
+                          "ms":  6
+                      }
+                  ]
+}

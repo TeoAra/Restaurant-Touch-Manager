@@ -383,9 +383,35 @@ router.get("/test-receipt", async (req, res) => {
       risposta: r.body ?? r.error ?? "nessuna risposta",
       ms: r.ms,
     });
-    // Se una variante ha funzionato fermati, altrimenti pausa e prova la prossima
     if (r.ok) break;
     await new Promise(r2 => setTimeout(r2, 600));
+  }
+
+  // ── Test sequenza comandi separati (un TCP per comando) ──────────────────
+  // Alcune RT aspettano ogni comando in una connessione TCP separata
+  await new Promise(r => setTimeout(r, 1000));
+  const cmds = [
+    { nome: "1-beginFiscalReceipt", xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <beginFiscalReceipt operator="1"/>\n</printerFiscalReceipt>` },
+    { nome: "2-printRecItem", xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printRecItem operator="1" description="TEST" quantity="1.000" unitPrice="1.10" department="1" justification="1"/>\n</printerFiscalReceipt>` },
+    { nome: "3-printRecTotal", xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <printRecTotal operator="1" description="Contanti" payment="1.10" paymentType="0" index="1" justification="1"/>\n</printerFiscalReceipt>` },
+    { nome: "4-endFiscalReceipt", xml: `<?xml version="1.0" encoding="utf-8"?>\n<printerFiscalReceipt>\n  <endFiscalReceipt operator="1"/>\n</printerFiscalReceipt>` },
+  ];
+  const sequenza = [];
+  for (const c of cmds) {
+    const r = await sendXmlCommand(printer.ip, c.xml, 8000, rtPort);
+    console.log(`[FISCAL SEQ] ${c.nome}: ok=${r.ok} rtCode=${r.rtCode} body=${r.body ?? r.error}`);
+    sequenza.push({
+      cmd: c.nome,
+      ok: r.ok,
+      rtCode: r.rtCode,
+      risposta: r.body ?? r.error ?? "",
+      ms: r.ms,
+    });
+    if (!r.ok) {
+      console.log(`[FISCAL SEQ] Stop alla sequenza su errore: ${c.nome}`);
+      break;
+    }
+    await new Promise(r2 => setTimeout(r2, 300));
   }
 
   res.json({
@@ -394,6 +420,7 @@ router.get("/test-receipt", async (req, res) => {
     statusCheck,
     reset: { body: cancelRes.body ?? cancelRes.error, ok: cancelRes.ok },
     risultati,
+    sequenza,
   });
 });
 
