@@ -26,7 +26,7 @@ import { cn } from "@/lib/utils";
 import {
   Users, Plus, Minus, CreditCard, Banknote, Wallet,
   ShoppingBag, Truck, Clock, Send, FileText, Divide,
-  ChevronLeft, Search, X, UtensilsCrossed, Zap, Map as MapIcon,
+  ChevronLeft, ChevronRight, Search, X, UtensilsCrossed, Zap, Map as MapIcon,
   AlertTriangle, CheckCircle2, User, LogOut, Building2, Pencil,
   ArrowRightFromLine, ReceiptText, Trash2, BadgePercent, StickyNote, Ticket,
   ScrollText, Hash, Euro, RefreshCw, CalendarClock, ArrowRight, BookOpen,
@@ -172,13 +172,26 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
 
-  // ── Reservations ──────────────────────────────────────────────────────────
-  const today = new Date().toISOString().split("T")[0];
+  // ── Reservations + date nav ───────────────────────────────────────────────
+  const todayStr = new Date().toISOString().split("T")[0];
+  const [mapDate, setMapDate] = useState(todayStr);
   const { data: reservations = [], refetch: refetchReservations } = useQuery<Reservation[]>({
-    queryKey: ["reservations-today", today],
-    queryFn: () => fetch(`${API}/reservations?date=${today}`).then(r => r.json()),
+    queryKey: ["reservations-map", mapDate],
+    queryFn: () => fetch(`${API}/reservations?date=${mapDate}`).then(r => r.json()),
     refetchInterval: 60000,
   });
+
+  function formatDateShort(d: string) {
+    const dt = new Date(d + "T00:00:00");
+    const days = ["Dom","Lun","Mar","Mer","Gio","Ven","Sab"];
+    const months = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+    return `${days[dt.getDay()]} ${dt.getDate()} ${months[dt.getMonth()]}`;
+  }
+  function shiftDate(d: string, delta: number) {
+    const dt = new Date(d + "T00:00:00");
+    dt.setDate(dt.getDate() + delta);
+    return dt.toISOString().split("T")[0];
+  }
   const reservationByTableId = useMemo(() => {
     const m = new Map<number, Reservation>();
     for (const r of reservations) {
@@ -214,7 +227,7 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
           time: resForm.time,
           covers: resForm.covers,
           tableIds: resTableIds,
-          date: today,
+          date: mapDate,
           status: "confirmed",
         }),
       });
@@ -343,6 +356,26 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
             ))}
           </div>
         )}
+        {/* ── Navigatore data prenotazioni ─────────────────────────────── */}
+        <div className="flex items-center gap-2 mt-2.5 bg-slate-50 rounded-xl px-2 py-1">
+          <button onClick={() => setMapDate(d => shiftDate(d, -1))}
+            className="h-8 w-8 rounded-lg flex items-center justify-center hover:bg-slate-200 transition-colors shrink-0">
+            <ChevronLeft className="h-4 w-4 text-slate-600" />
+          </button>
+          <div className="flex-1 text-center">
+            <span className={cn("text-xs font-bold", mapDate === todayStr ? "text-primary" : "text-slate-700")}>
+              {mapDate === todayStr ? "Oggi — " : ""}{formatDateShort(mapDate)}
+            </span>
+            {mapDate !== todayStr && (
+              <button onClick={() => setMapDate(todayStr)}
+                className="ml-2 text-[10px] text-primary underline">oggi</button>
+            )}
+          </div>
+          <button onClick={() => setMapDate(d => shiftDate(d, 1))}
+            className="h-8 w-8 rounded-lg flex items-center justify-center hover:bg-slate-200 transition-colors shrink-0">
+            <ChevronRight className="h-4 w-4 text-slate-600" />
+          </button>
+        </div>
       </div>
 
       {/* Assign / Move mode banner */}
@@ -759,7 +792,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
   orderItems?: Array<{ productName: string; quantity: number; unitPrice: string; subtotal: string }>;
   onPay: (method: string, amountGiven?: number, invoiceCustomerId?: number) => void;
 }) {
-  const [method, setMethod] = useState<"cash" | "card" | "satispay" | "other">("cash");
+  const [method, setMethod] = useState<"cash" | "card" | "other">("cash");
   const [given, setGiven] = useState("");
   const [emittiFattura, setEmittiFattura] = useState(false);
   const [customerSearch, setCustomerSearch] = useState("");
@@ -799,10 +832,9 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
   const canConfirm = canPay && (!emittiFattura || selectedCustomer !== null);
 
   const methods = [
-    { id: "cash" as const,     label: "Contanti",   icon: Banknote,    color: "text-emerald-600" },
-    { id: "card" as const,     label: "Carta/POS",  icon: CreditCard,  color: "text-blue-600" },
-    { id: "satispay" as const, label: "Satispay",   icon: Wallet,      color: "text-red-600" },
-    { id: "other" as const,    label: "Altro",      icon: Wallet,      color: "text-purple-600" },
+    { id: "cash" as const,  label: "Contanti",  icon: Banknote,   color: "text-emerald-600" },
+    { id: "card" as const,  label: "Carta/POS", icon: CreditCard, color: "text-blue-600" },
+    { id: "other" as const, label: "Altro",     icon: Wallet,     color: "text-purple-600" },
   ];
 
   return (
@@ -1089,7 +1121,7 @@ type RomanaQuota = {
   n: number;               // 1-based
   importo: number;
   stato: "pending" | "paying" | "pos_waiting" | "pos_manual" | "paid" | "error";
-  metodoPagamento?: "cash" | "card" | "satispay";
+  metodoPagamento?: "cash" | "card";
   rtOk?: boolean;
   rtError?: string;
   receiptId?: number;
@@ -1132,7 +1164,7 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
   const primaInAttesa = quote.find(q => q.stato === "pending");
 
   // Invia scontrino + chiude ordine se isUltima
-  async function emettiSconto(n: number, metodo: "cash" | "card" | "satispay", quotaImporto: number) {
+  async function emettiSconto(n: number, metodo: "cash" | "card", quotaImporto: number) {
     const isUltima = n === quote.length;
     const resp = await fetch(`${API}/fiscal/romana`, {
       method: "POST",
@@ -1160,7 +1192,7 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
     }
   }
 
-  async function pagaQuota(n: number, metodo: "cash" | "card" | "satispay") {
+  async function pagaQuota(n: number, metodo: "cash" | "card") {
     if (!orderId) return;
     const quota = quote.find(q => q.n === n)!;
 
@@ -1242,16 +1274,6 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
                    : "border-blue-400 bg-blue-50 text-blue-700 hover:bg-blue-100"
         )}>
         <CreditCard className="h-3.5 w-3.5" /> Carta
-      </button>
-      <button
-        disabled={disabled}
-        onClick={() => pagaQuota(quotaN, "satispay")}
-        className={cn(
-          "flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-bold border-2 transition-all active:scale-95",
-          disabled ? "opacity-40 cursor-not-allowed border-slate-200 text-slate-400"
-                   : "border-red-400 bg-red-50 text-red-700 hover:bg-red-100"
-        )}>
-        <Wallet className="h-3.5 w-3.5" /> Satispay
       </button>
     </div>
   );
@@ -1512,7 +1534,7 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
 
   // qty[id] = selected quantity for this row (0 = not included)
   const [qty, setQty] = useState<Record<number, number>>({});
-  const [method, setMethod] = useState<"cash" | "card" | "satispay" | "other">("cash");
+  const [method, setMethod] = useState<"cash" | "card" | "other">("cash");
 
   useEffect(() => {
     if (open) { setQty({}); setMethod("cash"); }
@@ -1616,10 +1638,10 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
           {hasSelection && (
             <div>
               <div className="text-xs font-semibold text-slate-500 mb-2">Metodo di pagamento</div>
-              <div className="grid grid-cols-4 gap-1.5">
-                {(["cash", "card", "satispay", "other"] as const).map(m => {
-                  const icons = { cash: <Banknote className="h-3.5 w-3.5" />, card: <CreditCard className="h-3.5 w-3.5" />, satispay: <Wallet className="h-3.5 w-3.5" />, other: <Wallet className="h-3.5 w-3.5" /> };
-                  const labels = { cash: "Contanti", card: "Carta", satispay: "Satispay", other: "Altro" };
+              <div className="grid grid-cols-3 gap-1.5">
+                {(["cash", "card", "other"] as const).map(m => {
+                  const icons = { cash: <Banknote className="h-3.5 w-3.5" />, card: <CreditCard className="h-3.5 w-3.5" />, other: <Wallet className="h-3.5 w-3.5" /> };
+                  const labels = { cash: "Contanti", card: "Carta", other: "Altro" };
                   return (
                     <button key={m} onClick={() => setMethod(m)}
                       className={cn("flex items-center justify-center gap-1 py-2 rounded-lg text-[10px] font-semibold border-2 transition-colors",

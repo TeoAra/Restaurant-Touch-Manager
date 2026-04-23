@@ -61,10 +61,9 @@ function ivaToRtDept(aliquota: string, deptMap?: Record<string, string>): string
 
 // ── Metodo pagamento → comando XonXoff ──────────────────────────────────────
 function methodToPaymentCmd(method: string): string {
-  if (method === "cash") return "1T";      // Contanti
-  if (method === "card") return "3T";      // Carta di credito
-  if (method === "satispay") return "3T";  // Satispay (pagamento elettronico)
-  return "3T";                             // Default: elettronico
+  if (method === "cash") return "1T";  // Contanti
+  if (method === "card") return "3T";  // Carta di credito
+  return "3T";                         // Default: elettronico
 }
 
 // ── Sanifica descrizione per XonXoff ────────────────────────────────────────
