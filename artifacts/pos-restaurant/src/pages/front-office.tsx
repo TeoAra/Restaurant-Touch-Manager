@@ -1577,6 +1577,7 @@ export default function FrontOffice() {
   const [selectedModifierIds, setSelectedModifierIds] = useState<Set<number>>(new Set());
   const [pickerKpNote, setPickerKpNote] = useState("");
   const [pickerModFilter, setPickerModFilter] = useState<"all" | "plus" | "minus">("all");
+  const [varModFilter, setVarModFilter] = useState<"all" | "plus" | "minus">("all");
   const [selectedItemCategoryId, setSelectedItemCategoryId] = useState<number | null>(null);
 
   const { data: tablesStatus = [] } = useGetTablesStatus();
@@ -2697,8 +2698,27 @@ export default function FrontOffice() {
                   {/* Available category modifiers */}
                   {selectedItemModifiers.length > 0 && (
                     <div className="space-y-1.5">
-                      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 px-1">Variazioni disponibili</div>
-                      {selectedItemModifiers.map(mod => {
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 flex-1">Variazioni disponibili</div>
+                        {(["all", "plus", "minus"] as const).map(f => (
+                          <button key={f} onClick={() => setVarModFilter(f)}
+                            className={cn(
+                              "px-3 py-1 rounded-full text-[10px] font-bold border transition-all",
+                              varModFilter === f
+                                ? f === "plus" ? "bg-emerald-600 border-emerald-600 text-white"
+                                  : f === "minus" ? "bg-red-600 border-red-600 text-white"
+                                  : "bg-[#3a3f58] border-[#4a4f6a] text-white"
+                                : "bg-transparent border-[#2d3044] text-slate-500 hover:border-slate-500"
+                            )}>
+                            {f === "all" ? "Tutte" : f === "plus" ? "+ Agg." : "− Rim."}
+                          </button>
+                        ))}
+                      </div>
+                      {selectedItemModifiers.filter(m =>
+                        varModFilter === "all" ||
+                        m.type === varModFilter ||
+                        m.type === "both"
+                      ).map(mod => {
                         const currentMods: Array<{ id: number; label: string; type: string; priceExtra: string }> = (() => {
                           try { return JSON.parse((selectedItem as never as { modifiers?: string }).modifiers ?? "[]"); } catch { return []; }
                         })();

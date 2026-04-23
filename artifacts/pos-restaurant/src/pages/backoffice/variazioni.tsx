@@ -13,6 +13,18 @@ const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
 
 type ModifierType = "plus" | "minus" | "note" | "both";
+
+function toggleTypeDir(current: ModifierType, dir: "plus" | "minus"): ModifierType {
+  const hasPlus  = current === "plus"  || current === "both";
+  const hasMinus = current === "minus" || current === "both";
+  if (dir === "plus") {
+    if (hasPlus)  return hasMinus ? "minus" : "plus"; // can't deselect last
+    return hasMinus ? "both" : "plus";
+  } else {
+    if (hasMinus) return hasPlus ? "plus" : "minus";
+    return hasPlus ? "both" : "minus";
+  }
+}
 type Modifier = { id: number; label: string; type: ModifierType; priceExtra: string; categoryIds: number[] };
 type Category = { id: number; name: string; color: string };
 
@@ -200,28 +212,41 @@ export default function VarkazioniPage() {
             {/* Tipo */}
             <div>
               <Label className="text-xs text-slate-500 mb-2 block">Tipo</Label>
-              <div className="grid grid-cols-2 gap-2">
-                {(["plus", "minus", "both", "note"] as ModifierType[]).map(t => {
-                  const cfg = TYPE_CONFIG[t];
+              <div className="flex gap-2">
+                {/* + e − come toggle indipendenti */}
+                {(["plus", "minus"] as const).map(dir => {
+                  const active = form.type === dir || form.type === "both";
+                  const cfg = TYPE_CONFIG[dir];
                   return (
-                    <button key={t} onClick={() => setForm(f => ({ ...f, type: t }))}
+                    <button key={dir}
+                      onClick={() => setForm(f => ({ ...f, type: toggleTypeDir(f.type === "note" ? "plus" : f.type, dir) }))}
                       className={cn(
-                        "py-3 rounded-xl text-sm font-semibold border-2 flex flex-col items-center gap-1 transition-all",
-                        form.type === t
+                        "flex-1 py-3 rounded-xl text-sm font-semibold border-2 flex flex-col items-center gap-1 transition-all",
+                        active
                           ? cn("border-current shadow-sm", cfg.bg, cfg.text)
                           : "border-slate-200 text-slate-400 hover:border-slate-300"
                       )}>
-                      <span className="text-xl font-bold">{cfg.icon}</span>
-                      <span className="text-xs">
-                        {t === "plus" ? "Aggiunta" : t === "minus" ? "Rimozione" : t === "both" ? "Entrambi" : "Commento"}
-                      </span>
+                      <span className="text-2xl font-bold leading-none">{cfg.icon}</span>
+                      <span className="text-xs">{dir === "plus" ? "Aggiunta" : "Rimozione"}</span>
                     </button>
                   );
                 })}
+                {/* Commento — esclusivo */}
+                <button
+                  onClick={() => setForm(f => ({ ...f, type: "note" }))}
+                  className={cn(
+                    "flex-1 py-3 rounded-xl text-sm font-semibold border-2 flex flex-col items-center gap-1 transition-all",
+                    form.type === "note"
+                      ? cn("border-current shadow-sm", TYPE_CONFIG.note.bg, TYPE_CONFIG.note.text)
+                      : "border-slate-200 text-slate-400 hover:border-slate-300"
+                  )}>
+                  <span className="text-2xl font-bold leading-none">✎</span>
+                  <span className="text-xs">Commento</span>
+                </button>
               </div>
               {form.type === "both" && (
-                <p className="text-[11px] text-violet-600 mt-2 px-1">
-                  In cassa apparirà con due tasti: <strong>+</strong> e <strong>−</strong> separati
+                <p className="text-[11px] text-violet-600 mt-2 px-1 bg-violet-50 rounded-lg py-2">
+                  <strong>± Entrambi selezionati</strong> — in cassa apparirà con due tasti separati: <strong>+</strong> e <strong>−</strong>
                 </p>
               )}
             </div>
