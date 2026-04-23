@@ -2527,6 +2527,7 @@ export default function FrontOffice() {
         : `${data.sentItems} articoli`;
       addLog("info", `Comanda inviata — ${orderLabel} — ${phaseDesc}`);
       toast({ title: "Comanda inviata ai reparti", description: phaseDesc });
+      setSelectedTableId(null);
     } catch (e) {
       addLog("error", `Errore invio comanda — ${String(e)}`);
       toast({ title: "Errore invio comanda", variant: "destructive" });
@@ -2656,14 +2657,14 @@ export default function FrontOffice() {
         <div className="flex items-center justify-between px-2 py-1.5 border-b border-[#2d3044] shrink-0 bg-[#12151e]">
           {/* Table name / brand — click to send comanda when drafts exist */}
           <button
-            disabled={!activeOrderId}
-            onClick={hasDraftItems ? handleSendComanda : undefined}
+            disabled={!activeOrderId && !selectedTableId}
+            onClick={hasDraftItems ? handleSendComanda : () => setSelectedTableId(null)}
             className={cn(
               "min-w-0 flex-1 text-left px-2 py-1.5 rounded-lg transition-all select-none",
               activeOrderId && hasDraftItems
                 ? "border-2 border-amber-500 bg-amber-900/30 hover:bg-amber-900/50 active:scale-95 cursor-pointer"
-                : activeOrderId
-                  ? "border-2 border-[#3a3f58] bg-transparent cursor-default"
+                : activeOrderId || selectedTableId
+                  ? "border-2 border-[#3a3f58] bg-transparent hover:bg-[#22263a] active:scale-95 cursor-pointer"
                   : "border-2 border-transparent cursor-default"
             )}>
             {activeOrderId ? (
