@@ -68,7 +68,18 @@ router.get("/:id/xml", async (req, res) => {
 router.post("/", async (req, res) => {
   const body = req.body;
   const anno = body.anno ?? new Date().getFullYear();
-  const numero = await getNextInvoiceNumber(anno);
+  let numero: number;
+  if (body.numero) {
+    numero = Number(body.numero);
+    const existing = await db.execute(
+      sql`SELECT id FROM invoices WHERE anno = ${anno} AND numero = ${numero} LIMIT 1`
+    );
+    if ((existing.rows as unknown[]).length > 0) {
+      return res.status(409).json({ error: `Numero ${numero}/${anno} già utilizzato` });
+    }
+  } else {
+    numero = await getNextInvoiceNumber(anno);
+  }
   const data = body.data ?? new Date().toISOString().slice(0, 10);
   const righe = JSON.stringify(body.righe ?? []);
 

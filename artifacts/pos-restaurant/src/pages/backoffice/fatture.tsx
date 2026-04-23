@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Plus, Download, FileText, Eye, Trash2, Send, Search } from "lucide-react";
+import { Plus, Download, FileText, Trash2, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -53,6 +53,7 @@ export default function FatturePage() {
   const [dialog, setDialog] = useState<{ open: boolean; item?: Invoice }>({ open: false });
   const [xmlDialog, setXmlDialog] = useState<{ open: boolean; xml?: string; filename?: string }>({ open: false });
   const [form, setForm] = useState({
+    numero: "",
     customerId: "", tipoDocumento: "TD01", data: new Date().toISOString().slice(0, 10),
     aliquotaIva: "22", righe: [{ descrizione: "Servizi ristorazione", quantita: "1", prezzoUnitario: "", importo: "", aliquotaIva: "22" }] as RigaFattura[],
     note: "",
@@ -96,6 +97,7 @@ export default function FatturePage() {
 
   function openNew() {
     setForm({
+      numero: "",
       customerId: "", tipoDocumento: "TD01", data: new Date().toISOString().slice(0, 10),
       aliquotaIva: "22", righe: [{ descrizione: "Servizi ristorazione", quantita: "1", prezzoUnitario: "", importo: "", aliquotaIva: "22" }],
       note: "",
@@ -105,7 +107,7 @@ export default function FatturePage() {
 
   async function handleSave() {
     const t = totals();
-    const body = {
+    const body: Record<string, unknown> = {
       customerId: form.customerId ? Number(form.customerId) : undefined,
       tipoDocumento: form.tipoDocumento,
       data: form.data,
@@ -116,8 +118,13 @@ export default function FatturePage() {
       righe: form.righe.map(r => ({ ...r, importo: r.importo || (parseFloat(r.prezzoUnitario) * (parseFloat(r.quantita) || 1)).toFixed(2) })),
       note: form.note || undefined,
     };
+    if (form.numero.trim()) body.numero = Number(form.numero.trim());
+
     const resp = await fetch(`${API}/invoices`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (!resp.ok) return toast({ title: "Errore creazione fattura", variant: "destructive" });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({})) as { error?: string };
+      return toast({ title: err.error ?? "Errore creazione fattura", variant: "destructive" });
+    }
     qc.invalidateQueries({ queryKey: ["invoices"] });
     setDialog({ open: false });
     toast({ title: "Fattura creata" });
@@ -126,13 +133,16 @@ export default function FatturePage() {
   async function handleEmit(id: number) {
     const resp = await fetch(`${API}/invoices/${id}/emit`, { method: "POST" });
     if (!resp.ok) return toast({ title: "Errore emissione", variant: "destructive" });
-    const data = await resp.json();
-    setXmlDialog({ open: true, xml: data.xml, filename: `fattura_${id}.xml` });
+    const data = await resp.json() as { xml?: string };
+    const anno = invoices.find(i => i.id === id)?.anno ?? new Date().getFullYear();
+    const numero = invoices.find(i => i.id === id)?.numero ?? 0;
+    const filename = `IT_fattura_${anno}_${String(numero).padStart(4, "0")}.xml`;
+    setXmlDialog({ open: true, xml: data.xml, filename });
     qc.invalidateQueries({ queryKey: ["invoices"] });
-    toast({ title: "Fattura emessa" });
+    toast({ title: "Fattura emessa — XML pronto per Passepartout" });
   }
 
-  async function handleDownloadXml(id: number, numero: number, anno: number) {
+  async function downloadXml(id: number, numero: number, anno: number) {
     const resp = await fetch(`${API}/invoices/${id}/xml`);
     if (!resp.ok) return toast({ title: "Errore generazione XML", variant: "destructive" });
     const xml = await resp.text();
@@ -140,7 +150,7 @@ export default function FatturePage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `fattura_${anno}_${String(numero).padStart(4, "0")}.xml`;
+    a.download = `IT_fattura_${anno}_${String(numero).padStart(4, "0")}.xml`;
     a.click();
     URL.revokeObjectURL(url);
     qc.invalidateQueries({ queryKey: ["invoices"] });
@@ -157,8 +167,8 @@ export default function FatturePage() {
 
   return (
     <BackofficeShell
-      title="Fatture Elettroniche"
-      subtitle="Gestione e generazione FatturaPA"
+      title="Fatture / Documenti Gestionali"
+      subtitle="Generazione XML per Passepartout"
       actions={
         <Button size="sm" className="gap-1" onClick={openNew}>
           <Plus className="h-4 w-4" /> Nuova Fattura
@@ -201,12 +211,10 @@ export default function FatturePage() {
                       <Send className="h-4 w-4" />
                     </button>
                   )}
-                  {inv.stato === "emessa" && (
-                    <button onClick={() => handleDownloadXml(inv.id, inv.numero, inv.anno)}
-                      className="p-2 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="Scarica XML">
-                      <Download className="h-4 w-4" />
-                    </button>
-                  )}
+                  <button onClick={() => downloadXml(inv.id, inv.numero, inv.anno)}
+                    className="p-2 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="Scarica XML Passepartout">
+                    <Download className="h-4 w-4" />
+                  </button>
                   {inv.stato === "bozza" && (
                     <button onClick={() => handleDelete(inv.id)}
                       className="p-2 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors" title="Elimina">
@@ -223,9 +231,11 @@ export default function FatturePage() {
       {/* New invoice dialog */}
       <Dialog open={dialog.open} onOpenChange={o => !o && setDialog({ open: false })}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Nuova Fattura</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Nuova Fattura / Documento Gestionale</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-2 gap-3">
+
+            {/* Tipo + Data + Numero */}
+            <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label className="text-xs text-slate-500 mb-1 block">Tipo documento</Label>
                 <select value={form.tipoDocumento} onChange={e => setForm(f => ({ ...f, tipoDocumento: e.target.value }))}
@@ -236,6 +246,19 @@ export default function FatturePage() {
               <div>
                 <Label className="text-xs text-slate-500 mb-1 block">Data</Label>
                 <Input type="date" value={form.data} onChange={e => setForm(f => ({ ...f, data: e.target.value }))} className="h-9 text-sm" />
+              </div>
+              <div>
+                <Label className="text-xs text-slate-500 mb-1 block">
+                  N° fattura
+                  <span className="ml-1 font-normal text-slate-400">(vuoto = auto)</span>
+                </Label>
+                <Input
+                  type="number" min="1" step="1"
+                  placeholder="auto"
+                  value={form.numero}
+                  onChange={e => setForm(f => ({ ...f, numero: e.target.value }))}
+                  className="h-9 text-sm"
+                />
               </div>
             </div>
 
@@ -299,6 +322,11 @@ export default function FatturePage() {
                 <span>Totale</span><span>€ {totale}</span>
               </div>
             </div>
+
+            <p className="text-xs text-slate-400 flex items-center gap-1">
+              <FileText className="h-3.5 w-3.5" />
+              Alla emissione verrà generato un XML FatturaPA compatibile con Passepartout
+            </p>
           </div>
           <DialogFooter className="gap-2 pt-2">
             <Button variant="outline" onClick={() => setDialog({ open: false })}>Annulla</Button>
@@ -310,8 +338,13 @@ export default function FatturePage() {
       {/* XML preview dialog */}
       <Dialog open={xmlDialog.open} onOpenChange={o => !o && setXmlDialog({ open: false })}>
         <DialogContent className="max-w-2xl max-h-[80vh]">
-          <DialogHeader><DialogTitle>XML FatturaPA generato</DialogTitle></DialogHeader>
-          <div className="overflow-auto max-h-[50vh] bg-slate-900 rounded-lg p-3">
+          <DialogHeader>
+            <DialogTitle>XML FatturaPA — Passepartout</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-slate-500 -mt-1">
+            Salva questo file e importalo in Passepartout tramite il modulo Fatture Elettroniche.
+          </p>
+          <div className="overflow-auto max-h-[45vh] bg-slate-900 rounded-lg p-3">
             <pre className="text-xs text-emerald-300 whitespace-pre-wrap font-mono">{xmlDialog.xml}</pre>
           </div>
           <DialogFooter className="gap-2">
@@ -324,7 +357,7 @@ export default function FatturePage() {
                 a.href = url; a.download = xmlDialog.filename ?? "fattura.xml"; a.click();
                 URL.revokeObjectURL(url);
               }}>
-                <Download className="h-4 w-4 mr-1" /> Scarica XML
+                <Download className="h-4 w-4 mr-1" /> Scarica XML per Passepartout
               </Button>
             )}
           </DialogFooter>

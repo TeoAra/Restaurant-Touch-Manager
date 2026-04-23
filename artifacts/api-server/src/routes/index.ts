@@ -23,6 +23,7 @@ import combosRouter from "./combos";
 import happyHourRouter from "./happy-hour";
 import kpCommentsRouter from "./kp-comments";
 import posRouter from "./pos";
+import viesRouter from "./vies";
 
 const router: IRouter = Router();
 
@@ -50,5 +51,6 @@ router.use("/combos", combosRouter);
 router.use("/happy-hour", happyHourRouter);
 router.use("/kp-comments", kpCommentsRouter);
 router.use("/pos", posRouter);
+router.use("/vies", viesRouter);
 
 export default router;

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, Search, Building2, User, FileText } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Building2, User, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
@@ -44,21 +44,71 @@ function Field({ label, value, onChange, required, placeholder, className }: {
   );
 }
 
+type ViesStatus = "idle" | "loading" | "ok" | "error";
+
 export default function ClientiPage() {
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
   const [dialog, setDialog] = useState<{ open: boolean; item?: Customer }>({ open: false });
   const [form, setForm] = useState<Omit<Customer, "id">>(BLANK);
+  const [viesStatus, setViesStatus] = useState<ViesStatus>("idle");
+  const [viesMsg, setViesMsg] = useState("");
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: customers = [] } = useCustomers(q);
 
-  function openNew() { setForm(BLANK); setDialog({ open: true }); }
+  function openNew() { setForm(BLANK); setViesStatus("idle"); setViesMsg(""); setDialog({ open: true }); }
   function openEdit(c: Customer) {
     setForm({ ...BLANK, ...c });
+    setViesStatus("idle"); setViesMsg("");
     setDialog({ open: true, item: c });
   }
   function set(k: keyof typeof form) { return (v: string) => setForm(f => ({ ...f, [k]: v })); }
+
+  async function verificaPiva() {
+    const piva = (form.partitaIva ?? "").trim().replace(/\s/g, "");
+    if (!piva) return toast({ title: "Inserisci la P.IVA prima di verificare", variant: "destructive" });
+    setViesStatus("loading"); setViesMsg("");
+    try {
+      const vatParam = piva.toUpperCase().startsWith("IT") ? piva : `IT${piva}`;
+      const resp = await fetch(`${API}/vies?vat=${encodeURIComponent(vatParam)}`);
+      const data = await resp.json() as {
+        valid?: boolean; message?: string; error?: string;
+        name?: string; parsed?: { indirizzo: string; cap: string; comune: string; provincia: string; nazione: string };
+      };
+
+      if (!resp.ok || data.error) {
+        setViesStatus("error");
+        setViesMsg(data.error ?? "Errore nella verifica");
+        return;
+      }
+      if (!data.valid) {
+        setViesStatus("error");
+        setViesMsg(data.message ?? "P.IVA non valida nel VIES");
+        return;
+      }
+
+      setViesStatus("ok");
+      setViesMsg("P.IVA verificata");
+
+      const updates: Partial<Omit<Customer, "id">> = {};
+      if (data.name && data.name !== "---") updates.ragioneSociale = data.name;
+      if (data.parsed) {
+        if (data.parsed.indirizzo) updates.indirizzo = data.parsed.indirizzo;
+        if (data.parsed.cap) updates.cap = data.parsed.cap;
+        if (data.parsed.comune) updates.comune = data.parsed.comune;
+        if (data.parsed.provincia) updates.provincia = data.parsed.provincia;
+        if (data.parsed.nazione) updates.nazione = data.parsed.nazione;
+      }
+      setForm(f => ({ ...f, ...updates }));
+      if (Object.keys(updates).length > 0) {
+        toast({ title: "Dati azienda recuperati dal VIES" });
+      }
+    } catch {
+      setViesStatus("error");
+      setViesMsg("Impossibile contattare il servizio VIES");
+    }
+  }
 
   async function handleSave() {
     if (!form.ragioneSociale.trim()) return toast({ title: "Denominazione obbligatoria", variant: "destructive" });
@@ -173,7 +223,43 @@ export default function ClientiPage() {
             <div className="border-t border-slate-100 pt-4">
               <p className="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wide">Dati fiscali</p>
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Partita IVA" value={form.partitaIva ?? ""} onChange={set("partitaIva")} placeholder="12345678901" />
+                <div className="col-span-2">
+                  <Label className="text-xs text-slate-500 mb-1 block">
+                    Partita IVA
+                    {form.tipo === "azienda" && (
+                      <span className="ml-1 text-xs text-blue-500 font-normal">— verifica per auto-compilare i dati</span>
+                    )}
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={form.partitaIva ?? ""}
+                      onChange={e => { set("partitaIva")(e.target.value); setViesStatus("idle"); setViesMsg(""); }}
+                      placeholder="12345678901"
+                      className="h-9 text-sm flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className={cn("h-9 px-3 shrink-0 gap-1.5 text-xs",
+                        viesStatus === "ok" && "border-green-400 text-green-700 bg-green-50",
+                        viesStatus === "error" && "border-red-400 text-red-600 bg-red-50"
+                      )}
+                      onClick={verificaPiva}
+                      disabled={viesStatus === "loading"}
+                    >
+                      {viesStatus === "loading" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                      {viesStatus === "ok" && <CheckCircle2 className="h-3.5 w-3.5" />}
+                      {viesStatus === "error" && <XCircle className="h-3.5 w-3.5" />}
+                      {viesStatus === "loading" ? "Verifica…" : "Verifica P.IVA"}
+                    </Button>
+                  </div>
+                  {viesMsg && (
+                    <p className={cn("text-xs mt-1", viesStatus === "ok" ? "text-green-600" : "text-red-500")}>
+                      {viesStatus === "ok" ? "✓ " : "✗ "}{viesMsg}
+                    </p>
+                  )}
+                </div>
                 <Field label="Codice Fiscale" value={form.codiceFiscale ?? ""} onChange={set("codiceFiscale")} placeholder="RSSMRA80A01H501U" />
                 <Field label="Codice SDI (Destinatario)" value={form.codiceDestinatario ?? ""} onChange={set("codiceDestinatario")} placeholder="0000000" />
                 <Field label="PEC" value={form.pec ?? ""} onChange={set("pec")} placeholder="pec@dominio.it" />
