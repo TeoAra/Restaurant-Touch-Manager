@@ -270,8 +270,10 @@ function escposComanda(
   const init     = Buffer.from([ESC, 0x40]);
   const bold_on  = Buffer.from([ESC, 0x45, 0x01]);
   const bold_off = Buffer.from([ESC, 0x45, 0x00]);
-  const dbl_on   = Buffer.from([GS,  0x21, 0x11]);  // double width+height
+  const dbl_on   = Buffer.from([GS,  0x21, 0x11]);  // double width+height (header tavolo)
   const dbl_off  = Buffer.from([GS,  0x21, 0x00]);
+  const dbl_h_on  = Buffer.from([GS,  0x21, 0x01]); // double height only (righe prodotto)
+  const dbl_h_off = Buffer.from([GS,  0x21, 0x00]);
   const center   = Buffer.from([ESC, 0x61, 0x01]);
   const left     = Buffer.from([ESC, 0x61, 0x00]);
   const cut      = Buffer.from([GS,  0x56, 0x41, 0x03]);  // partial cut + feed
@@ -307,8 +309,8 @@ function escposComanda(
 
   for (const item of items) {
     const qty  = String(item.quantity).padStart(2, " ");
-    const name = toAscii(item.productName.substring(0, COLS - 7)); // "NEW NN " = 7 chars
-    bodyParts.push(bold_on, Buffer.from(`NEW ${qty} ${name}\n`), bold_off);
+    const name = toAscii(item.productName.substring(0, COLS - 4)); // "NN " = 3 chars prefix
+    bodyParts.push(dbl_h_on, bold_on, Buffer.from(`${qty} ${name}\n`), bold_off, dbl_h_off);
 
     // Variazioni/modificatori
     if (item.modifiers) {
@@ -316,7 +318,7 @@ function escposComanda(
         const mods: Array<{ label: string; type: string }> = JSON.parse(item.modifiers);
         for (const m of mods) {
           const icon   = m.type === "plus" ? "+" : m.type === "minus" ? "-" : "*";
-          const label  = toAscii(m.label.substring(0, COLS - 6)); // "     X " = 6 chars
+          const label  = toAscii(m.label.substring(0, COLS - 6));
           bodyParts.push(Buffer.from(`     ${icon} ${label}\n`));
         }
       } catch { /* ignora JSON malformato */ }
@@ -324,8 +326,8 @@ function escposComanda(
 
     // Nota KP
     if (item.notes?.trim()) {
-      const note = toAscii(item.notes.trim().substring(0, COLS - 8)); // "    ** " + " **"
-      bodyParts.push(Buffer.from(`    ** ${note} **\n`));
+      const note = toAscii(item.notes.trim().substring(0, COLS - 8));
+      bodyParts.push(bold_on, Buffer.from(`    ** ${note} **\n`), bold_off);
     }
   }
 
@@ -467,6 +469,36 @@ router.patch("/:id/covers", async (req, res) => {
   const [order] = await db.update(ordersTable).set({ covers }).where(eq(ordersTable.id, id)).returning();
   if (!order) return res.status(404).json({ error: "Order not found" });
   res.json(order);
+});
+
+// ── Merge order into another (unificazione conto) ────────────────────────────
+router.post("/:id/merge-into/:targetId", async (req, res) => {
+  const sourceId = Number(req.params.id);
+  const targetId = Number(req.params.targetId);
+  if (sourceId === targetId) return res.status(400).json({ error: "Same order" });
+
+  const [source] = await db.select().from(ordersTable).where(eq(ordersTable.id, sourceId));
+  const [target] = await db.select().from(ordersTable).where(eq(ordersTable.id, targetId));
+  if (!source || !target) return res.status(404).json({ error: "Order not found" });
+
+  // Move all items from source to target
+  await db.update(orderItemsTable).set({ orderId: targetId }).where(eq(orderItemsTable.orderId, sourceId));
+
+  // Recalculate target total
+  const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, targetId));
+  const newTotal = items.reduce((s, i) => s + parseFloat(i.subtotal ?? "0"), 0).toFixed(2);
+  await db.update(ordersTable).set({ total: newTotal }).where(eq(ordersTable.id, targetId));
+
+  // Close source order and free its table
+  await db.update(ordersTable).set({ status: "paid" }).where(eq(ordersTable.id, sourceId));
+  if (source.tableId) {
+    const others = await db.select().from(ordersTable)
+      .where(and(eq(ordersTable.tableId, source.tableId), eq(ordersTable.status, "open")));
+    if (others.length === 0)
+      await db.update(tablesTable).set({ status: "free" }).where(eq(tablesTable.id, source.tableId));
+  }
+
+  res.json({ success: true, targetOrderId: targetId, newTotal });
 });
 
 // Void item: mark as deleted and optionally notify department (future: trigger print)

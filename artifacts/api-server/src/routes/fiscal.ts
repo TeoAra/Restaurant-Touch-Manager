@@ -447,7 +447,7 @@ router.post("/romana", async (req, res) => {
   } = req.body as {
     orderId: number;
     importo: string;
-    metodoPagamento: "cash" | "card" | "other";
+    metodoPagamento: "cash" | "card" | "other" | "satispay";
     quotaNum?: number;
     quoteTotali?: number;
     tableName?: string;

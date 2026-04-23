@@ -600,7 +600,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
   orderItems?: Array<{ productName: string; quantity: number; unitPrice: string; subtotal: string }>;
   onPay: (method: string, amountGiven?: number, invoiceCustomerId?: number) => void;
 }) {
-  const [method, setMethod] = useState<"cash" | "card" | "other">("cash");
+  const [method, setMethod] = useState<"cash" | "card" | "satispay" | "other">("cash");
   const [given, setGiven] = useState("");
   const [emittiFattura, setEmittiFattura] = useState(false);
   const [customerSearch, setCustomerSearch] = useState("");
@@ -640,9 +640,10 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
   const canConfirm = canPay && (!emittiFattura || selectedCustomer !== null);
 
   const methods = [
-    { id: "cash" as const, label: "Contanti", icon: Banknote, color: "text-emerald-600" },
-    { id: "card" as const, label: "Carta/POS", icon: CreditCard, color: "text-blue-600" },
-    { id: "other" as const, label: "Altro", icon: Wallet, color: "text-purple-600" },
+    { id: "cash" as const,     label: "Contanti",   icon: Banknote,    color: "text-emerald-600" },
+    { id: "card" as const,     label: "Carta/POS",  icon: CreditCard,  color: "text-blue-600" },
+    { id: "satispay" as const, label: "Satispay",   icon: Wallet,      color: "text-red-600" },
+    { id: "other" as const,    label: "Altro",      icon: Wallet,      color: "text-purple-600" },
   ];
 
   return (
@@ -655,13 +656,13 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
             <p className="text-4xl font-bold text-slate-900">€ {total.toFixed(2)}</p>
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-4 gap-2">
             {methods.map(m => (
               <button key={m.id} onClick={() => setMethod(m.id)}
                 className={cn("flex flex-col items-center gap-1.5 py-3 rounded-xl border-2 transition-all",
                   method === m.id ? "border-primary bg-orange-50" : "border-slate-200 hover:border-slate-300")}>
-                <m.icon className={cn("h-6 w-6", m.color)} />
-                <span className="text-xs font-medium text-slate-700">{m.label}</span>
+                <m.icon className={cn("h-5 w-5", m.color)} />
+                <span className="text-[10px] font-medium text-slate-700 text-center leading-tight">{m.label}</span>
               </button>
             ))}
           </div>
@@ -929,7 +930,7 @@ type RomanaQuota = {
   n: number;               // 1-based
   importo: number;
   stato: "pending" | "paying" | "pos_waiting" | "pos_manual" | "paid" | "error";
-  metodoPagamento?: "cash" | "card";
+  metodoPagamento?: "cash" | "card" | "satispay";
   rtOk?: boolean;
   rtError?: string;
   receiptId?: number;
@@ -972,7 +973,7 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
   const primaInAttesa = quote.find(q => q.stato === "pending");
 
   // Invia scontrino + chiude ordine se isUltima
-  async function emettiSconto(n: number, metodo: "cash" | "card", quotaImporto: number) {
+  async function emettiSconto(n: number, metodo: "cash" | "card" | "satispay", quotaImporto: number) {
     const isUltima = n === quote.length;
     const resp = await fetch(`${API}/fiscal/romana`, {
       method: "POST",
@@ -1000,7 +1001,7 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
     }
   }
 
-  async function pagaQuota(n: number, metodo: "cash" | "card") {
+  async function pagaQuota(n: number, metodo: "cash" | "card" | "satispay") {
     if (!orderId) return;
     const quota = quote.find(q => q.n === n)!;
 
@@ -1062,12 +1063,12 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
   }
 
   const MetodoPulsanti = ({ quotaN, disabled }: { quotaN: number; disabled: boolean }) => (
-    <div className="flex gap-1.5 shrink-0">
+    <div className="flex gap-1.5 shrink-0 flex-wrap">
       <button
         disabled={disabled}
         onClick={() => pagaQuota(quotaN, "cash")}
         className={cn(
-          "flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold border-2 transition-all active:scale-95",
+          "flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-bold border-2 transition-all active:scale-95",
           disabled ? "opacity-40 cursor-not-allowed border-slate-200 text-slate-400"
                    : "border-emerald-400 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
         )}>
@@ -1077,11 +1078,21 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
         disabled={disabled}
         onClick={() => pagaQuota(quotaN, "card")}
         className={cn(
-          "flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold border-2 transition-all active:scale-95",
+          "flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-bold border-2 transition-all active:scale-95",
           disabled ? "opacity-40 cursor-not-allowed border-slate-200 text-slate-400"
                    : "border-blue-400 bg-blue-50 text-blue-700 hover:bg-blue-100"
         )}>
         <CreditCard className="h-3.5 w-3.5" /> Carta
+      </button>
+      <button
+        disabled={disabled}
+        onClick={() => pagaQuota(quotaN, "satispay")}
+        className={cn(
+          "flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-bold border-2 transition-all active:scale-95",
+          disabled ? "opacity-40 cursor-not-allowed border-slate-200 text-slate-400"
+                   : "border-red-400 bg-red-50 text-red-700 hover:bg-red-100"
+        )}>
+        <Wallet className="h-3.5 w-3.5" /> Satispay
       </button>
     </div>
   );
@@ -1342,7 +1353,7 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
 
   // qty[id] = selected quantity for this row (0 = not included)
   const [qty, setQty] = useState<Record<number, number>>({});
-  const [method, setMethod] = useState<"cash" | "card" | "other">("cash");
+  const [method, setMethod] = useState<"cash" | "card" | "satispay" | "other">("cash");
 
   useEffect(() => {
     if (open) { setQty({}); setMethod("cash"); }
@@ -1446,13 +1457,13 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
           {hasSelection && (
             <div>
               <div className="text-xs font-semibold text-slate-500 mb-2">Metodo di pagamento</div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {(["cash", "card", "other"] as const).map(m => {
-                  const icons = { cash: <Banknote className="h-3.5 w-3.5" />, card: <CreditCard className="h-3.5 w-3.5" />, other: <Wallet className="h-3.5 w-3.5" /> };
-                  const labels = { cash: "Contanti", card: "Carta", other: "Altro" };
+              <div className="grid grid-cols-4 gap-1.5">
+                {(["cash", "card", "satispay", "other"] as const).map(m => {
+                  const icons = { cash: <Banknote className="h-3.5 w-3.5" />, card: <CreditCard className="h-3.5 w-3.5" />, satispay: <Wallet className="h-3.5 w-3.5" />, other: <Wallet className="h-3.5 w-3.5" /> };
+                  const labels = { cash: "Contanti", card: "Carta", satispay: "Satispay", other: "Altro" };
                   return (
                     <button key={m} onClick={() => setMethod(m)}
-                      className={cn("flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-semibold border-2 transition-colors",
+                      className={cn("flex items-center justify-center gap-1 py-2 rounded-lg text-[10px] font-semibold border-2 transition-colors",
                         method === m ? "border-primary bg-orange-50 text-primary" : "border-slate-200 text-slate-600")}>
                       {icons[m]} {labels[m]}
                     </button>
@@ -1694,6 +1705,11 @@ export default function FrontOffice() {
   const [isAssigningTable, setIsAssigningTable] = useState(false);
   const [assignPendingTableId, setAssignPendingTableId] = useState<number | null>(null);
 
+  // Move / merge dialog
+  const [moveMergeDialog, setMoveMergeDialog] = useState<{
+    type: "move" | "merge"; fromTable: FETable; toTable: FETable;
+  } | null>(null);
+
   // MOito-style state
   const [numBuffer, setNumBuffer] = useState(""); // numpad buffer
   const [numpadMode, setNumpadMode] = useState<"qty" | "price">("qty"); // what the numpad applies to
@@ -1874,6 +1890,61 @@ export default function FrontOffice() {
     } else {
       setSelectedTableId(table.id);
       setSelectedCategoryId(null);
+    }
+  }
+
+  function handleMapTableClick(table: FETable) {
+    if (table.elementType !== "table") { handleTableClick(table); return; }
+    const activeTs = tablesStatus as FETable[];
+    const fromTable = activeTs.find(t => t.id === selectedTableId);
+    const hasActiveOrder = !!(fromTable?.activeOrderId) && activeOrderId != null;
+
+    if (hasActiveOrder && fromTable && table.id !== selectedTableId) {
+      if (!table.activeOrderId) {
+        setMoveMergeDialog({ type: "move", fromTable, toTable: table });
+      } else {
+        setMoveMergeDialog({ type: "merge", fromTable, toTable: table });
+      }
+      return;
+    }
+    handleTableClick(table);
+  }
+
+  async function handleMoveTable() {
+    if (!moveMergeDialog || !activeOrderId) return;
+    const { toTable } = moveMergeDialog;
+    setMoveMergeDialog(null);
+    try {
+      await fetch(`${API}/orders/${activeOrderId}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tableId: toTable.id }),
+      });
+      setSelectedTableId(toTable.id);
+      setRightTab("grp");
+      setMobilePanel("left");
+      refresh();
+      toast({ title: "Ordine spostato", description: `Tavolo ${toTable.name}` });
+    } catch {
+      toast({ title: "Errore spostamento", variant: "destructive" });
+    }
+  }
+
+  async function handleMergeTable() {
+    if (!moveMergeDialog || !activeOrderId) return;
+    const { toTable } = moveMergeDialog;
+    if (!toTable.activeOrderId) return;
+    setMoveMergeDialog(null);
+    try {
+      await fetch(`${API}/orders/${activeOrderId}/merge-into/${toTable.activeOrderId}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+      });
+      setSelectedTableId(toTable.id);
+      setRightTab("grp");
+      setMobilePanel("left");
+      refresh();
+      toast({ title: "Conti unificati", description: `Tutti gli articoli ora su ${toTable.name}` });
+    } catch {
+      toast({ title: "Errore unificazione", variant: "destructive" });
     }
   }
 
@@ -3049,8 +3120,8 @@ export default function FrontOffice() {
               tablesStatus={tablesStatus as FETable[]}
               selectedTableId={selectedTableId}
               onTableClick={(t) => {
-                handleTableClick(t);
-                if (t.activeOrderId) {
+                handleMapTableClick(t);
+                if (!moveMergeDialog && t.activeOrderId && t.id === selectedTableId) {
                   setRightTab("grp");
                   setMobilePanel("left");
                 }
@@ -3574,6 +3645,42 @@ export default function FrontOffice() {
               className="bg-red-600 hover:bg-red-700 text-white"
             >
               Sì, annulla ordine
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ─ Move / Merge table confirmation ─ */}
+      <AlertDialog open={!!moveMergeDialog} onOpenChange={open => { if (!open) setMoveMergeDialog(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              {moveMergeDialog?.type === "move" ? (
+                <><ArrowRight className="h-5 w-5 text-blue-500" /> Sposta ordine</>
+              ) : (
+                <><Users className="h-5 w-5 text-orange-500" /> Unifica conti</>
+              )}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {moveMergeDialog?.type === "move" ? (
+                <>
+                  Vuoi spostare l'ordine di <strong>{moveMergeDialog.fromTable.name}</strong> al tavolo libero <strong>{moveMergeDialog.toTable.name}</strong>?
+                  <br />Tutti gli articoli seguiranno il nuovo tavolo.
+                </>
+              ) : (
+                <>
+                  Vuoi unificare il conto di <strong>{moveMergeDialog?.fromTable.name}</strong> su <strong>{moveMergeDialog?.toTable.name}</strong>?
+                  <br />Gli articoli di {moveMergeDialog?.fromTable.name} verranno aggiunti all'ordine di {moveMergeDialog?.toTable.name}.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setMoveMergeDialog(null)}>Annulla</AlertDialogCancel>
+            <AlertDialogAction
+              className={moveMergeDialog?.type === "move" ? "bg-blue-600 hover:bg-blue-700" : "bg-orange-600 hover:bg-orange-700"}
+              onClick={() => moveMergeDialog?.type === "move" ? handleMoveTable() : handleMergeTable()}>
+              {moveMergeDialog?.type === "move" ? "Sposta ordine" : "Unifica su " + moveMergeDialog?.toTable.name}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
