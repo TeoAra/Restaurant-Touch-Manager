@@ -293,7 +293,8 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
 
   function handleMapClick(t: FETable) {
     if (isActionMode) {
-      if (t.elementType === "table" && t.status === "free") {
+      const isFutureDate = mapDate !== todayStr;
+      if (t.elementType === "table" && (t.status === "free" || isFutureDate)) {
         applyTableToReservation(actionRes!, t.id);
       }
       return;
@@ -591,25 +592,24 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
                     .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "", "it", { numeric: true }))
                     .map(t => {
                       const isSelected = resTableIds.includes(t.id);
-                      const isOccupied = t.status === "occupied";
+                      const isOccupiedToday = t.status === "occupied" && (resForm.date === todayStr || !resForm.date);
                       const hasRes = reservationByTableId.has(t.id);
                       return (
                         <button key={t.id}
-                          onClick={() => { if (!isOccupied) toggleResTable(t.id); }}
-                          disabled={isOccupied}
+                          onClick={() => toggleResTable(t.id)}
                           className={cn(
                             "px-3 py-2 rounded-xl text-xs font-bold border-2 transition-all active:scale-95",
                             isSelected
                               ? "bg-primary border-primary text-white shadow-sm"
-                              : isOccupied
-                                ? "bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed"
+                              : isOccupiedToday
+                                ? "bg-orange-50 border-orange-200 text-orange-700 hover:border-orange-400"
                                 : hasRes
                                   ? "bg-blue-50 border-blue-300 text-blue-700 hover:border-blue-400"
                                   : "bg-slate-50 border-slate-200 text-slate-700 hover:border-primary hover:text-primary"
                           )}>
                           {t.name}
-                          {isOccupied && <span className="ml-1 text-[9px] opacity-60">occ</span>}
-                          {hasRes && !isOccupied && <span className="ml-1 text-[9px] text-blue-500">res</span>}
+                          {isOccupiedToday && !isSelected && <span className="ml-1 text-[9px] opacity-70">occ</span>}
+                          {hasRes && !isOccupiedToday && <span className="ml-1 text-[9px] text-blue-500">res</span>}
                         </button>
                       );
                     })}
