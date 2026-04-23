@@ -1548,6 +1548,13 @@ export default function FrontOffice() {
   // KP resend after item modification
   const [kpResendPending, setKpResendPending] = useState(false);
 
+  // Invoice customer (selected in CLNT tab)
+  const [invoiceCustomer, setInvoiceCustomer] = useState<SimpleCustomer | null>(null);
+  const [clntSearch, setClntSearch] = useState("");
+  const [clntResults, setClntResults] = useState<SimpleCustomer[]>([]);
+  const [clntSearching, setClntSearching] = useState(false);
+  const [showNewClntForm, setShowNewClntForm] = useState(false);
+
   // Dialog state
   const [showPayment, setShowPayment] = useState(false);
   const [showCovers, setShowCovers] = useState(false);
@@ -1789,6 +1796,9 @@ export default function FrontOffice() {
     setSelectedCategoryId(null);
     setLotteriaCodice("");
     setLotteriaInput("");
+    setInvoiceCustomer(null);
+    setSelectedItemId(null);
+    setNumBuffer("");
     refresh();
   }
 
@@ -1972,14 +1982,17 @@ export default function FrontOffice() {
     }
   }
 
-  async function applyNumpadToSelectedItem() {
+  async function applyNumpadToSelectedItem(forceMode?: "qty" | "price") {
     if (!selectedItemId || !numBuffer || !activeOrderId) return;
+    const effectiveMode = forceMode ?? numpadMode;
     const val = parseFloat(numBuffer);
     if (isNaN(val) || val <= 0) { setNumBuffer(""); return; }
-    if (numpadMode === "qty") {
+    if (effectiveMode === "qty") {
       const qty = Math.max(1, Math.round(val));
+      setNumBuffer("");
       await handleQty(selectedItemId, qty);
     } else {
+      setNumBuffer("");
       await fetch(`${API}/orders/${activeOrderId}/items/${selectedItemId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -1990,7 +2003,6 @@ export default function FrontOffice() {
       refresh();
       if (item && (item as never as { status: string }).status === "sent") setKpResendPending(true);
     }
-    setNumBuffer("");
   }
 
   async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number) {
@@ -2016,6 +2028,7 @@ export default function FrontOffice() {
     } else {
       addLog("info", `Pagamento €${total.toFixed(2)} — ${method} — ${orderLabel}`);
     }
+    setInvoiceCustomer(null); // clear after payment
     if (invoiceCustomerId && items.length > 0) {
       try {
         const righe = items.map(i => ({
@@ -2288,34 +2301,38 @@ export default function FrontOffice() {
 
           {/* Numpad compatto 3×4 */}
           <div className="flex-1 flex flex-col gap-1">
-            {/* Mode bar: when item is selected show Qtà/Prezzo toggle */}
+            {/* Mode bar: when item is selected show Qtà/Prezzo apply buttons */}
             {selectedItemId && (
               <div className="flex gap-1">
                 <button
-                  onClick={() => setNumpadMode("qty")}
+                  onClick={async () => {
+                    setNumpadMode("qty");
+                    if (numBuffer) await applyNumpadToSelectedItem("qty");
+                  }}
                   className={cn(
                     "flex-1 h-8 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-all active:scale-95",
-                    numpadMode === "qty"
-                      ? "bg-primary text-white shadow-sm"
-                      : "bg-[#252840] text-slate-400 hover:bg-[#2d3044]"
+                    numpadMode === "qty" && numBuffer
+                      ? "bg-primary text-white shadow-sm ring-2 ring-primary/40 animate-pulse"
+                      : numpadMode === "qty"
+                        ? "bg-primary text-white shadow-sm"
+                        : "bg-[#252840] text-slate-400 hover:bg-[#2d3044]"
                   )}>
-                  <Hash className="h-3 w-3" /> Qtà
+                  <Hash className="h-3 w-3" /> Imposta Qtà
                 </button>
                 <button
-                  onClick={() => setNumpadMode("price")}
+                  onClick={async () => {
+                    setNumpadMode("price");
+                    if (numBuffer) await applyNumpadToSelectedItem("price");
+                  }}
                   className={cn(
                     "flex-1 h-8 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-all active:scale-95",
-                    numpadMode === "price"
-                      ? "bg-emerald-600 text-white shadow-sm"
-                      : "bg-[#252840] text-slate-400 hover:bg-[#2d3044]"
+                    numpadMode === "price" && numBuffer
+                      ? "bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-500/40 animate-pulse"
+                      : numpadMode === "price"
+                        ? "bg-emerald-600 text-white shadow-sm"
+                        : "bg-[#252840] text-slate-400 hover:bg-[#2d3044]"
                   )}>
-                  <Euro className="h-3 w-3" /> Prezzo
-                </button>
-                <button
-                  onClick={applyNumpadToSelectedItem}
-                  disabled={!numBuffer}
-                  className="h-8 w-10 rounded-lg bg-primary/80 text-white font-bold text-xs flex items-center justify-center active:scale-95 disabled:opacity-30 transition-all">
-                  OK
+                  <Euro className="h-3 w-3" /> Imposta Prezzo
                 </button>
               </div>
             )}
@@ -2456,15 +2473,19 @@ export default function FrontOffice() {
           {(["grp","art","var","tavl","clnt","tot"] as const).map((tab) => {
             const labels: Record<string, string> = { grp:"GRP", art:"ART", var:"VAR", tavl:"TAVL", clnt:"CLNT", tot:"TOT" };
             const active = rightTab === tab;
+            const hasBadge = tab === "clnt" && !!invoiceCustomer;
             return (
               <button key={tab} onClick={() => setRightTab(tab)}
                 className={cn(
-                  "flex-1 h-14 flex items-center justify-center transition-all border-b-2 text-xs tracking-wide",
+                  "flex-1 h-14 flex items-center justify-center transition-all border-b-2 text-xs tracking-wide relative",
                   active
                     ? "font-bold text-primary border-primary bg-primary/10"
                     : "font-medium text-slate-500 border-transparent hover:text-slate-300 hover:bg-[#1a1d2a]"
                 )}>
                 {labels[tab]}
+                {hasBadge && (
+                  <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-500" />
+                )}
               </button>
             );
           })}
@@ -2724,24 +2745,160 @@ export default function FrontOffice() {
           </div>
         )}
 
-        {/* ── CLNT: clients (placeholder) */}
+        {/* ── CLNT: client/invoice selection */}
         {rightTab === "clnt" && (
-          <div className="flex-1 flex items-center justify-center bg-[#f0f2f7]">
-            <div className="text-center text-slate-400">
-              <div className="text-5xl mb-3">☺</div>
-              <div className="font-semibold text-slate-500">Clienti</div>
-              <div className="text-xs text-slate-400 mt-1">Prossimamente</div>
+          <div className="flex-1 flex flex-col overflow-hidden bg-[#151827]">
+            {/* Selected customer banner */}
+            {invoiceCustomer && (
+              <div className="mx-3 mt-3 px-4 py-3 bg-emerald-900/40 border-2 border-emerald-600 rounded-xl shrink-0">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] text-emerald-400 font-bold uppercase tracking-wider mb-0.5 flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" /> Cliente fattura attivo
+                    </div>
+                    <div className="font-bold text-emerald-200 truncate">{invoiceCustomer.ragioneSociale}</div>
+                    {invoiceCustomer.partitaIva && (
+                      <div className="text-[11px] text-emerald-400 font-mono">P.IVA {invoiceCustomer.partitaIva}</div>
+                    )}
+                    {invoiceCustomer.codiceFiscale && (
+                      <div className="text-[11px] text-emerald-400 font-mono">CF {invoiceCustomer.codiceFiscale}</div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setInvoiceCustomer(null)}
+                    className="h-7 w-7 rounded-lg bg-emerald-900/60 hover:bg-emerald-900 flex items-center justify-center shrink-0 transition-colors">
+                    <X className="h-3.5 w-3.5 text-emerald-400" />
+                  </button>
+                </div>
+                <div className="mt-2 text-[10px] text-emerald-500 bg-emerald-900/40 rounded-lg px-3 py-1.5">
+                  Al prossimo pagamento verrà emessa automaticamente la fattura elettronica
+                </div>
+              </div>
+            )}
+
+            {/* Search + create bar */}
+            <div className="px-3 pt-3 pb-2 shrink-0 space-y-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                <input
+                  value={clntSearch}
+                  onChange={async e => {
+                    const q = e.target.value;
+                    setClntSearch(q);
+                    if (q.length < 2) { setClntResults([]); return; }
+                    setClntSearching(true);
+                    try {
+                      const res = await fetch(`${API}/customers?q=${encodeURIComponent(q)}`);
+                      setClntResults(await res.json());
+                    } catch { /* noop */ }
+                    setClntSearching(false);
+                  }}
+                  placeholder="Cerca cliente per nome, P.IVA o CF…"
+                  className="w-full pl-9 pr-3 py-2.5 bg-[#1a1d2a] border border-[#2d3044] rounded-xl text-sm outline-none focus:border-primary text-slate-200 placeholder:text-slate-600"
+                />
+                {clntSearching && <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 animate-spin" />}
+              </div>
+              <button
+                onClick={() => { setShowNewClntForm(v => !v); setClntSearch(""); setClntResults([]); }}
+                className={cn(
+                  "w-full py-2 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 border",
+                  showNewClntForm
+                    ? "bg-[#22263a] border-[#2d3044] text-slate-400"
+                    : "bg-primary/10 border-primary/30 text-primary hover:bg-primary/20"
+                )}>
+                <Plus className="h-4 w-4" />
+                {showNewClntForm ? "Annulla" : "Crea nuovo cliente"}
+              </button>
             </div>
+
+            <ScrollArea className="flex-1">
+              <div className="px-3 pb-4 space-y-2">
+
+                {/* New customer inline form */}
+                {showNewClntForm && (
+                  <div className="bg-[#1a1d2a] border border-[#2d3044] rounded-xl p-4">
+                    <NewCustomerForm
+                      onCreated={c => {
+                        setInvoiceCustomer(c as unknown as SimpleCustomer);
+                        setShowNewClntForm(false);
+                        setClntSearch("");
+                        setClntResults([]);
+                        addLog("info", `Cliente creato: ${c.ragioneSociale}`);
+                        toast({ title: "Cliente creato", description: `${c.ragioneSociale} — pronto per la fattura` });
+                      }}
+                      onCancel={() => setShowNewClntForm(false)}
+                    />
+                  </div>
+                )}
+
+                {/* Search results */}
+                {clntResults.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 px-1">
+                      Risultati ricerca ({clntResults.length})
+                    </div>
+                    {clntResults.map(c => (
+                      <button key={c.id}
+                        onClick={() => {
+                          setInvoiceCustomer(c);
+                          setClntSearch("");
+                          setClntResults([]);
+                          addLog("info", `Cliente selezionato per fattura: ${c.ragioneSociale}`);
+                        }}
+                        className={cn(
+                          "w-full text-left px-4 py-3 rounded-xl border-2 transition-all active:scale-95",
+                          invoiceCustomer?.id === c.id
+                            ? "border-emerald-600 bg-emerald-900/40"
+                            : "border-[#2d3044] bg-[#22263a] hover:border-primary/40"
+                        )}>
+                        <div className="font-semibold text-slate-200 text-sm">{c.ragioneSociale}</div>
+                        <div className="flex gap-3 mt-0.5">
+                          {c.partitaIva && <span className="text-[10px] text-slate-500 font-mono">P.IVA {c.partitaIva}</span>}
+                          {c.codiceFiscale && <span className="text-[10px] text-slate-500 font-mono">CF {c.codiceFiscale}</span>}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Empty state when no search */}
+                {!showNewClntForm && clntSearch.length < 2 && clntResults.length === 0 && !invoiceCustomer && (
+                  <div className="text-center py-16 text-slate-600">
+                    <ReceiptText className="h-10 w-10 mx-auto mb-3 opacity-20" />
+                    <div className="text-sm font-semibold text-slate-500">Fattura elettronica</div>
+                    <div className="text-xs text-slate-600 mt-1 max-w-[240px] mx-auto">
+                      Cerca o crea il cliente, poi paga normalmente — la fattura viene emessa automaticamente
+                    </div>
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
           </div>
         )}
 
         {/* ── TOT: inline payment */}
         {rightTab === "tot" && (
-          <InlinePaymentPanel
-            total={total}
-            disabled={items.length === 0}
-            onPay={(method, amountGiven) => handlePay(method, amountGiven)}
-          />
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Invoice customer indicator */}
+            {invoiceCustomer && (
+              <div className="mx-4 mt-3 px-3 py-2 bg-emerald-900/40 border border-emerald-700 rounded-xl flex items-center gap-2 shrink-0">
+                <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] text-emerald-400 font-bold">Fattura a:</div>
+                  <div className="text-xs text-emerald-200 font-semibold truncate">{invoiceCustomer.ragioneSociale}</div>
+                </div>
+                <button onClick={() => setInvoiceCustomer(null)}
+                  className="text-emerald-500 hover:text-emerald-300 transition-colors shrink-0">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+            <InlinePaymentPanel
+              total={total}
+              disabled={items.length === 0}
+              onPay={(method, amountGiven) => handlePay(method, amountGiven, invoiceCustomer?.id)}
+            />
+          </div>
         )}
       </div>
 
