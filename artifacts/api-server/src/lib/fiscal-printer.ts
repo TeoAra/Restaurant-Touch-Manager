@@ -327,17 +327,18 @@ export async function sendXonXoffCommand(
   };
 }
 
-// ── Costruisce comando non-fiscale (documento gestionale / cortesia) ─────────
+// ── Costruisce una singola copia del documento gestionale non-fiscale ─────────
 // Protocollo XonXoff DTR: ogni riga si stampa con "TESTO"@
 // Il documento termina con @  (chiude il documento non-fiscale)
-export function buildNonFiscalDocument(opts: {
+function buildNonFiscalCopy(opts: {
   ragioneSociale?: string;
   righe: { desc: string; qta: number; prezzoUnitario: string }[];
   importo: string;
   metodoPagamento: string;
   note?: string;
+  isCopiaCliente: boolean;
 }): string {
-  const { ragioneSociale, righe, importo, metodoPagamento, note } = opts;
+  const { ragioneSociale, righe, importo, metodoPagamento, note, isCopiaCliente } = opts;
   const parts: string[] = [];
 
   const sep = "--------------------------------";
@@ -345,6 +346,9 @@ export function buildNonFiscalDocument(opts: {
 
   printLine("DOCUMENTO NON FISCALE");
   printLine("DOCUMENTO GESTIONALE");
+  if (isCopiaCliente) {
+    printLine("*** COPIA CLIENTE ***");
+  }
   printLine(sep);
 
   for (const r of righe) {
@@ -376,6 +380,20 @@ export function buildNonFiscalDocument(opts: {
   parts.push("@");
 
   return parts.join("");
+}
+
+// ── Costruisce documento gestionale in DUPLICE COPIA ─────────────────────────
+// Prima copia (locale) + seconda copia con "COPIA CLIENTE"
+export function buildNonFiscalDocument(opts: {
+  ragioneSociale?: string;
+  righe: { desc: string; qta: number; prezzoUnitario: string }[];
+  importo: string;
+  metodoPagamento: string;
+  note?: string;
+}): string {
+  const copia1 = buildNonFiscalCopy({ ...opts, isCopiaCliente: false });
+  const copia2 = buildNonFiscalCopy({ ...opts, isCopiaCliente: true });
+  return copia1 + copia2;
 }
 
 // ── Emetti documento non-fiscale sulla RT ─────────────────────────────────
