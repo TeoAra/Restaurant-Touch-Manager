@@ -2702,7 +2702,70 @@ export default function FrontOffice() {
                         const currentMods: Array<{ id: number; label: string; type: string; priceExtra: string }> = (() => {
                           try { return JSON.parse((selectedItem as never as { modifiers?: string }).modifiers ?? "[]"); } catch { return []; }
                         })();
-                        const isApplied = currentMods.some(m => m.id === mod.id);
+
+                        async function applyMod(direction: string, remove: boolean) {
+                          if (!activeOrderId) return;
+                          let next: typeof currentMods;
+                          if (remove) {
+                            next = currentMods.filter(m => !(m.id === mod.id && m.type === direction));
+                          } else {
+                            next = [...currentMods, { id: mod.id, label: mod.label, type: direction, priceExtra: mod.priceExtra }];
+                          }
+                          const priceAdj = next.reduce((acc, m) => acc + parseFloat(m.priceExtra || "0"), 0);
+                          const basePrice = parseFloat((selectedItem as never as { productPrice: string }).productPrice || selectedItem.unitPrice);
+                          const newPrice = Math.max(0, basePrice + priceAdj).toFixed(2);
+                          await fetch(`${API}/orders/${activeOrderId}/items/${selectedItem.id}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ modifiers: JSON.stringify(next), unitPrice: newPrice }),
+                          });
+                          refresh();
+                        }
+
+                        if (mod.type === "both") {
+                          const appliedPlus  = currentMods.some(m => m.id === mod.id && m.type === "plus");
+                          const appliedMinus = currentMods.some(m => m.id === mod.id && m.type === "minus");
+                          return (
+                            <div key={mod.id} className="space-y-1">
+                              <div className="text-[10px] font-semibold text-violet-400 px-1 flex items-center gap-1">
+                                <span className="text-violet-500 font-bold">±</span> {mod.label}
+                                {parseFloat(mod.priceExtra) !== 0 && (
+                                  <span className="text-[9px] font-mono text-slate-500 ml-1">
+                                    {parseFloat(mod.priceExtra) > 0 ? "+" : ""}€{parseFloat(mod.priceExtra).toFixed(2)}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <button
+                                  onClick={() => applyMod("plus", appliedPlus)}
+                                  className={cn(
+                                    "flex items-center justify-center gap-2 px-3 py-3 rounded-xl border-2 font-bold transition-all active:scale-95 text-sm",
+                                    appliedPlus
+                                      ? "bg-emerald-600 border-emerald-500 text-white"
+                                      : "bg-[#1a3028] border-emerald-800 text-emerald-400 hover:border-emerald-600"
+                                  )}>
+                                  <span className="text-base">+</span>
+                                  <span className="text-xs font-semibold truncate">{mod.label}</span>
+                                  {appliedPlus && <span className="text-xs shrink-0">✓</span>}
+                                </button>
+                                <button
+                                  onClick={() => applyMod("minus", appliedMinus)}
+                                  className={cn(
+                                    "flex items-center justify-center gap-2 px-3 py-3 rounded-xl border-2 font-bold transition-all active:scale-95 text-sm",
+                                    appliedMinus
+                                      ? "bg-red-600 border-red-500 text-white"
+                                      : "bg-[#2a1a1a] border-red-800 text-red-400 hover:border-red-600"
+                                  )}>
+                                  <span className="text-base">−</span>
+                                  <span className="text-xs font-semibold truncate">{mod.label}</span>
+                                  {appliedMinus && <span className="text-xs shrink-0">✓</span>}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        const isApplied = currentMods.some(m => m.id === mod.id && m.type === mod.type);
                         const icon = mod.type === "plus" ? "+" : mod.type === "minus" ? "−" : "✎";
                         const colorOn = mod.type === "plus"
                           ? "bg-emerald-600 border-emerald-500 text-white"
@@ -2716,24 +2779,7 @@ export default function FrontOffice() {
                             : "bg-[#22263a] border-[#2d3044] text-slate-400 hover:border-[#3a3f58]";
                         return (
                           <button key={mod.id}
-                            onClick={async () => {
-                              if (!activeOrderId) return;
-                              let next: typeof currentMods;
-                              if (isApplied) {
-                                next = currentMods.filter(m => m.id !== mod.id);
-                              } else {
-                                next = [...currentMods, { id: mod.id, label: mod.label, type: mod.type, priceExtra: mod.priceExtra }];
-                              }
-                              const priceAdj = next.reduce((acc, m) => acc + parseFloat(m.priceExtra || "0"), 0);
-                              const basePrice = parseFloat((selectedItem as never as { productPrice: string }).productPrice || selectedItem.unitPrice);
-                              const newPrice = Math.max(0, basePrice + priceAdj).toFixed(2);
-                              await fetch(`${API}/orders/${activeOrderId}/items/${selectedItem.id}`, {
-                                method: "PATCH",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ modifiers: JSON.stringify(next), unitPrice: newPrice }),
-                              });
-                              refresh();
-                            }}
+                            onClick={() => applyMod(mod.type, isApplied)}
                             className={cn(
                               "w-full flex items-center gap-3 px-4 py-4 rounded-xl border-2 font-semibold transition-all active:scale-95 text-left",
                               isApplied ? colorOn : colorOff

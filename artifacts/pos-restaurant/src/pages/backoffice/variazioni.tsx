@@ -12,14 +12,15 @@ import { cn } from "@/lib/utils";
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
 
-type ModifierType = "plus" | "minus" | "note";
+type ModifierType = "plus" | "minus" | "note" | "both";
 type Modifier = { id: number; label: string; type: ModifierType; priceExtra: string; categoryIds: number[] };
 type Category = { id: number; name: string; color: string };
 
 const TYPE_CONFIG: Record<ModifierType, { label: string; icon: string; bg: string; text: string; border: string }> = {
   plus:  { label: "+ Aggiunta",  icon: "+", bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-300" },
-  minus: { label: "- Rimozione", icon: "−", bg: "bg-red-50",     text: "text-red-700",     border: "border-red-300"     },
+  minus: { label: "− Rimozione", icon: "−", bg: "bg-red-50",     text: "text-red-700",     border: "border-red-300"     },
   note:  { label: "✎ Commento",  icon: "✎", bg: "bg-slate-50",   text: "text-slate-600",   border: "border-slate-300"   },
+  both:  { label: "± Entrambi",  icon: "±", bg: "bg-violet-50",  text: "text-violet-700",  border: "border-violet-300"  },
 };
 
 function useModifiers() {
@@ -97,7 +98,7 @@ export default function VarkazioniPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["modifiers"] }); toast({ title: "Variazione eliminata" }); },
   });
 
-  const grouped: Record<ModifierType, Modifier[]> = { plus: [], minus: [], note: [] };
+  const grouped: Record<ModifierType, Modifier[]> = { plus: [], minus: [], note: [], both: [] };
   modifiers.forEach(m => { if (grouped[m.type]) grouped[m.type].push(m); });
 
   return (
@@ -120,7 +121,7 @@ export default function VarkazioniPage() {
           </div>
         )}
 
-        {(["plus", "minus", "note"] as ModifierType[]).map(type => {
+        {(["both", "plus", "minus", "note"] as ModifierType[]).map(type => {
           const list = grouped[type];
           if (list.length === 0) return null;
           const cfg = TYPE_CONFIG[type];
@@ -131,6 +132,11 @@ export default function VarkazioniPage() {
                   {cfg.icon}
                 </span>
                 {cfg.label}
+                {type === "both" && (
+                  <span className="text-[10px] normal-case font-normal text-slate-400">
+                    — appare sia come + che − in cassa
+                  </span>
+                )}
               </h2>
               {list.map(m => {
                 const catNames = m.categoryIds
@@ -145,6 +151,11 @@ export default function VarkazioniPage() {
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-slate-800">{m.label}</div>
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        {type === "both" && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 font-semibold">
+                            + e −
+                          </span>
+                        )}
                         {parseFloat(m.priceExtra) !== 0 && (
                           <span className="text-xs font-mono text-slate-500">
                             {parseFloat(m.priceExtra) > 0 ? "+" : ""}€{parseFloat(m.priceExtra).toFixed(2)}
@@ -189,8 +200,8 @@ export default function VarkazioniPage() {
             {/* Tipo */}
             <div>
               <Label className="text-xs text-slate-500 mb-2 block">Tipo</Label>
-              <div className="grid grid-cols-3 gap-2">
-                {(["plus", "minus", "note"] as ModifierType[]).map(t => {
+              <div className="grid grid-cols-2 gap-2">
+                {(["plus", "minus", "both", "note"] as ModifierType[]).map(t => {
                   const cfg = TYPE_CONFIG[t];
                   return (
                     <button key={t} onClick={() => setForm(f => ({ ...f, type: t }))}
@@ -201,11 +212,18 @@ export default function VarkazioniPage() {
                           : "border-slate-200 text-slate-400 hover:border-slate-300"
                       )}>
                       <span className="text-xl font-bold">{cfg.icon}</span>
-                      <span className="text-xs">{t === "plus" ? "Aggiunta" : t === "minus" ? "Rimozione" : "Commento"}</span>
+                      <span className="text-xs">
+                        {t === "plus" ? "Aggiunta" : t === "minus" ? "Rimozione" : t === "both" ? "Entrambi" : "Commento"}
+                      </span>
                     </button>
                   );
                 })}
               </div>
+              {form.type === "both" && (
+                <p className="text-[11px] text-violet-600 mt-2 px-1">
+                  In cassa apparirà con due tasti: <strong>+</strong> e <strong>−</strong> separati
+                </p>
+              )}
             </div>
 
             {/* Label */}
@@ -214,7 +232,12 @@ export default function VarkazioniPage() {
               <Input
                 value={form.label}
                 onChange={e => setForm(f => ({ ...f, label: e.target.value }))}
-                placeholder={form.type === "plus" ? "es. extra formaggio" : form.type === "minus" ? "es. senza cipolla" : "es. al dente"}
+                placeholder={
+                  form.type === "plus" ? "es. extra formaggio" :
+                  form.type === "minus" ? "es. senza cipolla" :
+                  form.type === "both" ? "es. cipolla (poi scegli + o −)" :
+                  "es. al dente"
+                }
                 className="h-9"
               />
             </div>
