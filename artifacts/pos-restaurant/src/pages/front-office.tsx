@@ -29,6 +29,7 @@ import {
   ChevronLeft, Search, X, UtensilsCrossed, Zap, Map as MapIcon,
   AlertTriangle, CheckCircle2, User, LogOut, Building2, Pencil,
   ArrowRightFromLine, ReceiptText, Trash2, BadgePercent, StickyNote, Ticket,
+  ScrollText, Hash, Euro, RefreshCw,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link } from "wouter";
@@ -1417,8 +1418,8 @@ function ProductCard({ product, onAdd, activePriceList }: {
   const displayPrice = parseFloat(rawPrice || "0");
   return (
     <button onClick={() => onAdd(product.id, rawPrice)}
-      className="bg-white rounded-xl border-2 border-slate-200 p-3 text-left hover:border-primary hover:shadow-lg active:scale-95 transition-all group min-h-[88px] flex flex-col justify-between">
-      <div className="font-semibold text-sm text-slate-800 leading-snug group-hover:text-primary transition-colors line-clamp-3">{product.name}</div>
+      className="bg-[#22263a] rounded-xl border-2 border-[#2d3044] p-3 text-left hover:border-primary hover:shadow-lg hover:shadow-primary/10 active:scale-95 transition-all group min-h-[88px] flex flex-col justify-between">
+      <div className="font-semibold text-sm text-slate-200 leading-snug group-hover:text-primary transition-colors line-clamp-3">{product.name}</div>
       <div className="text-base font-bold text-primary mt-2">€ {displayPrice.toFixed(2)}</div>
     </button>
   );
@@ -1528,10 +1529,24 @@ export default function FrontOffice() {
 
   // MOito-style state
   const [numBuffer, setNumBuffer] = useState(""); // numpad buffer
+  const [numpadMode, setNumpadMode] = useState<"qty" | "price">("qty"); // what the numpad applies to
   const [activePriceList, setActivePriceList] = useState(0); // 0=Servito 1=Asporto 2=Fidelity 3=Staff
   const [rightTab, setRightTab] = useState<"grp" | "art" | "var" | "tavl" | "clnt" | "tot">("tavl");
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [mobilePanel, setMobilePanel] = useState<"left" | "right">("right");
+
+  // Log console
+  type LogEntry = { id: number; ts: string; level: "info" | "warn" | "error"; msg: string };
+  const [showLog, setShowLog] = useState(false);
+  const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
+  const logIdRef = useRef(0);
+  const addLog = useCallback((level: "info" | "warn" | "error", msg: string) => {
+    const entry: LogEntry = { id: ++logIdRef.current, ts: new Date().toLocaleTimeString("it-IT"), level, msg };
+    setLogEntries(prev => [entry, ...prev].slice(0, 80));
+  }, []);
+
+  // KP resend after item modification
+  const [kpResendPending, setKpResendPending] = useState(false);
 
   // Dialog state
   const [showPayment, setShowPayment] = useState(false);
@@ -1901,15 +1916,19 @@ export default function FrontOffice() {
 
   async function handleQty(itemId: number, qty: number) {
     if (!activeOrderId) return;
+    const item = items.find(i => i.id === itemId);
+    const wasSent = item && (item as never as { status: string }).status === "sent";
     if (qty <= 0) {
-      const item = items.find(i => i.id === itemId);
-      if (item && (item as never as { status: string }).status === "sent") {
-        setDeleteConfirm({ itemId, name: item.productName });
+      if (wasSent) {
+        setDeleteConfirm({ itemId, name: item!.productName });
         return;
       }
+      addLog("info", `Articolo rimosso: ${item?.productName}`);
       await deleteItem.mutateAsync({ orderId: activeOrderId, itemId });
     } else {
+      addLog("info", `Qtà modificata: ${item?.productName} → ${qty}`);
       await updateItem.mutateAsync({ orderId: activeOrderId, itemId, data: { quantity: qty } });
+      if (wasSent) setKpResendPending(true);
     }
     refresh();
   }
@@ -1938,13 +1957,40 @@ export default function FrontOffice() {
 
   async function handleSendComanda() {
     if (!activeOrderId) return;
-    const res = await fetch(`${API}/orders/${activeOrderId}/send-comanda`, { method: "POST" });
-    const data = await res.json() as { sentItems: number; phases?: Array<{ phase: string; count: number }> };
-    refresh();
-    const phaseDesc = data.phases && data.phases.length > 0
-      ? data.phases.map(p => `${p.phase}: ${p.count} art.`).join(" · ")
-      : `${data.sentItems} articoli`;
-    toast({ title: "Comanda inviata ai reparti", description: phaseDesc });
+    try {
+      const res = await fetch(`${API}/orders/${activeOrderId}/send-comanda`, { method: "POST" });
+      const data = await res.json() as { sentItems: number; phases?: Array<{ phase: string; count: number }> };
+      refresh();
+      const phaseDesc = data.phases && data.phases.length > 0
+        ? data.phases.map(p => `${p.phase}: ${p.count} art.`).join(" · ")
+        : `${data.sentItems} articoli`;
+      addLog("info", `Comanda inviata — ${orderLabel} — ${phaseDesc}`);
+      toast({ title: "Comanda inviata ai reparti", description: phaseDesc });
+    } catch (e) {
+      addLog("error", `Errore invio comanda — ${String(e)}`);
+      toast({ title: "Errore invio comanda", variant: "destructive" });
+    }
+  }
+
+  async function applyNumpadToSelectedItem() {
+    if (!selectedItemId || !numBuffer || !activeOrderId) return;
+    const val = parseFloat(numBuffer);
+    if (isNaN(val) || val <= 0) { setNumBuffer(""); return; }
+    if (numpadMode === "qty") {
+      const qty = Math.max(1, Math.round(val));
+      await handleQty(selectedItemId, qty);
+    } else {
+      await fetch(`${API}/orders/${activeOrderId}/items/${selectedItemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unitPrice: val.toFixed(2) }),
+      });
+      const item = items.find(i => i.id === selectedItemId);
+      addLog("info", `Prezzo modificato: ${item?.productName} → €${val.toFixed(2)}`);
+      refresh();
+      if (item && (item as never as { status: string }).status === "sent") setKpResendPending(true);
+    }
+    setNumBuffer("");
   }
 
   async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number) {
@@ -1957,14 +2003,18 @@ export default function FrontOffice() {
     const fiscal = (paymentRes as never as { fiscal?: { rtOk?: boolean; rtError?: string; rtIp?: string; receiptId?: number } }).fiscal;
     if (fiscal) {
       if (fiscal.rtOk) {
+        addLog("info", `RT OK — scontrino #${fiscal.receiptId} @ ${fiscal.rtIp ?? "RT"} — €${total.toFixed(2)} ${method}`);
         toast({ title: "Scontrino fiscale emesso", description: `RT ${fiscal.rtIp ?? ""} — ricevuta #${fiscal.receiptId}` });
       } else {
+        addLog("error", `RT ERRORE — ${fiscal.rtError ?? "errore sconosciuto"}`);
         toast({
           title: "Scontrino non inviato alla RT",
           description: fiscal.rtError ?? "Errore sconosciuto — controlla i log del server",
           variant: "destructive",
         });
       }
+    } else {
+      addLog("info", `Pagamento €${total.toFixed(2)} — ${method} — ${orderLabel}`);
     }
     if (invoiceCustomerId && items.length > 0) {
       try {
@@ -2017,44 +2067,74 @@ export default function FrontOffice() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-100">
+    <div className="flex h-screen overflow-hidden bg-[#0f1117]">
 
       {/* ══ LEFT PANEL ════════════════════════════════════════════════════════ */}
       <div className={cn(
-        "flex-col bg-white shrink-0 border-r border-slate-100",
+        "flex-col bg-[#1a1d2a] shrink-0 border-r border-[#2d3044]",
         "w-full sm:w-[320px] lg:w-[340px]",
         mobilePanel === "left" ? "flex" : "hidden sm:flex"
       )}>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100 shrink-0">
-          <div className="min-w-0">
+        <div className="flex items-center justify-between px-2 py-1.5 border-b border-[#2d3044] shrink-0 bg-[#12151e]">
+          {/* Table name / brand — click to send comanda when drafts exist */}
+          <button
+            disabled={!activeOrderId}
+            onClick={hasDraftItems ? handleSendComanda : undefined}
+            className={cn(
+              "min-w-0 flex-1 text-left px-2 py-1.5 rounded-lg transition-all select-none",
+              activeOrderId && hasDraftItems
+                ? "border-2 border-amber-500 bg-amber-900/30 hover:bg-amber-900/50 active:scale-95 cursor-pointer"
+                : activeOrderId
+                  ? "border-2 border-[#3a3f58] bg-transparent cursor-default"
+                  : "border-2 border-transparent cursor-default"
+            )}>
             {activeOrderId ? (
-              <>
-                <div className={cn(
-                  "font-semibold text-sm truncate",
-                  isQuickMode ? "text-blue-500" : "text-primary"
-                )}>
-                  {ModeIcon ? <ModeIcon className="h-3.5 w-3.5 inline mr-1 -mt-px" /> : null}
-                  {orderLabel}
+              <div className="flex items-center gap-2">
+                <div className="min-w-0">
+                  <div className={cn(
+                    "font-bold text-sm truncate flex items-center gap-1.5",
+                    hasDraftItems ? "text-amber-400" : isQuickMode ? "text-blue-400" : "text-primary"
+                  )}>
+                    {hasDraftItems ? <Send className="h-3.5 w-3.5 shrink-0" /> : (ModeIcon ? <ModeIcon className="h-3.5 w-3.5 shrink-0 inline" /> : null)}
+                    {orderLabel}
+                  </div>
+                  <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                    {coverCount > 0 && <span>{coverCount} cop.</span>}
+                    {hasDraftItems && <span className="text-amber-500 font-semibold">· {items.filter(i => (i as never as { status: string }).status === "draft").length} da inviare — tocca per inviare</span>}
+                  </div>
                 </div>
-                {coverCount > 0 && (
-                  <div className="text-[10px] text-slate-400">{coverCount} coperti</div>
+                {hasDraftItems && (
+                  <span className="ml-auto shrink-0 bg-amber-500 text-[#0f1117] text-[10px] font-extrabold rounded-full w-5 h-5 flex items-center justify-center animate-pulse">
+                    {items.filter(i => (i as never as { status: string }).status === "draft").length}
+                  </span>
                 )}
-              </>
+              </div>
             ) : (
-              <span className="font-semibold text-slate-700 text-sm">
+              <span className="font-bold text-slate-300 text-sm">
                 Hello<span className="text-primary">Table</span>
               </span>
             )}
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
+          </button>
+
+          <div className="flex items-center gap-1 shrink-0 ml-1">
+            <button onClick={() => setShowLog(v => !v)}
+              className={cn(
+                "h-8 w-8 rounded-lg flex items-center justify-center transition-colors relative",
+                showLog ? "bg-primary/20 text-primary" : "text-slate-500 hover:text-slate-300 hover:bg-[#2d3044]"
+              )}>
+              <ScrollText className="h-3.5 w-3.5" />
+              {logEntries.some(e => e.level === "error") && (
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500" />
+              )}
+            </button>
             <button onClick={() => { setRightTab("tavl"); setMobilePanel("right"); }}
               className={cn(
-                "h-7 w-7 rounded-md flex items-center justify-center transition-colors",
+                "h-8 w-8 rounded-lg flex items-center justify-center transition-colors",
                 rightTab === "tavl"
-                  ? "bg-primary/10 text-primary"
-                  : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                  ? "bg-primary/20 text-primary"
+                  : "text-slate-500 hover:text-slate-300 hover:bg-[#2d3044]"
               )}>
               <MapIcon className="h-3.5 w-3.5" />
             </button>
@@ -2063,14 +2143,23 @@ export default function FrontOffice() {
         </div>
 
         {/* Totale */}
-        <div className="px-3 pt-2 pb-1 shrink-0">
-          <div className="bg-slate-100 rounded-xl px-3 py-1.5 flex items-center justify-between border border-slate-200">
+        <div className="px-2.5 pt-2 pb-1 shrink-0">
+          <div className="bg-[#12151e] rounded-xl px-3 py-2 flex items-center justify-between border border-[#2d3044]">
             <div>
               {numBuffer ? (
-                <div className="text-base font-bold text-primary leading-none">{numBuffer}×</div>
+                <div className="text-sm font-bold text-primary leading-none flex items-center gap-1">
+                  {selectedItemId
+                    ? (numpadMode === "price" ? <Euro className="h-3 w-3" /> : <Hash className="h-3 w-3" />)
+                    : null}
+                  {numBuffer}{selectedItemId ? "" : "×"}
+                </div>
               ) : (
                 <div className="text-[11px] font-medium text-slate-500">
-                  {activeOrderId ? "Ordine in corso" : "Nessun ordine"}
+                  {selectedItemId ? (
+                    <span className="text-primary font-semibold">
+                      {numpadMode === "price" ? "€ prezzo" : "qtà"} — inserisci valore
+                    </span>
+                  ) : activeOrderId ? "Ordine in corso" : "Nessun ordine"}
                 </div>
               )}
               {coverTotal > 0 && (
@@ -2078,25 +2167,20 @@ export default function FrontOffice() {
               )}
             </div>
             <div className="text-right">
-              <div className="text-base font-bold text-slate-900 font-mono tabular-nums">€{total.toFixed(2)}</div>
-              {hasDraftItems && (
-                <div className="text-[10px] font-medium text-orange-600">
-                  {items.filter(i => (i as never as { status: string }).status === "draft").length} da inviare
-                </div>
-              )}
+              <div className="text-lg font-bold text-white font-mono tabular-nums">€{total.toFixed(2)}</div>
             </div>
           </div>
         </div>
 
         {/* Fasi F1–F4 */}
-        <div className="px-3 pb-1 flex gap-1 shrink-0">
+        <div className="px-2.5 pb-1 flex gap-1 shrink-0">
           {phaseLabels.map((label, i) => (
             <button key={i} onClick={() => setActivePriceList(i)}
               className={cn(
                 "flex-1 py-1.5 rounded-md text-[11px] font-semibold transition-all",
                 activePriceList === i
                   ? "bg-primary text-white shadow-sm"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  : "bg-[#252840] text-slate-400 hover:bg-[#2d3044] hover:text-slate-200"
               )}>
               {label}
             </button>
@@ -2107,7 +2191,7 @@ export default function FrontOffice() {
         <ScrollArea className="flex-1 min-h-0">
           <div className="px-2.5 pb-1 space-y-0.5 pt-0.5">
             {items.length === 0 ? (
-              <div className="text-center py-8 text-slate-300">
+              <div className="text-center py-8 text-slate-600">
                 <UtensilsCrossed className="h-7 w-7 mx-auto mb-2" />
                 <div className="text-[11px]">
                   {activeOrderId ? "Seleziona prodotti dal menu" : "Seleziona un tavolo dalla mappa"}
@@ -2122,48 +2206,55 @@ export default function FrontOffice() {
                 return (
                   <div key={item.id}
                     onClick={() => {
-                      const existingMods: Array<{ id: number; label: string; type: string; priceExtra: string }> = (() => {
-                        try { return JSON.parse((item as never as { modifiers?: string }).modifiers ?? "[]"); } catch { return []; }
-                      })();
-                      setSelectedItemId(item.id);
-                      setSelectedModifierIds(new Set(existingMods.map(m => m.id)));
-                      setPickerKpNote((item as never as { notes?: string | null }).notes ?? "");
-                      setPickerModFilter("all");
-                      setModifierPicker({ productId: item.productId, productName: item.productName, unitPrice: item.unitPrice, itemId: item.id });
+                      if (isSelected) {
+                        setSelectedItemId(null);
+                        setNumBuffer("");
+                      } else {
+                        setSelectedItemId(item.id);
+                        setNumBuffer("");
+                        setNumpadMode("qty");
+                      }
                     }}
                     className={cn(
                       "rounded-lg px-2.5 py-1.5 cursor-pointer transition-all select-none border",
-                      isDraft
-                        ? "bg-orange-50 border-orange-200"
-                        : "bg-white border-slate-200",
-                      isSelected && "border-primary/60 bg-primary/8 ring-1 ring-primary/20"
+                      isSelected
+                        ? "border-primary bg-primary/15 ring-1 ring-primary/40"
+                        : isDraft
+                          ? "bg-[#2a1f0d] border-amber-800/60 hover:border-amber-600"
+                          : "bg-[#22263a] border-[#2d3044] hover:border-[#3a3f58]"
                     )}>
                     <div className="flex items-center gap-1.5">
-                      <span className="flex-1 text-[12px] font-semibold text-slate-800 truncate">{item.productName}</span>
-                      {!isDraft && <span className="text-[10px] text-emerald-600 shrink-0 font-bold">✓</span>}
-                      <span className="text-xs font-bold text-slate-900 shrink-0 tabular-nums">€{parseFloat(item.subtotal).toFixed(2)}</span>
+                      <span className={cn(
+                        "flex-1 text-[12px] font-semibold truncate",
+                        isSelected ? "text-primary" : isDraft ? "text-amber-200" : "text-slate-200"
+                      )}>{item.productName}</span>
+                      {!isDraft && <span className="text-[10px] text-emerald-500 shrink-0 font-bold">✓</span>}
+                      <span className={cn(
+                        "text-xs font-bold shrink-0 tabular-nums",
+                        isSelected ? "text-primary" : "text-slate-100"
+                      )}>€{parseFloat(item.subtotal).toFixed(2)}</span>
                     </div>
                     <div className="flex items-center gap-1 mt-0.5">
-                      <span className="text-[10px] text-slate-500 flex-1">€{parseFloat(item.unitPrice).toFixed(2)} cad.</span>
+                      <span className="text-[10px] text-slate-500 flex-1">€{parseFloat(item.unitPrice).toFixed(2)} × {item.quantity}</span>
                       <button
                         onClick={e => { e.stopPropagation(); setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus }); }}
-                        className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-slate-100 active:bg-slate-200 transition-colors shrink-0">
-                        <Pencil className="h-3.5 w-3.5 text-slate-500" />
+                        className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-[#3a3f58] active:bg-[#444a6a] transition-colors shrink-0">
+                        <Pencil className="h-3.5 w-3.5 text-slate-400" />
                       </button>
                       <div className="flex items-center gap-0.5 shrink-0">
                         <button onClick={e => { e.stopPropagation(); handleQty(item.id, item.quantity - 1); }}
-                          className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-red-50 active:bg-red-100 transition-colors">
-                          <Minus className="h-3.5 w-3.5 text-slate-600" />
+                          className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-red-900/40 active:bg-red-900/60 transition-colors">
+                          <Minus className="h-3.5 w-3.5 text-red-400" />
                         </button>
-                        <span className="w-5 text-center text-xs font-bold text-slate-700">{item.quantity}</span>
+                        <span className="w-5 text-center text-xs font-bold text-slate-200">{item.quantity}</span>
                         <button onClick={e => { e.stopPropagation(); handleQty(item.id, item.quantity + 1); }}
-                          className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-emerald-50 active:bg-emerald-100 transition-colors">
-                          <Plus className="h-3.5 w-3.5 text-slate-600" />
+                          className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-emerald-900/40 active:bg-emerald-900/60 transition-colors">
+                          <Plus className="h-3.5 w-3.5 text-emerald-400" />
                         </button>
                       </div>
                     </div>
                     {itemNotes && (
-                      <div className="mt-0.5 text-[9px] text-orange-400 italic truncate">{itemNotes}</div>
+                      <div className="mt-0.5 text-[9px] text-amber-500 italic truncate">{itemNotes}</div>
                     )}
                     {(() => {
                       try {
@@ -2171,12 +2262,12 @@ export default function FrontOffice() {
                         if (!mods.length) return null;
                         return (
                           <div className="flex flex-wrap gap-1 mt-1">
-                            {mods.map((m, i) => (
-                              <span key={i} className={cn(
+                            {mods.map((m, idx) => (
+                              <span key={idx} className={cn(
                                 "text-[9px] px-1.5 py-0.5 rounded font-medium",
-                                m.type === "plus" ? "bg-emerald-100 text-emerald-700" :
-                                m.type === "minus" ? "bg-red-100 text-red-700" :
-                                "bg-slate-100 text-slate-500"
+                                m.type === "plus" ? "bg-emerald-900/60 text-emerald-400" :
+                                m.type === "minus" ? "bg-red-900/60 text-red-400" :
+                                "bg-[#2d3044] text-slate-400"
                               )}>
                                 {m.type === "plus" ? "+" : m.type === "minus" ? "−" : "✎"} {m.label}
                               </span>
@@ -2192,40 +2283,55 @@ export default function FrontOffice() {
           </div>
         </ScrollArea>
 
-        {/* Invia Comanda — piena larghezza */}
-        <div className="px-2.5 pt-1.5 pb-0.5 shrink-0">
-          <button onClick={handleSendComanda} disabled={!hasDraftItems}
-            className={cn(
-              "w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-bold transition-all",
-              hasDraftItems
-                ? "bg-primary text-white hover:bg-primary/90 active:scale-95 shadow-sm"
-                : "text-slate-400 bg-slate-100 border border-slate-200 cursor-not-allowed"
-            )}>
-            <Send className="h-4 w-4" /> Invia Comanda
-            {hasDraftItems && (
-              <span className="ml-1 bg-white/30 text-white text-[10px] font-bold px-1.5 rounded-full">
-                {items.filter(i => (i as never as { status: string }).status === "draft").length}
-              </span>
-            )}
-          </button>
-        </div>
-
         {/* Tastierino + bottoni rapidi laterali */}
         <div className="px-2.5 pb-1 shrink-0 flex gap-1.5">
 
           {/* Numpad compatto 3×4 */}
-          <div className="flex-1 grid grid-cols-3 gap-1">
-            {numpadKeys.map(k => (
-              <button key={k} onClick={() => handleNumpadKey(k)}
-                className={cn(
-                  "h-9 rounded-lg font-semibold text-sm transition-all active:scale-90 select-none",
-                  k === "X"
-                    ? "bg-red-100 text-red-600 hover:bg-red-200"
-                    : "bg-slate-100 text-slate-800 hover:bg-slate-200"
-                )}>
-                {k === "X" ? "⌫" : k}
-              </button>
-            ))}
+          <div className="flex-1 flex flex-col gap-1">
+            {/* Mode bar: when item is selected show Qtà/Prezzo toggle */}
+            {selectedItemId && (
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setNumpadMode("qty")}
+                  className={cn(
+                    "flex-1 h-8 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-all active:scale-95",
+                    numpadMode === "qty"
+                      ? "bg-primary text-white shadow-sm"
+                      : "bg-[#252840] text-slate-400 hover:bg-[#2d3044]"
+                  )}>
+                  <Hash className="h-3 w-3" /> Qtà
+                </button>
+                <button
+                  onClick={() => setNumpadMode("price")}
+                  className={cn(
+                    "flex-1 h-8 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-all active:scale-95",
+                    numpadMode === "price"
+                      ? "bg-emerald-600 text-white shadow-sm"
+                      : "bg-[#252840] text-slate-400 hover:bg-[#2d3044]"
+                  )}>
+                  <Euro className="h-3 w-3" /> Prezzo
+                </button>
+                <button
+                  onClick={applyNumpadToSelectedItem}
+                  disabled={!numBuffer}
+                  className="h-8 w-10 rounded-lg bg-primary/80 text-white font-bold text-xs flex items-center justify-center active:scale-95 disabled:opacity-30 transition-all">
+                  OK
+                </button>
+              </div>
+            )}
+            <div className="grid grid-cols-3 gap-1 flex-1">
+              {numpadKeys.map(k => (
+                <button key={k} onClick={() => handleNumpadKey(k)}
+                  className={cn(
+                    "h-9 rounded-lg font-bold text-sm transition-all active:scale-90 select-none",
+                    k === "X"
+                      ? "bg-red-900/60 text-red-400 hover:bg-red-900/80"
+                      : "bg-[#252840] text-slate-200 hover:bg-[#2d3044]"
+                  )}>
+                  {k === "X" ? "⌫" : k}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Bottoni azione — 2 colonne × 3 righe */}
@@ -2241,7 +2347,7 @@ export default function FrontOffice() {
                 notes: (selectedItem as never as { notes?: string | null }).notes,
                 status: (selectedItem as never as { status: string }).status,
               })}
-              className="h-12 rounded-lg flex items-center justify-center bg-amber-100 text-amber-800 hover:bg-amber-200 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              className="h-12 rounded-lg flex items-center justify-center bg-amber-700 text-amber-100 hover:bg-amber-600 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
               Sconto
             </button>
             <button
@@ -2250,8 +2356,8 @@ export default function FrontOffice() {
               className={cn(
                 "h-12 rounded-lg flex items-center justify-center gap-1 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed relative",
                 lotteriaCodice
-                  ? "bg-green-100 text-green-800 hover:bg-green-200 ring-1 ring-green-400"
-                  : "bg-blue-100 text-blue-800 hover:bg-blue-200"
+                  ? "bg-green-800 text-green-200 hover:bg-green-700 ring-1 ring-green-500"
+                  : "bg-blue-800 text-blue-200 hover:bg-blue-700"
               )}>
               Lotteria
               {lotteriaCodice && (
@@ -2263,13 +2369,13 @@ export default function FrontOffice() {
             <button
               disabled={items.length === 0}
               onClick={() => setShowPreconto(true)}
-              className="h-12 rounded-lg flex items-center justify-center bg-slate-200 text-slate-700 hover:bg-slate-300 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              className="h-12 rounded-lg flex items-center justify-center bg-[#252840] text-slate-300 hover:bg-[#2d3044] text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
               Preconto
             </button>
             <button
               disabled={items.length < 2}
               onClick={() => setShowSplitBill(true)}
-              className="h-12 rounded-lg flex items-center justify-center bg-purple-100 text-purple-800 hover:bg-purple-200 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              className="h-12 rounded-lg flex items-center justify-center bg-purple-800 text-purple-200 hover:bg-purple-700 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
               Separa
             </button>
 
@@ -2277,31 +2383,63 @@ export default function FrontOffice() {
             <button
               disabled={items.length === 0}
               onClick={() => setShowRomana(true)}
-              className="h-12 rounded-lg flex items-center justify-center bg-green-100 text-green-800 hover:bg-green-200 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              className="h-12 rounded-lg flex items-center justify-center bg-green-800 text-green-200 hover:bg-green-700 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
               Romana
             </button>
             {activeOrderId ? (
               <button
                 onClick={() => setShowCancelConfirm(true)}
-                className="h-12 rounded-lg flex items-center justify-center bg-red-100 text-red-800 hover:bg-red-200 text-xs font-semibold transition-all active:scale-95">
+                className="h-12 rounded-lg flex items-center justify-center bg-red-900 text-red-300 hover:bg-red-800 text-xs font-semibold transition-all active:scale-95">
                 Annulla
               </button>
             ) : (
               <button
                 onClick={() => handleQuickMode("rapida")}
-                className="h-12 rounded-lg flex items-center justify-center bg-orange-100 text-orange-800 hover:bg-orange-200 text-xs font-semibold transition-all active:scale-95">
+                className="h-12 rounded-lg flex items-center justify-center bg-orange-800 text-orange-200 hover:bg-orange-700 text-xs font-semibold transition-all active:scale-95">
                 Rapida
               </button>
             )}
           </div>
         </div>
 
+        {/* Console Log Panel */}
+        {showLog && (
+          <div className="mx-2.5 mb-1 shrink-0 rounded-xl bg-[#0a0c12] border border-[#2d3044] overflow-hidden" style={{ maxHeight: 160 }}>
+            <div className="flex items-center justify-between px-3 py-1.5 bg-[#12151e] border-b border-[#2d3044]">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <ScrollText className="h-3 w-3" /> Console
+              </span>
+              <button onClick={() => setLogEntries([])} className="text-[10px] text-slate-600 hover:text-slate-400 transition-colors">
+                Pulisci
+              </button>
+            </div>
+            <div className="overflow-y-auto font-mono" style={{ maxHeight: 115 }}>
+              {logEntries.length === 0 ? (
+                <div className="px-3 py-3 text-[10px] text-slate-600 text-center">Nessun evento registrato</div>
+              ) : (
+                logEntries.map(e => (
+                  <div key={e.id} className={cn(
+                    "flex items-start gap-2 px-3 py-0.5 border-b border-[#1a1d2a] last:border-0",
+                    e.level === "error" ? "bg-red-950/30" : e.level === "warn" ? "bg-amber-950/20" : ""
+                  )}>
+                    <span className="text-slate-600 text-[9px] shrink-0 pt-0.5 tabular-nums">{e.ts}</span>
+                    <span className={cn(
+                      "text-[10px] leading-relaxed",
+                      e.level === "error" ? "text-red-400" : e.level === "warn" ? "text-amber-400" : "text-slate-400"
+                    )}>{e.msg}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Bottone CASSA */}
         <div className="px-2.5 pb-20 sm:pb-2.5 shrink-0">
           <button
             onClick={() => { setRightTab("tot"); setMobilePanel("right"); }}
             disabled={items.length === 0}
-            className="w-full py-2.5 rounded-xl bg-primary text-white font-semibold text-sm tracking-wide hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+            className="w-full py-3 rounded-xl bg-primary text-white font-bold text-sm tracking-wide hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-primary/20">
             Cassa · €{total.toFixed(2)}
           </button>
         </div>
@@ -2309,12 +2447,12 @@ export default function FrontOffice() {
 
       {/* ══ RIGHT PANEL ═══════════════════════════════════════════════════════ */}
       <div className={cn(
-        "flex-1 flex flex-col overflow-hidden",
+        "flex-1 flex flex-col overflow-hidden bg-[#151827]",
         mobilePanel === "right" ? "flex" : "hidden sm:flex"
       )}>
 
         {/* Tab bar: GRP | ART | VAR | TAVL | CLNT | TOT */}
-        <div className="flex bg-white border-b border-slate-200 shrink-0">
+        <div className="flex bg-[#0f1117] border-b border-[#2d3044] shrink-0">
           {(["grp","art","var","tavl","clnt","tot"] as const).map((tab) => {
             const labels: Record<string, string> = { grp:"GRP", art:"ART", var:"VAR", tavl:"TAVL", clnt:"CLNT", tot:"TOT" };
             const active = rightTab === tab;
@@ -2323,8 +2461,8 @@ export default function FrontOffice() {
                 className={cn(
                   "flex-1 h-14 flex items-center justify-center transition-all border-b-2 text-xs tracking-wide",
                   active
-                    ? "font-bold text-primary border-primary bg-primary/5"
-                    : "font-medium text-slate-600 border-transparent hover:text-slate-900 hover:bg-slate-50"
+                    ? "font-bold text-primary border-primary bg-primary/10"
+                    : "font-medium text-slate-500 border-transparent hover:text-slate-300 hover:bg-[#1a1d2a]"
                 )}>
                 {labels[tab]}
               </button>
@@ -2334,7 +2472,7 @@ export default function FrontOffice() {
 
         {/* ── GRP: category grid */}
         {rightTab === "grp" && (
-          <ScrollArea className="flex-1 bg-[#f0f2f7]">
+          <ScrollArea className="flex-1 bg-[#151827]">
             <div className="p-4 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))" }}>
               {categories.map(cat => (
                 <CategoryButton key={cat.id} cat={cat} onClick={() => {
@@ -2344,7 +2482,7 @@ export default function FrontOffice() {
                 }} />
               ))}
               {categories.length === 0 && (
-                <div className="col-span-full text-center py-16 text-slate-400">
+                <div className="col-span-full text-center py-16 text-slate-600">
                   <UtensilsCrossed className="h-10 w-10 mx-auto mb-3 opacity-20" />
                   <div className="text-sm">Nessuna categoria nel menu</div>
                 </div>
@@ -2355,27 +2493,27 @@ export default function FrontOffice() {
 
         {/* ── ART: products grid */}
         {rightTab === "art" && (
-          <div className="flex-1 flex flex-col overflow-hidden bg-[#f0f2f7]">
+          <div className="flex-1 flex flex-col overflow-hidden bg-[#151827]">
             {/* Sub-header */}
-            <div className="px-4 py-2.5 bg-white border-b border-slate-200 flex items-center gap-2 shrink-0">
+            <div className="px-4 py-2.5 bg-[#0f1117] border-b border-[#2d3044] flex items-center gap-2 shrink-0">
               <button onClick={() => { setSelectedCategoryId(null); setRightTab("grp"); }}
-                className="h-9 w-9 rounded-xl border-2 border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-colors text-slate-500 shrink-0">
+                className="h-9 w-9 rounded-xl border-2 border-[#2d3044] flex items-center justify-center hover:border-primary hover:text-primary transition-colors text-slate-500 shrink-0">
                 <ChevronLeft className="h-5 w-5" />
               </button>
               {selectedCategoryId && (
-                <span className="font-bold text-slate-800 text-sm shrink-0" style={{
-                  color: categories.find(c => c.id === selectedCategoryId)?.color ?? undefined
+                <span className="font-bold text-sm shrink-0" style={{
+                  color: categories.find(c => c.id === selectedCategoryId)?.color ?? "#94a3b8"
                 }}>
                   {categories.find(c => c.id === selectedCategoryId)?.name}
                 </span>
               )}
               <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-600" />
                 <input value={productSearch} onChange={e => setProductSearch(e.target.value)}
                   placeholder="Cerca prodotto…"
-                  className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-primary" />
+                  className="w-full pl-8 pr-3 py-2 bg-[#1a1d2a] border border-[#2d3044] rounded-lg text-sm outline-none focus:border-primary text-slate-200 placeholder:text-slate-600" />
               </div>
-              {numBuffer && (
+              {numBuffer && !selectedItemId && (
                 <div className="px-3 py-1.5 rounded-xl bg-primary text-white font-bold text-sm shrink-0 animate-pulse">
                   {numBuffer}×
                 </div>
@@ -2387,7 +2525,7 @@ export default function FrontOffice() {
                   <ProductCard key={p.id} product={p as PosProduct} activePriceList={activePriceList} onAdd={handleAddProduct} />
                 ))}
                 {visibleProducts.length === 0 && (
-                  <div className="col-span-full text-center py-16 text-slate-400">
+                  <div className="col-span-full text-center py-16 text-slate-600">
                     <UtensilsCrossed className="h-8 w-8 mx-auto mb-2 opacity-25" />
                     <div className="text-sm">Nessun prodotto disponibile</div>
                   </div>
@@ -2399,24 +2537,24 @@ export default function FrontOffice() {
 
         {/* ── VAR: variazioni per articolo selezionato */}
         {rightTab === "var" && (
-          <ScrollArea className="flex-1 bg-[#f0f2f7]">
+          <ScrollArea className="flex-1 bg-[#151827]">
             <div className="p-3 space-y-3">
               {!selectedItem ? (
-                <div className="text-center py-20 text-slate-400">
-                  <div className="text-5xl mb-3">✦</div>
+                <div className="text-center py-20 text-slate-600">
+                  <div className="text-5xl mb-3 opacity-30">✦</div>
                   <div className="text-sm font-semibold text-slate-500">Seleziona un articolo dall'ordine</div>
-                  <div className="text-xs text-slate-400 mt-1">Le variazioni disponibili appariranno qui</div>
+                  <div className="text-xs text-slate-600 mt-1">Le variazioni disponibili appariranno qui</div>
                 </div>
               ) : (
                 <>
                   {/* Product info card */}
-                  <div className="px-4 py-3 bg-white rounded-2xl border-2 border-primary/30 shadow-sm">
-                    <div className="font-bold text-slate-800">{selectedItem.productName}</div>
+                  <div className="px-4 py-3 bg-[#22263a] rounded-2xl border-2 border-primary/40">
+                    <div className="font-bold text-slate-200">{selectedItem.productName}</div>
                     <div className="text-xs text-slate-500 mt-0.5">
                       {selectedItem.quantity}× · €{parseFloat(selectedItem.unitPrice).toFixed(2)} cad.
                     </div>
                     {(selectedItem as never as { notes?: string | null }).notes && (
-                      <div className="text-xs italic text-orange-500 mt-1 truncate">
+                      <div className="text-xs italic text-amber-400 mt-1 truncate">
                         {(selectedItem as never as { notes?: string | null }).notes}
                       </div>
                     )}
@@ -2433,9 +2571,9 @@ export default function FrontOffice() {
                           <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 px-1">Variazioni applicate</div>
                           {applied.map((m, i) => {
                             const icon = m.type === "plus" ? "+" : m.type === "minus" ? "−" : "✎";
-                            const bg = m.type === "plus" ? "bg-emerald-50 border-emerald-300 text-emerald-800"
-                              : m.type === "minus" ? "bg-red-50 border-red-300 text-red-800"
-                              : "bg-slate-100 border-slate-300 text-slate-700";
+                            const bg = m.type === "plus" ? "bg-emerald-900/50 border-emerald-700 text-emerald-300"
+                              : m.type === "minus" ? "bg-red-900/50 border-red-700 text-red-300"
+                              : "bg-[#22263a] border-[#2d3044] text-slate-400";
                             return (
                               <div key={i} className={cn("flex items-center gap-3 px-4 py-3 rounded-xl border-2", bg)}>
                                 <span className="font-bold text-base w-5 text-center shrink-0">{icon}</span>
@@ -2464,15 +2602,15 @@ export default function FrontOffice() {
                         const isApplied = currentMods.some(m => m.id === mod.id);
                         const icon = mod.type === "plus" ? "+" : mod.type === "minus" ? "−" : "✎";
                         const colorOn = mod.type === "plus"
-                          ? "bg-emerald-500 border-emerald-500 text-white"
+                          ? "bg-emerald-600 border-emerald-500 text-white"
                           : mod.type === "minus"
-                            ? "bg-red-500 border-red-500 text-white"
-                            : "bg-slate-700 border-slate-700 text-white";
+                            ? "bg-red-600 border-red-500 text-white"
+                            : "bg-[#3a3f58] border-[#4a4f6a] text-white";
                         const colorOff = mod.type === "plus"
-                          ? "bg-white border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                          ? "bg-[#1a3028] border-emerald-800 text-emerald-400 hover:border-emerald-600"
                           : mod.type === "minus"
-                            ? "bg-white border-red-300 text-red-700 hover:bg-red-50"
-                            : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50";
+                            ? "bg-[#2a1a1a] border-red-800 text-red-400 hover:border-red-600"
+                            : "bg-[#22263a] border-[#2d3044] text-slate-400 hover:border-[#3a3f58]";
                         return (
                           <button key={mod.id}
                             onClick={async () => {
@@ -2919,6 +3057,30 @@ export default function FrontOffice() {
           </Dialog>
         );
       })()}
+
+      {/* KP Resend prompt */}
+      <AlertDialog open={kpResendPending} onOpenChange={setKpResendPending}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Send className="h-5 w-5 text-amber-500" />
+              Reinviare comanda al reparto?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Hai modificato un articolo già inviato. Vuoi reinviare la comanda aggiornata ai reparti?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setKpResendPending(false)}>No, ignora</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => { await handleSendComanda(); setKpResendPending(false); }}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              <Send className="h-4 w-4 mr-2" /> Sì, reinvia
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
         <AlertDialogContent>
