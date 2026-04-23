@@ -19,12 +19,14 @@ router.get("/", async (req, res) => {
 
 // POST /api/reservations
 router.post("/", async (req, res) => {
-  const { tableId, date, time, covers, guestName, phone, notes } = req.body as {
-    tableId?: number | null; date: string; time: string; covers?: number;
+  const { tableId, tableIds, date, time, covers, guestName, phone, notes } = req.body as {
+    tableId?: number | null; tableIds?: number[]; date: string; time: string; covers?: number;
     guestName: string; phone?: string; notes?: string;
   };
+  const primaryTableId = tableId ?? (tableIds && tableIds.length > 0 ? tableIds[0] : null);
   const [row] = await db.insert(reservationsTable).values({
-    tableId: tableId ?? null,
+    tableId: primaryTableId ?? null,
+    tableIds: tableIds && tableIds.length > 0 ? JSON.stringify(tableIds) : null,
     date, time,
     covers: covers ?? 2,
     guestName,
@@ -38,8 +40,8 @@ router.post("/", async (req, res) => {
 // PATCH /api/reservations/:id
 router.patch("/:id", async (req, res) => {
   const id = parseInt(req.params.id);
-  const { tableId, date, time, covers, guestName, phone, notes, status } = req.body as Partial<{
-    tableId: number | null; date: string; time: string; covers: number;
+  const { tableId, tableIds, date, time, covers, guestName, phone, notes, status } = req.body as Partial<{
+    tableId: number | null; tableIds: number[]; date: string; time: string; covers: number;
     guestName: string; phone: string; notes: string; status: string;
   }>;
   const updates: Partial<typeof reservationsTable.$inferInsert> = {};
@@ -50,7 +52,12 @@ router.patch("/:id", async (req, res) => {
   if (phone !== undefined) updates.phone = phone;
   if (notes !== undefined) updates.notes = notes;
   if (status !== undefined) updates.status = status;
-  if (tableId !== undefined) updates.tableId = tableId;
+  if (tableIds !== undefined) {
+    updates.tableIds = tableIds.length > 0 ? JSON.stringify(tableIds) : null;
+    if (tableIds.length > 0) updates.tableId = tableIds[0];
+  } else if (tableId !== undefined) {
+    updates.tableId = tableId;
+  }
 
   const [row] = await db.update(reservationsTable).set(updates).where(eq(reservationsTable.id, id)).returning();
   if (!row) return res.status(404).json({ error: "Prenotazione non trovata" });

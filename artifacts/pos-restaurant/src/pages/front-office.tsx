@@ -66,10 +66,14 @@ function getElementSize(t: { elementType?: string; shape?: string }) {
 type FETable = TableStatus & { roomName?: string; posX?: number; posY?: number; shape?: string; elementType?: string; rotation?: number };
 
 type Reservation = {
-  id: number; tableId: number | null; date: string; time: string;
+  id: number; tableId: number | null; tableIds?: string | null; date: string; time: string;
   covers: number; guestName: string; phone?: string | null;
   notes?: string | null; status: string; tableName?: string | null;
 };
+function parseTableIds(r: Reservation): number[] {
+  if (r.tableIds) { try { return JSON.parse(r.tableIds) as number[]; } catch { /**/ } }
+  return r.tableId ? [r.tableId] : [];
+}
 
 function FloorElement({ t, isSelected, onClick, reservation, assignMode, moveMode }: {
   t: FETable; isSelected: boolean; onClick?: () => void;
@@ -175,15 +179,51 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
     queryFn: () => fetch(`${API}/reservations?date=${today}`).then(r => r.json()),
     refetchInterval: 60000,
   });
-  const reservationByTableId = useMemo(
-    () => new Map(reservations.filter(r => r.tableId).map(r => [r.tableId!, r])),
-    [reservations]
-  );
+  const reservationByTableId = useMemo(() => {
+    const m = new Map<number, Reservation>();
+    for (const r of reservations) {
+      for (const tid of parseTableIds(r)) m.set(tid, r);
+    }
+    return m;
+  }, [reservations]);
   const unassigned = useMemo(
-    () => reservations.filter(r => !r.tableId && r.status !== "cancelled").sort((a, b) => a.time.localeCompare(b.time)),
+    () => reservations.filter(r => parseTableIds(r).length === 0 && r.status !== "cancelled").sort((a, b) => a.time.localeCompare(b.time)),
     [reservations]
   );
   const reservedCount = reservations.filter(r => r.status !== "cancelled").length;
+
+  // ── New reservation form state ─────────────────────────────────────────────
+  const [showNewRes, setShowNewRes] = useState(false);
+  const [resForm, setResForm] = useState({ guestName: "", phone: "", time: "20:00", covers: 2 });
+  const [resTableIds, setResTableIds] = useState<number[]>([]);
+  const [resSaving, setResSaving] = useState(false);
+
+  function toggleResTable(id: number) {
+    setResTableIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }
+
+  async function submitReservation() {
+    if (!resForm.guestName.trim()) return;
+    setResSaving(true);
+    try {
+      await fetch(`${API}/reservations`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          guestName: resForm.guestName.trim(),
+          phone: resForm.phone.trim() || null,
+          time: resForm.time,
+          covers: resForm.covers,
+          tableIds: resTableIds,
+          date: today,
+          status: "confirmed",
+        }),
+      });
+      await refetchReservations();
+      setShowNewRes(false);
+      setResForm({ guestName: "", phone: "", time: "20:00", covers: 2 });
+      setResTableIds([]);
+    } finally { setResSaving(false); }
+  }
 
   // ── Assign / Move mode ────────────────────────────────────────────────────
   const [assigningRes, setAssigningRes] = useState<Reservation | null>(null);
@@ -272,18 +312,24 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 text-xs shrink-0 flex-wrap justify-end">
-            <span className="flex items-center gap-1 text-emerald-600 font-semibold">
-              <div className="h-2 w-2 rounded-full bg-emerald-500" /> {freeCount} liberi
-            </span>
-            <span className="flex items-center gap-1 text-orange-500 font-semibold">
-              <div className="h-2 w-2 rounded-full bg-orange-500" /> {occupiedCount} occupati
-            </span>
-            {reservedCount > 0 && (
-              <span className="flex items-center gap-1 text-blue-600 font-semibold">
-                <CalendarClock className="h-3 w-3" /> {reservedCount} prenotati
+          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="flex items-center gap-1 text-emerald-600 font-semibold">
+                <div className="h-2 w-2 rounded-full bg-emerald-500" /> {freeCount}
               </span>
-            )}
+              <span className="flex items-center gap-1 text-orange-500 font-semibold">
+                <div className="h-2 w-2 rounded-full bg-orange-500" /> {occupiedCount}
+              </span>
+              {reservedCount > 0 && (
+                <span className="flex items-center gap-1 text-blue-600 font-semibold">
+                  <CalendarClock className="h-3 w-3" /> {reservedCount}
+                </span>
+              )}
+            </div>
+            <button onClick={() => { setShowNewRes(true); setResForm({ guestName: "", phone: "", time: "20:00", covers: 2 }); setResTableIds([]); }}
+              className="flex items-center gap-1.5 px-3 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:bg-primary/90 active:scale-95 transition-all shrink-0">
+              <CalendarClock className="h-3.5 w-3.5" /> Prenota
+            </button>
           </div>
         </div>
         {rooms.length > 1 && (
@@ -424,6 +470,119 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
                 onClick={() => { setMovingRes(reservationPopup.res); setReservationPopup(null); }}
                 className="w-full py-3 bg-blue-50 text-blue-700 border-2 border-blue-200 rounded-xl font-semibold text-sm hover:bg-blue-100 active:scale-95 transition-all flex items-center justify-center gap-2">
                 <ArrowRight className="h-4 w-4" /> Sposta a un altro tavolo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Nuova prenotazione dialog ─────────────────────────────── */}
+      {showNewRes && (
+        <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowNewRes(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+            onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="px-5 py-4 bg-primary flex items-center justify-between">
+              <div className="flex items-center gap-2 text-white">
+                <CalendarClock className="h-5 w-5" />
+                <span className="font-bold text-base">Nuova Prenotazione</span>
+              </div>
+              <button onClick={() => setShowNewRes(false)}
+                className="h-8 w-8 rounded-lg bg-white/20 flex items-center justify-center hover:bg-white/30">
+                <X className="h-4 w-4 text-white" />
+              </button>
+            </div>
+            {/* Form */}
+            <div className="px-5 py-4 space-y-3 max-h-[70vh] overflow-y-auto">
+              {/* Nome */}
+              <div>
+                <label className="text-xs font-semibold text-slate-600 mb-1 block">Nome ospite *</label>
+                <input
+                  type="text" placeholder="Es. Rossi Mario"
+                  value={resForm.guestName}
+                  onChange={e => setResForm(f => ({ ...f, guestName: e.target.value }))}
+                  className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 focus:border-primary outline-none text-sm font-semibold"
+                  autoFocus
+                />
+              </div>
+              {/* Telefono + Ora */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-semibold text-slate-600 mb-1 block">Telefono</label>
+                  <input
+                    type="tel" placeholder="333 1234567"
+                    value={resForm.phone}
+                    onChange={e => setResForm(f => ({ ...f, phone: e.target.value }))}
+                    className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 focus:border-primary outline-none text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-600 mb-1 block">Orario</label>
+                  <input
+                    type="time" value={resForm.time}
+                    onChange={e => setResForm(f => ({ ...f, time: e.target.value }))}
+                    className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 focus:border-primary outline-none text-sm font-semibold"
+                  />
+                </div>
+              </div>
+              {/* Coperti */}
+              <div>
+                <label className="text-xs font-semibold text-slate-600 mb-1 block">Coperti</label>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setResForm(f => ({ ...f, covers: Math.max(1, f.covers - 1) }))}
+                    className="h-9 w-9 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 font-bold text-lg shrink-0">−</button>
+                  <span className="flex-1 text-center text-xl font-bold text-slate-800">{resForm.covers}</span>
+                  <button onClick={() => setResForm(f => ({ ...f, covers: f.covers + 1 }))}
+                    className="h-9 w-9 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 font-bold text-lg shrink-0">+</button>
+                </div>
+              </div>
+              {/* Selezione tavoli */}
+              <div>
+                <label className="text-xs font-semibold text-slate-600 mb-1.5 block">
+                  Tavoli {resTableIds.length > 0 && <span className="text-primary">({resTableIds.length} selezionati)</span>}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {tablesStatus
+                    .filter(t => t.elementType !== "wall" && t.elementType !== "bar" && t.elementType !== "sofa")
+                    .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "", "it", { numeric: true }))
+                    .map(t => {
+                      const isSelected = resTableIds.includes(t.id);
+                      const isOccupied = t.status === "occupied";
+                      const hasRes = reservationByTableId.has(t.id);
+                      return (
+                        <button key={t.id}
+                          onClick={() => { if (!isOccupied) toggleResTable(t.id); }}
+                          disabled={isOccupied}
+                          className={cn(
+                            "px-3 py-2 rounded-xl text-xs font-bold border-2 transition-all active:scale-95",
+                            isSelected
+                              ? "bg-primary border-primary text-white shadow-sm"
+                              : isOccupied
+                                ? "bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed"
+                                : hasRes
+                                  ? "bg-blue-50 border-blue-300 text-blue-700 hover:border-blue-400"
+                                  : "bg-slate-50 border-slate-200 text-slate-700 hover:border-primary hover:text-primary"
+                          )}>
+                          {t.name}
+                          {isOccupied && <span className="ml-1 text-[9px] opacity-60">occ</span>}
+                          {hasRes && !isOccupied && <span className="ml-1 text-[9px] text-blue-500">res</span>}
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            </div>
+            {/* Footer */}
+            <div className="px-5 py-4 border-t border-slate-100 flex gap-2">
+              <button onClick={() => setShowNewRes(false)}
+                className="flex-1 py-3 rounded-xl border-2 border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-all">
+                Annulla
+              </button>
+              <button onClick={submitReservation} disabled={!resForm.guestName.trim() || resSaving}
+                className="flex-1 py-3 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                {resSaving ? <div className="h-4 w-4 rounded-full border-2 border-white/40 border-t-white animate-spin" /> : <CalendarClock className="h-4 w-4" />}
+                Conferma
               </button>
             </div>
           </div>
@@ -2501,6 +2660,15 @@ export default function FrontOffice() {
           ))}
         </div>
 
+        {/* Codice lotteria scontrini — riga fissa sopra gli articoli */}
+        {lotteriaCodice && (
+          <div className="mx-2.5 mb-1 px-3 py-2 bg-amber-900/30 border border-amber-700/50 rounded-xl flex items-center gap-2 shrink-0">
+            <Ticket className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+            <span className="text-[11px] text-amber-300 font-mono font-bold tracking-[0.2em]">{lotteriaCodice}</span>
+            <span className="text-[9px] text-amber-600 ml-auto font-semibold uppercase tracking-wider">Lotteria</span>
+          </div>
+        )}
+
         {/* Lista articoli ordine */}
         <ScrollArea className="flex-1 min-h-0">
           <div className="px-2.5 pb-1 space-y-0.5 pt-0.5">
@@ -2511,8 +2679,27 @@ export default function FrontOffice() {
                   {activeOrderId ? "Seleziona prodotti dal menu" : "Seleziona un tavolo dalla mappa"}
                 </div>
               </div>
-            ) : (
-              items.map(item => {
+            ) : (() => {
+              // Raggruppa per fase e inserisce separatori visivi
+              const phLabels = ["F1", "F2", "F3", "F4"];
+              const grouped = new Map<number, typeof items>();
+              for (const item of items) {
+                const ph = (item as never as { phase?: number }).phase ?? 0;
+                if (!grouped.has(ph)) grouped.set(ph, []);
+                grouped.get(ph)!.push(item);
+              }
+              const phases = Array.from(grouped.keys()).sort((a, b) => a - b);
+              const multiPhase = phases.length > 1;
+              return phases.map(ph => (
+                <div key={ph}>
+                  {multiPhase && (
+                    <div className="flex items-center gap-2 py-1 my-0.5">
+                      <div className="h-px flex-1 bg-[#3a3f58]" />
+                      <span className="text-[9px] font-bold text-slate-500 tracking-widest px-1 py-0.5 rounded bg-[#252840]">{phLabels[ph] ?? `F${ph + 1}`}</span>
+                      <div className="h-px flex-1 bg-[#3a3f58]" />
+                    </div>
+                  )}
+                  {grouped.get(ph)!.map(item => {
                 const isDraft = (item as never as { status: string }).status === "draft";
                 const itemNotes = (item as never as { notes?: string | null }).notes;
                 const itemStatus = (item as never as { status: string }).status;
@@ -2598,8 +2785,10 @@ export default function FrontOffice() {
                     })()}
                   </div>
                 );
-              })
-            )}
+              })}
+            </div>
+          ));
+        })()}
           </div>
         </ScrollArea>
 

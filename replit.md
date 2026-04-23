@@ -47,7 +47,9 @@ Full-stack POS (Point of Sale) system for restaurants, pubs, and breweries. Buil
 - Order panel: draft/sent item status, quantity controls
 - Cover price line item (settable in back-office settings, charged per cover)
 - **Azioni**: Invia Comanda, Preconto, Conto Separato (split bill by item selection), Romana, Paga
-- Payment dialog: Contanti (resto auto), Carta, Altro
+- Payment dialog: Contanti (resto auto), Carta/POS, Satispay, Altro (grid-cols-4 single row)
+- Cart: phase separators (F1/F2/F3/F4 dividers between item groups when multi-phase order)
+- Cart: pinned lottery code row (amber badge above items when lotteriaCodice is set)
 - Split bill dialog: select individual items, proportional cover charge, method selector
 - Quick modes: Bevuta Rapida (always), Asporto, Delivery (toggle in settings)
 - Auto-send comanda on table switch
@@ -131,8 +133,10 @@ Global modifiers not bound to individual products but to **categories**:
 ## Reservations System (Prenotazioni)
 
 - API: `GET/POST /api/reservations`, `PATCH/DELETE /api/reservations/:id`
-- Fields: `tableId`, `date` (YYYY-MM-DD), `time` (HH:MM), `covers`, `guestName`, `phone`, `notes`, `status`
+- Fields: `tableId` (primary table, integer), `tableIds` (JSON array e.g. "[1,2]" for multi-table), `date` (YYYY-MM-DD), `time` (HH:MM), `covers`, `guestName`, `phone`, `notes`, `status`
 - `status` values: `"pending"`, `"confirmed"`, `"seated"`, `"cancelled"`
+- **Multi-table support**: `tableIds` JSON array in DB; `parseTableIds(r)` helper in frontend extracts all table IDs
+- **Prenota button** in the table map header opens a full new-reservation dialog: nome, telefono, orario, coperti + multi-select tavoli (checkboxes on free table buttons)
 - **Front-office table map** fetches today's reservations via `?date=TODAY`
 - Unassigned reservations (no `tableId`) shown as a scrollable strip above the floor plan with "Assegna" button per card
 - Clicking "Assegna" on a reservation enters **assign mode** — free tables pulse green, tap one to assign

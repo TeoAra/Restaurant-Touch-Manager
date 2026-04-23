@@ -3,6 +3,7 @@ import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
 export const reservationsTable = pgTable("reservations", {
   id: serial("id").primaryKey(),
   tableId: integer("table_id"),
+  tableIds: text("table_ids"),  // JSON array "[1,2]" — multi-table support
   date: text("date").notNull(),
   time: text("time").notNull(),
   covers: integer("covers").notNull().default(2),
