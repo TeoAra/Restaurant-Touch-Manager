@@ -30,6 +30,7 @@ import {
   AlertTriangle, CheckCircle2, User, LogOut, Building2, Pencil,
   ArrowRightFromLine, ReceiptText, Trash2, BadgePercent, StickyNote, Ticket,
   ScrollText, Hash, Euro, RefreshCw, CalendarClock, ArrowRight, BookOpen,
+  Loader2, XCircle,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link } from "wouter";
@@ -709,6 +710,8 @@ function UserMenuButton({ showUserMenu, setShowUserMenu }: {
 type SimpleCustomer = { id: number; ragioneSociale: string; partitaIva: string | null; codiceFiscale: string | null; sdiCode: string | null; pec: string | null; indirizzoVia: string | null; indirizzoCap: string | null; indirizzoComune: string | null; indirizzoProvince: string | null };
 
 // ─── New-customer mini-form (inside PaymentDialog) ────────────────────────────
+type ViesStatus = "idle" | "loading" | "ok" | "error";
+
 function NewCustomerForm({ onCreated, onCancel }: {
   onCreated: (c: SimpleCustomer) => void;
   onCancel: () => void;
@@ -724,7 +727,33 @@ function NewCustomerForm({ onCreated, onCancel }: {
   const [cap, setCap] = useState("");
   const [comune, setComune] = useState("");
   const [provincia, setProvincia] = useState("");
+  const [viesStatus, setViesStatus] = useState<ViesStatus>("idle");
+  const [viesMsg, setViesMsg] = useState("");
   const { toast } = useToast();
+
+  async function verificaPiva() {
+    const piva = partitaIva.trim().replace(/\s/g, "");
+    if (!piva) return toast({ title: "Inserisci la P.IVA prima di verificare", variant: "destructive" });
+    setViesStatus("loading"); setViesMsg("");
+    try {
+      const vatParam = piva.toUpperCase().startsWith("IT") ? piva : `IT${piva}`;
+      const resp = await fetch(`${API}/vies?vat=${encodeURIComponent(vatParam)}`);
+      const data = await resp.json() as {
+        valid?: boolean; message?: string; error?: string;
+        name?: string; parsed?: { indirizzo: string; cap: string; comune: string; provincia: string };
+      };
+      if (!resp.ok || data.error) { setViesStatus("error"); setViesMsg(data.error ?? "Errore nella verifica"); return; }
+      if (!data.valid) { setViesStatus("error"); setViesMsg(data.message ?? "P.IVA non valida nel VIES"); return; }
+      setViesStatus("ok"); setViesMsg("P.IVA verificata ✓");
+      if (data.name && data.name !== "---") setRagioneSociale(data.name);
+      if (data.parsed) {
+        if (data.parsed.indirizzo) setVia(data.parsed.indirizzo);
+        if (data.parsed.cap) setCap(data.parsed.cap);
+        if (data.parsed.comune) setComune(data.parsed.comune);
+        if (data.parsed.provincia) setProvincia(data.parsed.provincia);
+      }
+    } catch { setViesStatus("error"); setViesMsg("Errore di rete"); }
+  }
 
   async function save() {
     if (!ragioneSociale.trim()) return;
@@ -770,14 +799,45 @@ function NewCustomerForm({ onCreated, onCancel }: {
         ))}
       </div>
       <Input placeholder="Ragione sociale / Nome *" value={ragioneSociale} onChange={e => setRagioneSociale(e.target.value)} className="h-9 text-sm text-slate-100 bg-[#22263a] border-[#3d4157] placeholder:text-slate-600" />
+      {/* P.IVA con verifica VIES */}
+      <div>
+        <div className="flex gap-2">
+          <Input
+            placeholder="P.IVA (es. 12345678901)"
+            value={partitaIva}
+            onChange={e => { setPartitaIva(e.target.value); setViesStatus("idle"); setViesMsg(""); }}
+            className="h-9 text-sm font-mono text-slate-100 bg-[#22263a] border-[#3d4157] placeholder:text-slate-600 flex-1"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={verificaPiva}
+            disabled={viesStatus === "loading"}
+            className={cn(
+              "h-9 px-3 shrink-0 gap-1.5 text-xs border",
+              viesStatus === "ok" && "border-emerald-500 text-emerald-400 bg-emerald-900/30",
+              viesStatus === "error" && "border-red-500 text-red-400 bg-red-900/20",
+              viesStatus !== "ok" && viesStatus !== "error" && "border-[#3d4157] text-slate-300 bg-[#22263a] hover:bg-[#2d3349]"
+            )}
+          >
+            {viesStatus === "loading" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {viesStatus === "ok" && <CheckCircle2 className="h-3.5 w-3.5" />}
+            {viesStatus === "error" && <XCircle className="h-3.5 w-3.5" />}
+            {viesStatus === "loading" ? "Verifica…" : "Verifica"}
+          </Button>
+        </div>
+        {viesMsg && (
+          <p className={cn("text-xs mt-1", viesStatus === "ok" ? "text-emerald-400" : "text-red-400")}>
+            {viesMsg}
+          </p>
+        )}
+      </div>
       <div className="grid grid-cols-2 gap-2">
-        <Input placeholder="P.IVA" value={partitaIva} onChange={e => setPartitaIva(e.target.value)} className="h-8 text-sm font-mono text-slate-100 bg-[#22263a] border-[#3d4157] placeholder:text-slate-600" />
         <Input placeholder="Cod. Fiscale" value={codiceFiscale} onChange={e => setCodiceFiscale(e.target.value)} className="h-8 text-sm font-mono text-slate-100 bg-[#22263a] border-[#3d4157] placeholder:text-slate-600" />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
         <Input placeholder="Cod. SDI" value={sdiCode} onChange={e => setSdiCode(e.target.value)} className="h-8 text-sm font-mono text-slate-100 bg-[#22263a] border-[#3d4157] placeholder:text-slate-600" />
-        <Input placeholder="PEC" value={pec} onChange={e => setPec(e.target.value)} className="h-8 text-sm text-slate-100 bg-[#22263a] border-[#3d4157] placeholder:text-slate-600" />
       </div>
+      <Input placeholder="PEC" value={pec} onChange={e => setPec(e.target.value)} className="h-8 text-sm text-slate-100 bg-[#22263a] border-[#3d4157] placeholder:text-slate-600" />
       <Input placeholder="Via / Indirizzo" value={via} onChange={e => setVia(e.target.value)} className="h-8 text-sm text-slate-100 bg-[#22263a] border-[#3d4157] placeholder:text-slate-600" />
       <div className="grid grid-cols-5 gap-2">
         <Input placeholder="CAP" value={cap} onChange={e => setCap(e.target.value)} className="h-8 text-sm col-span-2 text-slate-100 bg-[#22263a] border-[#3d4157] placeholder:text-slate-600" />
