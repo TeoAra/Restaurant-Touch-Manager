@@ -1954,16 +1954,29 @@ export default function FrontOffice() {
     setDeleteConfirm(null);
   }
 
+  function selectNextAfter(removedId: number) {
+    const idx = items.findIndex(i => i.id === removedId);
+    const remaining = items.filter(i => i.id !== removedId);
+    if (remaining.length === 0) {
+      setSelectedItemId(null);
+    } else {
+      const nextIdx = Math.min(idx, remaining.length - 1);
+      setSelectedItemId(remaining[nextIdx].id);
+    }
+    setNumBuffer("");
+    setNumpadMode("qty");
+  }
+
   function handleDeleteSelected() {
     if (!selectedItemId) return;
     const item = items.find(i => i.id === selectedItemId);
     if (!item) return;
     const wasSent = (item as never as { status: string }).status === "sent";
+    selectNextAfter(selectedItemId);
     if (wasSent) {
-      setDeleteConfirm({ itemId: selectedItemId, name: item.productName });
+      setDeleteConfirm({ itemId: item.id, name: item.productName });
     } else {
-      handleQty(selectedItemId, 0);
-      setSelectedItemId(null);
+      handleQty(item.id, 0);
     }
   }
 
@@ -2269,8 +2282,15 @@ export default function FrontOffice() {
                   <div key={item.id}
                     onClick={() => {
                       if (isSelected) {
-                        setSelectedItemId(null);
-                        setNumBuffer("");
+                        // secondo tap: apre editor variazioni
+                        setEditingItem({
+                          id: item.id,
+                          productName: item.productName,
+                          quantity: item.quantity,
+                          unitPrice: item.unitPrice,
+                          notes: itemNotes,
+                          status: itemStatus,
+                        });
                       } else {
                         setSelectedItemId(item.id);
                         setNumBuffer("");
@@ -2297,11 +2317,17 @@ export default function FrontOffice() {
                       )}>€{parseFloat(item.subtotal).toFixed(2)}</span>
                     </div>
                     <div className="flex items-center gap-1 mt-0.5">
-                      <span className="text-[10px] text-slate-500 flex-1">€{parseFloat(item.unitPrice).toFixed(2)} × {item.quantity}</span>
+                      <span className="text-[10px] flex-1" style={{ color: isSelected ? 'rgb(148,163,184)' : 'rgb(100,116,139)' }}>
+                        €{parseFloat(item.unitPrice).toFixed(2)} × {item.quantity}
+                        {isSelected && <span className="ml-1.5 text-[9px] text-primary/70 font-semibold">↑ tap = var.</span>}
+                      </span>
                       <button
                         onClick={e => { e.stopPropagation(); setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus }); }}
-                        className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-[#3a3f58] active:bg-[#444a6a] transition-colors shrink-0">
-                        <Pencil className="h-3.5 w-3.5 text-slate-400" />
+                        className={cn(
+                          "h-7 w-7 rounded-lg flex items-center justify-center transition-colors shrink-0",
+                          isSelected ? "hover:bg-primary/30 active:bg-primary/40" : "hover:bg-[#3a3f58] active:bg-[#444a6a]"
+                        )}>
+                        <Pencil className={cn("h-3.5 w-3.5", isSelected ? "text-primary" : "text-slate-400")} />
                       </button>
                       <div className="flex items-center gap-0.5 shrink-0">
                         <button onClick={e => { e.stopPropagation(); handleQty(item.id, item.quantity - 1); }}
