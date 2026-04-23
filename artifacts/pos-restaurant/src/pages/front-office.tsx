@@ -2282,15 +2282,8 @@ export default function FrontOffice() {
                   <div key={item.id}
                     onClick={() => {
                       if (isSelected) {
-                        // secondo tap: apre editor variazioni
-                        setEditingItem({
-                          id: item.id,
-                          productName: item.productName,
-                          quantity: item.quantity,
-                          unitPrice: item.unitPrice,
-                          notes: itemNotes,
-                          status: itemStatus,
-                        });
+                        // secondo tap: apre tab VAR
+                        setRightTab("var");
                       } else {
                         setSelectedItemId(item.id);
                         setNumBuffer("");
@@ -2319,7 +2312,7 @@ export default function FrontOffice() {
                     <div className="flex items-center gap-1 mt-0.5">
                       <span className="text-[10px] flex-1" style={{ color: isSelected ? 'rgb(148,163,184)' : 'rgb(100,116,139)' }}>
                         €{parseFloat(item.unitPrice).toFixed(2)} × {item.quantity}
-                        {isSelected && <span className="ml-1.5 text-[9px] text-primary/70 font-semibold">↑ tap = var.</span>}
+                        {isSelected && <span className="ml-1.5 text-[9px] text-primary/70 font-semibold">↑ tap → VAR</span>}
                       </span>
                       <button
                         onClick={e => { e.stopPropagation(); setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus }); }}
