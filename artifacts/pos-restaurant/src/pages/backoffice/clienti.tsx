@@ -232,33 +232,24 @@ export default function ClientiPage() {
                 <div className="col-span-2">
                   <Label className="text-xs text-slate-500 mb-1 block">
                     Partita IVA
-                    {form.tipo === "azienda" && (
-                      <span className="ml-1 text-xs text-blue-500 font-normal">— verifica per auto-compilare i dati</span>
-                    )}
                   </Label>
-                  <div className="flex gap-2">
+                  <div className="relative">
                     <Input
                       value={form.partitaIva ?? ""}
                       onChange={e => { set("partitaIva")(e.target.value); setViesStatus("idle"); setViesMsg(""); }}
+                      onBlur={() => { if ((form.partitaIva ?? "").trim().length >= 11) verificaPiva(); }}
                       placeholder="12345678901"
-                      className="h-9 text-sm flex-1 text-slate-900 bg-white"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className={cn("h-9 px-3 shrink-0 gap-1.5 text-xs",
-                        viesStatus === "ok" && "border-green-400 text-green-700 bg-green-50",
-                        viesStatus === "error" && "border-red-400 text-red-600 bg-red-50"
+                      className={cn(
+                        "h-9 text-sm text-slate-900 bg-white pr-8",
+                        viesStatus === "ok" && "border-green-400",
+                        viesStatus === "error" && "border-red-400"
                       )}
-                      onClick={verificaPiva}
-                      disabled={viesStatus === "loading"}
-                    >
-                      {viesStatus === "loading" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                      {viesStatus === "ok" && <CheckCircle2 className="h-3.5 w-3.5" />}
-                      {viesStatus === "error" && <XCircle className="h-3.5 w-3.5" />}
-                      {viesStatus === "loading" ? "Verifica…" : "Verifica P.IVA"}
-                    </Button>
+                    />
+                    <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                      {viesStatus === "loading" && <Loader2 className="h-3.5 w-3.5 text-slate-400 animate-spin" />}
+                      {viesStatus === "ok" && <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />}
+                      {viesStatus === "error" && <XCircle className="h-3.5 w-3.5 text-red-500" />}
+                    </div>
                   </div>
                   {viesMsg && (
                     <p className={cn("text-xs mt-1", viesStatus === "ok" ? "text-green-600" : "text-red-500")}>

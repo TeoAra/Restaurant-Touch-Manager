@@ -804,33 +804,24 @@ function NewCustomerForm({ onCreated, onCancel }: {
         ))}
       </div>
       <Input placeholder="Ragione sociale / Nome *" value={ragioneSociale} onChange={e => setRagioneSociale(e.target.value)} className="h-9 text-sm text-slate-100 bg-[#22263a] border-[#3d4157] placeholder:text-slate-600" />
-      {/* P.IVA con verifica VIES */}
-      <div>
-        <div className="flex gap-2">
-          <Input
-            placeholder="P.IVA (es. 12345678901)"
-            value={partitaIva}
-            onChange={e => { setPartitaIva(e.target.value); setViesStatus("idle"); setViesMsg(""); }}
-            className="h-9 text-sm font-mono text-slate-100 bg-[#22263a] border-[#3d4157] placeholder:text-slate-600 flex-1"
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={verificaPiva}
-            disabled={viesStatus === "loading"}
-            className={cn(
-              "h-9 px-3 shrink-0 gap-1.5 text-xs border",
-              viesStatus === "ok" && "border-emerald-500 text-emerald-400 bg-emerald-900/30",
-              viesStatus === "error" && "border-red-500 text-red-400 bg-red-900/20",
-              viesStatus !== "ok" && viesStatus !== "error" && "border-[#3d4157] text-slate-300 bg-[#22263a] hover:bg-[#2d3349]"
-            )}
-          >
-            {viesStatus === "loading" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            {viesStatus === "ok" && <CheckCircle2 className="h-3.5 w-3.5" />}
-            {viesStatus === "error" && <XCircle className="h-3.5 w-3.5" />}
-            {viesStatus === "loading" ? "Verifica…" : "Verifica"}
-          </Button>
+      {/* P.IVA con validazione automatica al blur */}
+      <div className="relative">
+        <Input
+          placeholder="P.IVA (es. 12345678901)"
+          value={partitaIva}
+          onChange={e => { setPartitaIva(e.target.value); setViesStatus("idle"); setViesMsg(""); }}
+          onBlur={() => { if (partitaIva.trim().length >= 11) verificaPiva(); }}
+          className={cn(
+            "h-9 text-sm font-mono text-slate-100 bg-[#22263a] placeholder:text-slate-600 pr-8",
+            viesStatus === "ok" && "border-emerald-500",
+            viesStatus === "error" && "border-red-500",
+            viesStatus !== "ok" && viesStatus !== "error" && "border-[#3d4157]"
+          )}
+        />
+        <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
+          {viesStatus === "loading" && <Loader2 className="h-3.5 w-3.5 text-slate-500 animate-spin" />}
+          {viesStatus === "ok" && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
+          {viesStatus === "error" && <XCircle className="h-3.5 w-3.5 text-red-400" />}
         </div>
         {viesMsg && (
           <p className={cn("text-xs mt-1", viesStatus === "ok" ? "text-emerald-400" : "text-red-400")}>
