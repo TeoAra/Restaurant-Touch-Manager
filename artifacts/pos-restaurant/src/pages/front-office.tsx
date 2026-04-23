@@ -1954,6 +1954,55 @@ export default function FrontOffice() {
     setDeleteConfirm(null);
   }
 
+  function handleDeleteSelected() {
+    if (!selectedItemId) return;
+    const item = items.find(i => i.id === selectedItemId);
+    if (!item) return;
+    const wasSent = (item as never as { status: string }).status === "sent";
+    if (wasSent) {
+      setDeleteConfirm({ itemId: selectedItemId, name: item.productName });
+    } else {
+      handleQty(selectedItemId, 0);
+      setSelectedItemId(null);
+    }
+  }
+
+  async function handleSplitItem() {
+    if (!selectedItem || !activeOrderId) return;
+    const qty = selectedItem.quantity;
+    if (qty <= 1) {
+      toast({ title: "Qtà già 1", description: "Il prodotto ha già quantità 1" });
+      return;
+    }
+    try {
+      await fetch(`${API}/orders/${activeOrderId}/items/${selectedItem.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quantity: 1 }),
+      });
+      for (let i = 1; i < qty; i++) {
+        await fetch(`${API}/orders/${activeOrderId}/items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            productId: selectedItem.productId,
+            quantity: 1,
+            unitPrice: selectedItem.unitPrice,
+            phase: (selectedItem as never as { phase?: string }).phase ?? "F1",
+            notes: (selectedItem as never as { notes?: string | null }).notes ?? null,
+            modifiers: (selectedItem as never as { modifiers?: string }).modifiers ?? "[]",
+          }),
+        });
+      }
+      setSelectedItemId(null);
+      setNumBuffer("");
+      refresh();
+      addLog("info", `Separato: ${selectedItem.productName} × ${qty} → ${qty} righe`);
+    } catch {
+      addLog("error", "Errore nella separazione prodotto");
+    }
+  }
+
   async function handleSaveItemEdit(itemId: number, unitPrice: string) {
     if (!activeOrderId) return;
     await updateItem.mutateAsync({
@@ -2351,7 +2400,7 @@ export default function FrontOffice() {
             </div>
           </div>
 
-          {/* Bottoni azione — 2 colonne × 3 righe */}
+          {/* Bottoni azione — 2 colonne × 4 righe */}
           <div className="grid grid-cols-2 gap-1 w-[116px] shrink-0">
             {/* Riga 1 */}
             <button
@@ -2364,14 +2413,14 @@ export default function FrontOffice() {
                 notes: (selectedItem as never as { notes?: string | null }).notes,
                 status: (selectedItem as never as { status: string }).status,
               })}
-              className="h-12 rounded-lg flex items-center justify-center bg-amber-700 text-amber-100 hover:bg-amber-600 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              className="h-10 rounded-lg flex items-center justify-center bg-amber-700 text-amber-100 hover:bg-amber-600 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
               Sconto
             </button>
             <button
               disabled={items.length === 0 && !activeOrderId}
               onClick={() => { setLotteriaInput(lotteriaCodice); setShowLotteria(true); }}
               className={cn(
-                "h-12 rounded-lg flex items-center justify-center gap-1 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed relative",
+                "h-10 rounded-lg flex items-center justify-center text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed relative leading-tight",
                 lotteriaCodice
                   ? "bg-green-800 text-green-200 hover:bg-green-700 ring-1 ring-green-500"
                   : "bg-blue-800 text-blue-200 hover:bg-blue-700"
@@ -2386,33 +2435,47 @@ export default function FrontOffice() {
             <button
               disabled={items.length === 0}
               onClick={() => setShowPreconto(true)}
-              className="h-12 rounded-lg flex items-center justify-center bg-[#252840] text-slate-300 hover:bg-[#2d3044] text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              className="h-10 rounded-lg flex items-center justify-center bg-[#252840] text-slate-300 hover:bg-[#2d3044] text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
               Preconto
             </button>
             <button
               disabled={items.length < 2}
               onClick={() => setShowSplitBill(true)}
-              className="h-12 rounded-lg flex items-center justify-center bg-purple-800 text-purple-200 hover:bg-purple-700 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
-              Separa
+              className="h-10 rounded-lg flex items-center justify-center bg-purple-800 text-purple-200 hover:bg-purple-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              Conto Sep.
             </button>
 
             {/* Riga 3 */}
             <button
               disabled={items.length === 0}
               onClick={() => setShowRomana(true)}
-              className="h-12 rounded-lg flex items-center justify-center bg-green-800 text-green-200 hover:bg-green-700 text-xs font-semibold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed">
+              className="h-10 rounded-lg flex items-center justify-center bg-green-800 text-green-200 hover:bg-green-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
               Romana
+            </button>
+            <button
+              disabled={!selectedItemId || !selectedItem || selectedItem.quantity <= 1}
+              onClick={handleSplitItem}
+              className="h-10 rounded-lg flex items-center justify-center bg-indigo-800 text-indigo-200 hover:bg-indigo-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              Sep. Prod.
+            </button>
+
+            {/* Riga 4 */}
+            <button
+              disabled={!selectedItemId}
+              onClick={handleDeleteSelected}
+              className="h-10 rounded-lg flex items-center justify-center bg-red-900/80 text-red-300 hover:bg-red-800 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              Cancella
             </button>
             {activeOrderId ? (
               <button
                 onClick={() => setShowCancelConfirm(true)}
-                className="h-12 rounded-lg flex items-center justify-center bg-red-900 text-red-300 hover:bg-red-800 text-xs font-semibold transition-all active:scale-95">
-                Annulla
+                className="h-10 rounded-lg flex items-center justify-center bg-red-950 text-red-400 hover:bg-red-900 text-[10px] font-bold transition-all active:scale-95 leading-tight border border-red-900">
+                Annulla Ord.
               </button>
             ) : (
               <button
                 onClick={() => handleQuickMode("rapida")}
-                className="h-12 rounded-lg flex items-center justify-center bg-orange-800 text-orange-200 hover:bg-orange-700 text-xs font-semibold transition-all active:scale-95">
+                className="h-10 rounded-lg flex items-center justify-center bg-orange-800 text-orange-200 hover:bg-orange-700 text-[10px] font-bold transition-all active:scale-95 leading-tight">
                 Rapida
               </button>
             )}
