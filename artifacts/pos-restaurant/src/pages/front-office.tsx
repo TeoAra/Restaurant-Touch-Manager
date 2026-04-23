@@ -2774,7 +2774,7 @@ export default function FrontOffice() {
         )}
 
         {/* Lista articoli ordine */}
-        <ScrollArea className="flex-1 min-h-0">
+        <ScrollArea className="flex-1 min-h-0" onClick={() => setSelectedItemId(null)}>
           <div className="px-2.5 pb-1 space-y-0.5 pt-0.5">
             {items.length === 0 ? (
               <div className="text-center py-8 text-slate-600">
@@ -2810,7 +2810,8 @@ export default function FrontOffice() {
                 const isSelected = item.id === selectedItemId;
                 return (
                   <div key={item.id}
-                    onClick={() => {
+                    onClick={e => {
+                      e.stopPropagation();
                       if (isSelected) {
                         // secondo tap: apre tab VAR
                         setRightTab("var");
