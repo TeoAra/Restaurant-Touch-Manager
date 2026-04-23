@@ -48,6 +48,11 @@ router.post("/", async (req, res) => {
 
     console.log(`[FISCAL] Pagamento ordine ${body.orderId} — stampante: ${printer ? `${printer.name} (${printer.ip})` : "NESSUNA"} — nonFiscale: ${nonFiscale}`);
 
+    // ── Riga coperto (se presente) ───────────────────────────────────────
+    const orderCovers = (order as unknown as { covers?: number }).covers ?? 0;
+    const coverPrice = parseFloat(settings["cover_price"] ?? "0");
+    const hasCover = orderCovers > 0 && coverPrice > 0;
+
     if (!printer) {
       console.warn("[FISCAL] Nessuna stampante con is_fiscale=true e active=true trovata in DB");
       fiscalResult = { rtOk: false, rtError: "Nessuna stampante fiscale configurata nel DB" };
@@ -58,6 +63,7 @@ router.post("/", async (req, res) => {
         qta: i.quantity,
         prezzoUnitario: i.unitPrice,
       }));
+      if (hasCover) righe.unshift({ desc: "COPERTO", qta: orderCovers, prezzoUnitario: coverPrice.toFixed(2) });
       const rt = await emettiDocumentoNonFiscale({
         orderId: body.orderId,
         importo: body.amount,
@@ -76,6 +82,7 @@ router.post("/", async (req, res) => {
         prezzoUnitario: i.unitPrice,
         aliquotaIva,
       }));
+      if (hasCover) righe.unshift({ desc: "COPERTO", qta: orderCovers, prezzoUnitario: coverPrice.toFixed(2), aliquotaIva });
 
       console.log(`[FISCAL] Invio RT: ${printer.ip} — ${righe.length} righe — IVA ${aliquotaIva}% — totale ${body.amount}`);
 

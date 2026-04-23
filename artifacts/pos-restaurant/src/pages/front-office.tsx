@@ -2894,6 +2894,39 @@ export default function FrontOffice() {
             </div>
           ));
         })()}
+
+        {/* ── Riga coperti interattiva ── */}
+        {coverPrice > 0 && activeOrderId && !isQuickMode && (
+          <div
+            onClick={e => e.stopPropagation()}
+            className="mt-1 rounded-lg px-2.5 py-1.5 border border-dashed border-[#3a3f58] bg-[#1e2235] flex items-center gap-2"
+          >
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <Users className="h-3 w-3 text-slate-400 shrink-0" />
+                Coperto
+                {coverCount > 0 && (
+                  <span className="text-slate-500 font-mono">× {coverCount} = €{coverTotal.toFixed(2)}</span>
+                )}
+              </div>
+              {coverCount === 0 && <div className="text-[10px] text-slate-600 mt-0.5">€{coverPrice.toFixed(2)} cad. — nessun coperto</div>}
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => handleEditCovers(Math.max(0, coverCount - 1))}
+                className="h-7 w-7 rounded-lg bg-[#252840] border border-[#3a3f58] text-slate-300 hover:bg-[#2d3349] hover:text-white active:scale-95 transition-all flex items-center justify-center text-base font-bold">
+                −
+              </button>
+              <span className="text-sm font-bold text-white w-6 text-center tabular-nums">{coverCount}</span>
+              <button
+                onClick={() => handleEditCovers(coverCount + 1)}
+                className="h-7 w-7 rounded-lg bg-[#252840] border border-[#3a3f58] text-slate-300 hover:bg-[#2d3349] hover:text-white active:scale-95 transition-all flex items-center justify-center text-base font-bold">
+                +
+              </button>
+            </div>
+          </div>
+        )}
+
           </div>
         </ScrollArea>
 
