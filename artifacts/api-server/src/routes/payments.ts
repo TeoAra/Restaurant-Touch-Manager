@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db, paymentsTable, ordersTable, tablesTable, orderItemsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { CreatePaymentBody, GetPaymentParams } from "@workspace/api-zod";
-import { getFiscalPrinter, emettiFiscalReceipt } from "../lib/fiscal-printer";
+import { getFiscalPrinter, emettiFiscalReceipt, emettiDocumentoNonFiscale } from "../lib/fiscal-printer";
 import { getSettings } from "../lib/settings";
 
 const router = Router();
@@ -35,8 +35,10 @@ router.post("/", async (req, res) => {
     }
   }
 
-  // ── Emetti scontrino fiscale sulla RT ────────────────────────────────────
-  let fiscalResult: { receiptId?: number; rtOk?: boolean; rtError?: string; rtIp?: string; rtBody?: string } = {};
+  // ── Emetti documento sulla RT (fiscale o non-fiscale) ────────────────────
+  const nonFiscale = req.body?.nonFiscale === true; // documento gestionale → scontrino non fiscale
+  const ragioneSocialeCliente: string | undefined = req.body?.ragioneSocialeCliente;
+  let fiscalResult: { receiptId?: number; rtOk?: boolean; rtError?: string; rtIp?: string; rtBody?: string; nonFiscale?: boolean } = {};
   try {
     const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, body.orderId));
     const settings = await getSettings();
@@ -44,12 +46,30 @@ router.post("/", async (req, res) => {
     const aliquotaIva = settings[`iva_${modalita}`] ?? settings["iva_tavolo"] ?? "10";
     const printer = await getFiscalPrinter();
 
-    console.log(`[FISCAL] Pagamento ordine ${body.orderId} — stampante fiscale: ${printer ? `${printer.name} (${printer.ip})` : "NESSUNA"}`);
+    console.log(`[FISCAL] Pagamento ordine ${body.orderId} — stampante: ${printer ? `${printer.name} (${printer.ip})` : "NESSUNA"} — nonFiscale: ${nonFiscale}`);
 
     if (!printer) {
       console.warn("[FISCAL] Nessuna stampante con is_fiscale=true e active=true trovata in DB");
       fiscalResult = { rtOk: false, rtError: "Nessuna stampante fiscale configurata nel DB" };
+    } else if (nonFiscale) {
+      // ── Documento non fiscale (gestionale) ──────────────────────────────
+      const righe = items.map(i => ({
+        desc: i.productName,
+        qta: i.quantity,
+        prezzoUnitario: i.unitPrice,
+      }));
+      const rt = await emettiDocumentoNonFiscale({
+        orderId: body.orderId,
+        importo: body.amount,
+        metodoPagamento: body.method,
+        righe,
+        ragioneSociale: ragioneSocialeCliente,
+        printer,
+      });
+      console.log(`[NON-FISCAL] RT risposta: ok=${rt.ok} ms=${rt.ms} error=${rt.error ?? "-"}`);
+      fiscalResult = { rtOk: rt.ok, rtError: rt.error, rtIp: printer.ip, rtBody: rt.body?.substring(0, 200), nonFiscale: true };
     } else {
+      // ── Scontrino fiscale ────────────────────────────────────────────────
       const righe = items.map(i => ({
         desc: i.productName,
         qta: i.quantity,
@@ -57,7 +77,7 @@ router.post("/", async (req, res) => {
         aliquotaIva,
       }));
 
-      console.log(`[FISCAL] Invio XML a http://${printer.ip}/cgi-bin/fpmate.cgi — ${righe.length} righe — IVA ${aliquotaIva}% — totale ${body.amount}`);
+      console.log(`[FISCAL] Invio RT: ${printer.ip} — ${righe.length} righe — IVA ${aliquotaIva}% — totale ${body.amount}`);
 
       const { receipt, rt } = await emettiFiscalReceipt({
         orderId: body.orderId,
@@ -76,7 +96,7 @@ router.post("/", async (req, res) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[FISCAL] Eccezione: ${msg}`);
-    fiscalResult = { rtOk: false, rtError: `Errore emissione scontrino: ${msg}` };
+    fiscalResult = { rtOk: false, rtError: `Errore emissione documento: ${msg}` };
   }
 
   res.status(201).json({ ...payment, fiscal: fiscalResult });

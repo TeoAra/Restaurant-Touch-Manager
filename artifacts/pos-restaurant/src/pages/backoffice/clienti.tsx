@@ -39,7 +39,7 @@ function Field({ label, value, onChange, required, placeholder, className }: {
   return (
     <div className={className}>
       <Label className="text-xs text-slate-500 mb-1 block">{label}{required && <span className="text-red-500 ml-0.5">*</span>}</Label>
-      <Input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="h-9 text-sm" />
+      <Input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="h-9 text-sm text-slate-900 bg-white" />
     </div>
   );
 }
@@ -235,7 +235,7 @@ export default function ClientiPage() {
                       value={form.partitaIva ?? ""}
                       onChange={e => { set("partitaIva")(e.target.value); setViesStatus("idle"); setViesMsg(""); }}
                       placeholder="12345678901"
-                      className="h-9 text-sm flex-1"
+                      className="h-9 text-sm flex-1 text-slate-900 bg-white"
                     />
                     <Button
                       type="button"

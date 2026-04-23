@@ -207,7 +207,7 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
 
   // ── New reservation form state ─────────────────────────────────────────────
   const [showNewRes, setShowNewRes] = useState(false);
-  const [resForm, setResForm] = useState({ guestName: "", phone: "", time: "20:00", covers: 2 });
+  const [resForm, setResForm] = useState({ guestName: "", phone: "", time: "20:00", covers: 2, date: todayStr });
   const [resTableIds, setResTableIds] = useState<number[]>([]);
   const [resSaving, setResSaving] = useState(false);
 
@@ -227,13 +227,13 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
           time: resForm.time,
           covers: resForm.covers,
           tableIds: resTableIds,
-          date: mapDate,
+          date: resForm.date || mapDate,
           status: "confirmed",
         }),
       });
       await refetchReservations();
       setShowNewRes(false);
-      setResForm({ guestName: "", phone: "", time: "20:00", covers: 2 });
+      setResForm({ guestName: "", phone: "", time: "20:00", covers: 2, date: mapDate });
       setResTableIds([]);
     } finally { setResSaving(false); }
   }
@@ -339,7 +339,7 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
                 </span>
               )}
             </div>
-            <button onClick={() => { setShowNewRes(true); setResForm({ guestName: "", phone: "", time: "20:00", covers: 2 }); setResTableIds([]); }}
+            <button onClick={() => { setShowNewRes(true); setResForm({ guestName: "", phone: "", time: "20:00", covers: 2, date: mapDate }); setResTableIds([]); }}
               className="flex items-center gap-1.5 px-3 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:bg-primary/90 active:scale-95 transition-all shrink-0">
               <CalendarClock className="h-3.5 w-3.5" /> Prenota
             </button>
@@ -539,6 +539,15 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
                   autoFocus
                 />
               </div>
+              {/* Data */}
+              <div>
+                <label className="text-xs font-semibold text-slate-600 mb-1 block">Data prenotazione</label>
+                <input
+                  type="date" value={resForm.date}
+                  onChange={e => setResForm(f => ({ ...f, date: e.target.value }))}
+                  className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 focus:border-primary outline-none text-sm font-semibold text-slate-800 bg-white"
+                />
+              </div>
               {/* Telefono + Ora */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -547,7 +556,7 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
                     type="tel" placeholder="333 1234567"
                     value={resForm.phone}
                     onChange={e => setResForm(f => ({ ...f, phone: e.target.value }))}
-                    className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 focus:border-primary outline-none text-sm"
+                    className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 focus:border-primary outline-none text-sm text-slate-800 bg-white"
                   />
                 </div>
                 <div>
@@ -555,7 +564,7 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
                   <input
                     type="time" value={resForm.time}
                     onChange={e => setResForm(f => ({ ...f, time: e.target.value }))}
-                    className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 focus:border-primary outline-none text-sm font-semibold"
+                    className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 focus:border-primary outline-none text-sm font-semibold text-slate-800 bg-white"
                   />
                 </div>
               </div>
@@ -790,7 +799,7 @@ type PosPhase = "idle" | "waiting" | "manual_confirm" | "approved" | "declined";
 function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
   open: boolean; onClose: () => void; total: number; orderId?: number;
   orderItems?: Array<{ productName: string; quantity: number; unitPrice: string; subtotal: string }>;
-  onPay: (method: string, amountGiven?: number, invoiceCustomerId?: number) => void;
+  onPay: (method: string, amountGiven?: number, invoiceCustomerId?: number, ragioneSociale?: string) => void;
 }) {
   const [method, setMethod] = useState<"cash" | "card" | "other">("cash");
   const [given, setGiven] = useState("");
@@ -895,9 +904,12 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
             >
               <div className="flex items-center gap-2">
                 <ReceiptText className={cn("h-4 w-4", emittiFattura ? "text-primary" : "text-slate-400")} />
-                <span className={cn("text-sm font-semibold", emittiFattura ? "text-primary" : "text-slate-600")}>
-                  Emetti Fattura Elettronica
-                </span>
+                <div>
+                  <span className={cn("text-sm font-semibold", emittiFattura ? "text-primary" : "text-slate-600")}>
+                    Documento Gestionale
+                  </span>
+                  <p className="text-[10px] text-slate-400 leading-tight">Scontrino NON FISCALE · XML per Passepartout</p>
+                </div>
               </div>
               <Switch checked={emittiFattura} onCheckedChange={v => { setEmittiFattura(v); setSelectedCustomer(null); setShowNewCustomer(false); }} onClick={e => e.stopPropagation()} />
             </div>
@@ -990,7 +1002,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
                   <Button variant="outline" className="flex-1" onClick={() => setPosPhase("idle")}>Annulla</Button>
                   <Button className="flex-1" onClick={() => {
                     setPosPhase("idle");
-                    onPay(method, parseFloat(given) || total, emittiFattura && selectedCustomer ? selectedCustomer.id : undefined);
+                    onPay(method, parseFloat(given) || total, emittiFattura && selectedCustomer ? selectedCustomer.id : undefined, emittiFattura ? (selectedCustomer?.ragioneSociale ?? undefined) : undefined);
                   }}>
                     <CheckCircle2 className="h-4 w-4 mr-2" /> Pagamento ricevuto
                   </Button>
@@ -1015,6 +1027,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
           <Button
             onClick={async () => {
               const customerId = emittiFattura && selectedCustomer ? selectedCustomer.id : undefined;
+              const ragSoc = emittiFattura ? (selectedCustomer?.ragioneSociale ?? undefined) : undefined;
               // Carta + terminale configurato → chiama prima il POS
               if (method === "card" && posType !== "none") {
                 setPosPhase("waiting");
@@ -1032,7 +1045,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
                   }
                   if (result.approved) {
                     setPosPhase("idle");
-                    onPay(method, parseFloat(given) || total, customerId);
+                    onPay(method, parseFloat(given) || total, customerId, ragSoc);
                   } else {
                     setPosPhase("declined");
                     setPosError(result.error ?? result.responseMessage ?? "Transazione rifiutata");
@@ -1043,7 +1056,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
                 }
                 return;
               }
-              onPay(method, parseFloat(given) || total, customerId);
+              onPay(method, parseFloat(given) || total, customerId, ragSoc);
             }}
             disabled={!canConfirm || posPhase === "waiting"}
             className="flex-1"
@@ -2487,22 +2500,34 @@ export default function FrontOffice() {
     }
   }
 
-  async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number) {
+  async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number, ragioneSocialeCliente?: string) {
     if (!activeOrderId) return;
     setShowPayment(false);
+    const isGestionale = !!invoiceCustomerId;
     const paymentRes = await createPayment.mutateAsync({
-      data: { orderId: activeOrderId, method, amount: total.toFixed(2), amountGiven: amountGiven?.toFixed(2), lotteria: lotteriaCodice || undefined } as never
+      data: {
+        orderId: activeOrderId, method, amount: total.toFixed(2),
+        amountGiven: amountGiven?.toFixed(2),
+        lotteria: lotteriaCodice || undefined,
+        nonFiscale: isGestionale || undefined,
+        ragioneSocialeCliente: ragioneSocialeCliente || undefined,
+      } as never
     });
-    // Mostra risultato RT (scontrino fiscale)
-    const fiscal = (paymentRes as never as { fiscal?: { rtOk?: boolean; rtError?: string; rtIp?: string; receiptId?: number } }).fiscal;
+    // Mostra risultato RT
+    const fiscal = (paymentRes as never as { fiscal?: { rtOk?: boolean; rtError?: string; rtIp?: string; receiptId?: number; nonFiscale?: boolean } }).fiscal;
     if (fiscal) {
       if (fiscal.rtOk) {
-        addLog("info", `RT OK — scontrino #${fiscal.receiptId} @ ${fiscal.rtIp ?? "RT"} — €${total.toFixed(2)} ${method}`);
-        toast({ title: "Scontrino fiscale emesso", description: `RT ${fiscal.rtIp ?? ""} — ricevuta #${fiscal.receiptId}` });
+        if (fiscal.nonFiscale) {
+          addLog("info", `RT OK — documento NON FISCALE @ ${fiscal.rtIp ?? "RT"} — €${total.toFixed(2)} ${method}`);
+          toast({ title: "Documento non fiscale emesso", description: `RT ${fiscal.rtIp ?? ""} — documento gestionale` });
+        } else {
+          addLog("info", `RT OK — scontrino #${fiscal.receiptId} @ ${fiscal.rtIp ?? "RT"} — €${total.toFixed(2)} ${method}`);
+          toast({ title: "Scontrino fiscale emesso", description: `RT ${fiscal.rtIp ?? ""} — ricevuta #${fiscal.receiptId}` });
+        }
       } else {
         addLog("error", `RT ERRORE — ${fiscal.rtError ?? "errore sconosciuto"}`);
         toast({
-          title: "Scontrino non inviato alla RT",
+          title: isGestionale ? "Documento non inviato alla RT" : "Scontrino non inviato alla RT",
           description: fiscal.rtError ?? "Errore sconosciuto — controlla i log del server",
           variant: "destructive",
         });
@@ -3493,7 +3518,7 @@ export default function FrontOffice() {
             <InlinePaymentPanel
               total={total}
               disabled={items.length === 0}
-              onPay={(method, amountGiven) => handlePay(method, amountGiven, invoiceCustomer?.id)}
+              onPay={(method, amountGiven) => handlePay(method, amountGiven, invoiceCustomer?.id, invoiceCustomer?.ragioneSociale ?? undefined)}
             />
           </div>
         )}

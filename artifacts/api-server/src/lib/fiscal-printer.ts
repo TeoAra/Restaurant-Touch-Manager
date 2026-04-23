@@ -327,6 +327,89 @@ export async function sendXonXoffCommand(
   };
 }
 
+// ── Costruisce comando non-fiscale (documento gestionale / cortesia) ─────────
+// Protocollo XonXoff DTR: ogni riga si stampa con "TESTO"@
+// Il documento termina con @  (chiude il documento non-fiscale)
+export function buildNonFiscalDocument(opts: {
+  ragioneSociale?: string;
+  righe: { desc: string; qta: number; prezzoUnitario: string }[];
+  importo: string;
+  metodoPagamento: string;
+  note?: string;
+}): string {
+  const { ragioneSociale, righe, importo, metodoPagamento, note } = opts;
+  const parts: string[] = [];
+
+  const sep = "--------------------------------";
+  const printLine = (s: string) => parts.push(`"${xonDesc(s)}"@`);
+
+  printLine("DOCUMENTO NON FISCALE");
+  printLine("DOCUMENTO GESTIONALE");
+  printLine(sep);
+
+  for (const r of righe) {
+    const qta = parseFloat(String(r.qta));
+    const pu = parseFloat(r.prezzoUnitario);
+    const tot = (qta * pu).toFixed(2);
+    const desc = xonDesc(r.desc);
+    const qtaStr = Number.isInteger(qta) && qta === 1 ? "" : `x${qta} `;
+    printLine(`${qtaStr}${desc}`);
+    printLine(`  EUR ${tot}`);
+  }
+
+  printLine(sep);
+  const metodo = metodoPagamento === "cash" ? "CONTANTI" : metodoPagamento === "card" ? "CARTA" : "ALTRO";
+  printLine(`TOTALE EUR ${parseFloat(importo).toFixed(2)}`);
+  printLine(`PAGAMENTO: ${metodo}`);
+
+  if (note) printLine(note);
+  if (ragioneSociale) {
+    printLine(sep);
+    printLine(`CLIENTE: ${ragioneSociale}`);
+  }
+
+  printLine(sep);
+  printLine("DOCUMENTO NON VALIDO AI");
+  printLine("FINI FISCALI");
+
+  // Chiudi documento non-fiscale
+  parts.push("@");
+
+  return parts.join("");
+}
+
+// ── Emetti documento non-fiscale sulla RT ─────────────────────────────────
+export async function emettiDocumentoNonFiscale(opts: {
+  orderId: number;
+  importo: string;
+  metodoPagamento: string;
+  righe: { desc: string; qta: number; prezzoUnitario: string }[];
+  ragioneSociale?: string;
+  note?: string;
+  printer?: RtPrinter | null;
+}): Promise<CgiResult> {
+  const { orderId: _orderId, importo, metodoPagamento, righe, ragioneSociale, note } = opts;
+  const printer = opts.printer ?? await getFiscalPrinter();
+
+  if (!printer) {
+    return { ok: false, error: "Nessuna stampante fiscale configurata" };
+  }
+
+  const cmd = buildNonFiscalDocument({ ragioneSociale, righe, importo, metodoPagamento, note });
+  console.log("[NON-FISCAL] Documento non fiscale cmd len:", cmd.length);
+
+  const rtPort = printer.port ?? 1126;
+  const raw = await sendXonXoff(printer.ip, rtPort, cmd, 6000);
+  console.log("[NON-FISCAL] RT raw: ok=%s xoff=%s ascii=%s", raw.ok, raw.xoffCount, raw.ascii.substring(0, 200));
+
+  return {
+    ok: raw.xoffCount === 0,
+    ms: raw.ms,
+    body: raw.ascii,
+    error: raw.error ?? (raw.xoffCount > 0 ? `RT errore: ${raw.xoffCount} XOFF` : undefined),
+  };
+}
+
 // ── Invia solo il codice lotteria (verifica connettività) ──────────────────
 export async function inviaLotteriaRt(ip: string, _codice: string, port = 1126): Promise<CgiResult> {
   // Verifica connettività: chiede stato con "?"
