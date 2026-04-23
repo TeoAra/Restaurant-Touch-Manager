@@ -73,7 +73,7 @@ export default function ClientiPage() {
       const vatParam = piva.toUpperCase().startsWith("IT") ? piva : `IT${piva}`;
       const resp = await fetch(`${API}/vies?vat=${encodeURIComponent(vatParam)}`);
       const data = await resp.json() as {
-        valid?: boolean; message?: string; error?: string;
+        valid?: boolean; source?: string; message?: string; error?: string;
         name?: string; parsed?: { indirizzo: string; cap: string; comune: string; provincia: string; nazione: string };
       };
 
@@ -84,13 +84,19 @@ export default function ClientiPage() {
       }
       if (!data.valid) {
         setViesStatus("error");
-        setViesMsg(data.message ?? "P.IVA non valida nel VIES");
+        setViesMsg(data.message ?? "P.IVA non valida");
         return;
       }
 
       setViesStatus("ok");
-      setViesMsg("P.IVA verificata");
 
+      if (data.source === "local") {
+        setViesMsg("P.IVA valida — non iscritta al VIES (compila manualmente i dati)");
+        toast({ title: "P.IVA valida", description: "Azienda non iscritta al VIES — inserisci manualmente ragione sociale e indirizzo" });
+        return;
+      }
+
+      setViesMsg("P.IVA verificata VIES");
       const updates: Partial<Omit<Customer, "id">> = {};
       if (data.name && data.name !== "---") updates.ragioneSociale = data.name;
       if (data.parsed) {

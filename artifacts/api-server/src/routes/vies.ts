@@ -2,6 +2,23 @@ import { Router } from "express";
 
 const router = Router();
 
+// ── Luhn-style checksum per P.IVA italiana ────────────────────────────────────
+function checkPivaIT(piva: string): boolean {
+  if (!/^\d{11}$/.test(piva)) return false;
+  let s = 0;
+  for (let i = 0; i < 10; i++) {
+    const n = parseInt(piva[i]!, 10);
+    if (i % 2 === 0) {
+      s += n;
+    } else {
+      const d = n * 2;
+      s += d > 9 ? d - 9 : d;
+    }
+  }
+  const check = (10 - (s % 10)) % 10;
+  return check === parseInt(piva[10]!, 10);
+}
+
 router.get("/", async (req, res) => {
   const raw = String(req.query.vat ?? "").trim().toUpperCase().replace(/\s/g, "");
   if (!raw) return res.status(400).json({ error: "Parametro vat mancante" });
@@ -19,29 +36,64 @@ router.get("/", async (req, res) => {
     if (!resp.ok) {
       return res.status(502).json({ error: "Servizio VIES non disponibile" });
     }
+
     const data = await resp.json() as {
+      isValid?: boolean;
       valid?: boolean;
       name?: string;
       address?: string;
       countryCode?: string;
       vatNumber?: string;
+      userError?: string;
     };
 
-    if (!data.valid) {
-      return res.json({ valid: false, message: "P.IVA non valida o non trovata nel VIES" });
+    // Il VIES restituisce "isValid" (non "valid") nelle versioni recenti dell'API
+    const isValid = data.isValid ?? data.valid ?? false;
+
+    if (isValid) {
+      // P.IVA verificata e iscritta al VIES — auto-fill completo
+      const parsed = parseViesAddress(data.address ?? "");
+      return res.json({
+        valid: true,
+        source: "vies",
+        vatNumber: vatNum,
+        country,
+        name: data.name ?? "",
+        address: data.address ?? "",
+        parsed,
+      });
     }
 
-    const parsed = parseViesAddress(data.address ?? "");
+    // P.IVA non trovata nel VIES → verifica checksum locale
+    if (country === "IT" && checkPivaIT(vatNum)) {
+      return res.json({
+        valid: true,
+        source: "local",
+        vatNumber: vatNum,
+        country,
+        name: "",
+        address: "",
+        message: "P.IVA valida (non iscritta al VIES — compila manualmente ragione sociale e indirizzo)",
+        parsed: { indirizzo: "", cap: "", comune: "", provincia: "", nazione: "IT" },
+      });
+    }
 
-    res.json({
-      valid: true,
-      vatNumber: vatNum,
-      country,
-      name: data.name ?? "",
-      address: data.address ?? "",
-      parsed,
-    });
+    return res.json({ valid: false, message: "P.IVA non valida" });
+
   } catch (err: unknown) {
+    // Se VIES non raggiungibile, almeno verifica checksum locale
+    if (country === "IT" && checkPivaIT(vatNum)) {
+      return res.json({
+        valid: true,
+        source: "local",
+        vatNumber: vatNum,
+        country,
+        name: "",
+        address: "",
+        message: "VIES non raggiungibile — P.IVA sintatticamente valida (compila manualmente)",
+        parsed: { indirizzo: "", cap: "", comune: "", provincia: "", nazione: "IT" },
+      });
+    }
     const msg = err instanceof Error ? err.message : String(err);
     res.status(502).json({ error: "Errore connessione VIES: " + msg });
   }

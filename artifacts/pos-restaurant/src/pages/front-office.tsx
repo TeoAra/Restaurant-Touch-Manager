@@ -739,18 +739,23 @@ function NewCustomerForm({ onCreated, onCancel }: {
       const vatParam = piva.toUpperCase().startsWith("IT") ? piva : `IT${piva}`;
       const resp = await fetch(`${API}/vies?vat=${encodeURIComponent(vatParam)}`);
       const data = await resp.json() as {
-        valid?: boolean; message?: string; error?: string;
+        valid?: boolean; source?: string; message?: string; error?: string;
         name?: string; parsed?: { indirizzo: string; cap: string; comune: string; provincia: string };
       };
       if (!resp.ok || data.error) { setViesStatus("error"); setViesMsg(data.error ?? "Errore nella verifica"); return; }
-      if (!data.valid) { setViesStatus("error"); setViesMsg(data.message ?? "P.IVA non valida nel VIES"); return; }
-      setViesStatus("ok"); setViesMsg("P.IVA verificata ✓");
-      if (data.name && data.name !== "---") setRagioneSociale(data.name);
-      if (data.parsed) {
-        if (data.parsed.indirizzo) setVia(data.parsed.indirizzo);
-        if (data.parsed.cap) setCap(data.parsed.cap);
-        if (data.parsed.comune) setComune(data.parsed.comune);
-        if (data.parsed.provincia) setProvincia(data.parsed.provincia);
+      if (!data.valid) { setViesStatus("error"); setViesMsg(data.message ?? "P.IVA non valida"); return; }
+      setViesStatus("ok");
+      if (data.source === "local") {
+        setViesMsg("P.IVA valida ✓ — non iscritta al VIES (compila manualmente i dati)");
+      } else {
+        setViesMsg("P.IVA verificata VIES ✓");
+        if (data.name && data.name !== "---") setRagioneSociale(data.name);
+        if (data.parsed) {
+          if (data.parsed.indirizzo) setVia(data.parsed.indirizzo);
+          if (data.parsed.cap) setCap(data.parsed.cap);
+          if (data.parsed.comune) setComune(data.parsed.comune);
+          if (data.parsed.provincia) setProvincia(data.parsed.provincia);
+        }
       }
     } catch { setViesStatus("error"); setViesMsg("Errore di rete"); }
   }
