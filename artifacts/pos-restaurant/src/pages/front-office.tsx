@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useGetTablesStatus,
@@ -29,7 +29,7 @@ import {
   ChevronLeft, Search, X, UtensilsCrossed, Zap, Map as MapIcon,
   AlertTriangle, CheckCircle2, User, LogOut, Building2, Pencil,
   ArrowRightFromLine, ReceiptText, Trash2, BadgePercent, StickyNote, Ticket,
-  ScrollText, Hash, Euro, RefreshCw,
+  ScrollText, Hash, Euro, RefreshCw, CalendarClock, ArrowRight, BookOpen,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link } from "wouter";
@@ -65,8 +65,15 @@ function getElementSize(t: { elementType?: string; shape?: string }) {
 // ─── Floor plan element renderer ─────────────────────────────────────────────
 type FETable = TableStatus & { roomName?: string; posX?: number; posY?: number; shape?: string; elementType?: string; rotation?: number };
 
-function FloorElement({ t, isSelected, onClick }: {
+type Reservation = {
+  id: number; tableId: number | null; date: string; time: string;
+  covers: number; guestName: string; phone?: string | null;
+  notes?: string | null; status: string; tableName?: string | null;
+};
+
+function FloorElement({ t, isSelected, onClick, reservation, assignMode, moveMode }: {
   t: FETable; isSelected: boolean; onClick?: () => void;
+  reservation?: Reservation; assignMode?: boolean; moveMode?: boolean;
 }) {
   const { w, h } = getElementSize(t);
   const et = t.elementType ?? "table";
@@ -74,12 +81,15 @@ function FloorElement({ t, isSelected, onClick }: {
   const isDecor = et !== "table";
   const isRound = sh === "round" && !isDecor;
   const status = t.status as "free" | "occupied" | "reserved";
+  const isTargetable = (assignMode || moveMode) && status === "free";
 
-  const statusBg = {
-    free:     "bg-white border-slate-300 hover:border-primary hover:shadow-md",
-    occupied: "bg-orange-50 border-orange-400 hover:border-orange-500",
-    reserved: "bg-blue-50 border-blue-400",
-  }[status] ?? "bg-white border-slate-200";
+  const statusBg = isTargetable
+    ? "bg-emerald-50 border-emerald-400 hover:border-emerald-600 hover:shadow-md animate-pulse"
+    : {
+        free:     "bg-white border-slate-300 hover:border-primary hover:shadow-md",
+        occupied: "bg-orange-50 border-orange-400 hover:border-orange-500",
+        reserved: "bg-blue-50 border-blue-400 hover:border-blue-500",
+      }[status] ?? "bg-white border-slate-200";
 
   const statusDot = {
     free:     "bg-emerald-500",
@@ -99,25 +109,36 @@ function FloorElement({ t, isSelected, onClick }: {
 
   return (
     <button
-      disabled={isDecor}
+      disabled={isDecor || ((assignMode || moveMode) && !isTargetable)}
       onClick={isDecor ? undefined : onClick}
       className={cn(
         "absolute flex items-center justify-center border-2 select-none transition-all active:scale-95",
         isDecor ? decorStyle : cn(statusBg),
         isRound ? "rounded-full" : "rounded-xl",
         isSelected && !isDecor ? "ring-4 ring-primary ring-offset-2 shadow-xl scale-105" : "",
-        !isDecor && status === "free" && "cursor-pointer",
-        !isDecor && status === "occupied" && "cursor-pointer",
+        !isDecor && !assignMode && !moveMode && "cursor-pointer",
+        isTargetable && "cursor-pointer",
+        (assignMode || moveMode) && !isTargetable && !isDecor && "opacity-40",
       )}
       style={{ width: w * CELL - 6, height: h * CELL - 6, rotate: t.rotation ? `${t.rotation}deg` : undefined }}
     >
       {isDecor ? (
         <span className={cn("text-xs font-bold tracking-widest", et === "pianta" && "text-xl")}>{decorLabel}</span>
       ) : (
-        <div className="flex flex-col items-center justify-center w-full h-full px-1">
-          <div className={cn("h-2 w-2 rounded-full mb-1", statusDot)} />
+        <div className="flex flex-col items-center justify-center w-full h-full px-1 overflow-hidden">
+          <div className={cn("h-2 w-2 rounded-full mb-0.5 shrink-0", statusDot)} />
           <span className="text-[11px] font-bold text-slate-800 text-center leading-tight truncate w-full px-1">{t.name}</span>
-          {!isRound && (
+          {reservation && !t.activeOrderTotal && (
+            <>
+              <span className="text-[9px] font-bold text-blue-600 truncate w-full text-center px-0.5 leading-tight mt-0.5">
+                {reservation.guestName.length > 8 ? reservation.guestName.slice(0, 7) + "…" : reservation.guestName}
+              </span>
+              <span className="text-[9px] text-blue-500 flex items-center gap-0.5 leading-tight">
+                <CalendarClock className="h-2 w-2" />{reservation.time.slice(0, 5)}
+              </span>
+            </>
+          )}
+          {!isRound && !reservation && (
             <span className="text-[9px] text-slate-400 mt-0.5 flex items-center gap-0.5">
               <Users className="h-2 w-2 inline" />{t.seats}
             </span>
@@ -146,12 +167,47 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+
+  // ── Reservations ──────────────────────────────────────────────────────────
+  const today = new Date().toISOString().split("T")[0];
+  const { data: reservations = [], refetch: refetchReservations } = useQuery<Reservation[]>({
+    queryKey: ["reservations-today", today],
+    queryFn: () => fetch(`${API}/reservations?date=${today}`).then(r => r.json()),
+    refetchInterval: 60000,
+  });
+  const reservationByTableId = useMemo(
+    () => new Map(reservations.filter(r => r.tableId).map(r => [r.tableId!, r])),
+    [reservations]
+  );
+  const unassigned = useMemo(
+    () => reservations.filter(r => !r.tableId && r.status !== "cancelled").sort((a, b) => a.time.localeCompare(b.time)),
+    [reservations]
+  );
+  const reservedCount = reservations.filter(r => r.status !== "cancelled").length;
+
+  // ── Assign / Move mode ────────────────────────────────────────────────────
+  const [assigningRes, setAssigningRes] = useState<Reservation | null>(null);
+  const [movingRes, setMovingRes] = useState<Reservation | null>(null);
+  const [reservationPopup, setReservationPopup] = useState<{ table: FETable; res: Reservation } | null>(null);
+  const isActionMode = !!(assigningRes || movingRes);
+  const actionRes = assigningRes ?? movingRes;
+
+  async function applyTableToReservation(res: Reservation, tableId: number) {
+    await fetch(`${API}/reservations/${res.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tableId }),
+    });
+    await refetchReservations();
+    setAssigningRes(null);
+    setMovingRes(null);
+  }
+
+  // ── Scale ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     function updateScale() {
       if (!containerRef.current) return;
       const w = containerRef.current.clientWidth - 16;
       const h = containerRef.current.clientHeight - 16;
-      // Fit to actual table bounding box, not full grid
       const allElements = tablesStatus;
       const maxX = allElements.length
         ? Math.max(...allElements.map(t => (t.posX ?? 0) + (getElementSize(t).w))) + 1
@@ -170,25 +226,34 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
   }, [tablesStatus.length]);
 
   const rooms = Array.from(new Map(
-    tablesStatus
-      .filter(t => t.roomName)
-      .map(t => [t.roomName!, t.roomName!])
+    tablesStatus.filter(t => t.roomName).map(t => [t.roomName!, t.roomName!])
   ).values());
-
   const [roomFilter, setRoomFilter] = useState<string | null>(() => rooms[0] ?? null);
   useEffect(() => {
     if (roomFilter === null && rooms.length > 0) setRoomFilter(rooms[0]);
   }, [rooms.join(",")]);
 
-  const filtered = tablesStatus.filter(t =>
-    roomFilter === null || t.roomName === roomFilter
-  );
-
+  const filtered = tablesStatus.filter(t => roomFilter === null || t.roomName === roomFilter);
   const freeCount = filtered.filter(t => t.elementType !== "table" ? false : t.status === "free").length;
   const occupiedCount = filtered.filter(t => t.elementType !== "table" ? false : t.status === "occupied").length;
 
+  function handleMapClick(t: FETable) {
+    if (isActionMode) {
+      if (t.elementType === "table" && t.status === "free") {
+        applyTableToReservation(actionRes!, t.id);
+      }
+      return;
+    }
+    const res = reservationByTableId.get(t.id);
+    if (res && !t.activeOrderId) {
+      setReservationPopup({ table: t, res });
+      return;
+    }
+    onTableClick(t);
+  }
+
   return (
-    <div className="flex flex-col h-full">
+    <div className="relative flex flex-col h-full">
       {/* Panel header */}
       <div className="px-4 py-3 bg-white border-b border-slate-200 shrink-0">
         <div className="flex items-center justify-between gap-3">
@@ -207,13 +272,18 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
               )}
             </div>
           </div>
-          <div className="flex items-center gap-3 text-xs shrink-0">
+          <div className="flex items-center gap-2 text-xs shrink-0 flex-wrap justify-end">
             <span className="flex items-center gap-1 text-emerald-600 font-semibold">
               <div className="h-2 w-2 rounded-full bg-emerald-500" /> {freeCount} liberi
             </span>
             <span className="flex items-center gap-1 text-orange-500 font-semibold">
               <div className="h-2 w-2 rounded-full bg-orange-500" /> {occupiedCount} occupati
             </span>
+            {reservedCount > 0 && (
+              <span className="flex items-center gap-1 text-blue-600 font-semibold">
+                <CalendarClock className="h-3 w-3" /> {reservedCount} prenotati
+              </span>
+            )}
           </div>
         </div>
         {rooms.length > 1 && (
@@ -229,8 +299,52 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
         )}
       </div>
 
+      {/* Assign / Move mode banner */}
+      {isActionMode && (
+        <div className="px-4 py-3 bg-emerald-50 border-b-2 border-emerald-400 shrink-0 flex items-center gap-3">
+          <CalendarClock className="h-5 w-5 text-emerald-600 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-bold text-emerald-700">
+              {assigningRes ? "Assegna prenotazione" : "Sposta prenotazione"}
+            </div>
+            <div className="text-[11px] text-emerald-600 truncate">
+              {actionRes!.guestName} · {actionRes!.time.slice(0, 5)} · {actionRes!.covers} cop. — tocca un tavolo libero (lampeggiante)
+            </div>
+          </div>
+          <button onClick={() => { setAssigningRes(null); setMovingRes(null); }}
+            className="h-8 w-8 rounded-lg bg-emerald-100 flex items-center justify-center hover:bg-emerald-200 shrink-0">
+            <X className="h-4 w-4 text-emerald-700" />
+          </button>
+        </div>
+      )}
+
+      {/* Unassigned reservations strip */}
+      {!isActionMode && unassigned.length > 0 && (
+        <div className="px-3 py-2 bg-blue-50 border-b border-blue-200 shrink-0">
+          <div className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1.5 flex items-center gap-1">
+            <BookOpen className="h-3 w-3" /> {unassigned.length} prenotazione/i senza tavolo
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {unassigned.map(r => (
+              <div key={r.id} className="shrink-0 bg-white border-2 border-blue-300 rounded-xl px-3 py-2 flex items-center gap-2 shadow-sm min-w-[160px]">
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-bold text-slate-800 truncate">{r.guestName}</div>
+                  <div className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
+                    <CalendarClock className="h-2.5 w-2.5" /> {r.time.slice(0, 5)} · {r.covers} cop.
+                  </div>
+                </div>
+                <button onClick={() => setAssigningRes(r)}
+                  className="shrink-0 px-2 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-[10px] font-bold transition-all active:scale-95 flex items-center gap-1">
+                  <ArrowRight className="h-3 w-3" /> Assegna
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Floor plan */}
-      <div ref={containerRef} className="flex-1 overflow-hidden p-2 bg-[#f4f6fa] flex items-center justify-center">
+      <div ref={containerRef} className="flex-1 overflow-hidden p-2 bg-[#f4f6fa] flex items-center justify-center relative">
         {(() => {
           const allEl = filtered;
           const maxX = allEl.length ? Math.max(...allEl.map(t => (t.posX ?? 0) + getElementSize(t).w)) + 1 : 6;
@@ -254,7 +368,14 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
                 ))}
                 {filtered.map(t => (
                   <div key={t.id} className="absolute" style={{ left: (t.posX ?? 0) * CELL + 3, top: (t.posY ?? 0) * CELL + 3 }}>
-                    <FloorElement t={t} isSelected={t.id === selectedTableId} onClick={() => onTableClick(t)} />
+                    <FloorElement
+                      t={t}
+                      isSelected={t.id === selectedTableId}
+                      onClick={() => handleMapClick(t)}
+                      reservation={reservationByTableId.get(t.id)}
+                      assignMode={!!assigningRes}
+                      moveMode={!!movingRes}
+                    />
                   </div>
                 ))}
               </div>
@@ -262,6 +383,52 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
           );
         })()}
       </div>
+
+      {/* Reservation popup (reserved table with no order) */}
+      {reservationPopup && (
+        <div className="absolute inset-0 bg-black/30 flex items-center justify-center z-50 p-4"
+          onClick={() => setReservationPopup(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start gap-3 mb-4">
+              <div className="h-12 w-12 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+                <CalendarClock className="h-6 w-6 text-blue-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-slate-800 text-base">{reservationPopup.res.guestName}</div>
+                <div className="text-sm text-slate-500 flex items-center gap-3 mt-0.5 flex-wrap">
+                  <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{reservationPopup.res.time.slice(0, 5)}</span>
+                  <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" />{reservationPopup.res.covers} coperti</span>
+                </div>
+                {reservationPopup.res.phone && (
+                  <div className="text-xs text-slate-400 mt-0.5">{reservationPopup.res.phone}</div>
+                )}
+                {reservationPopup.res.notes && (
+                  <div className="text-xs italic text-amber-600 mt-1 bg-amber-50 rounded-lg px-2 py-1">{reservationPopup.res.notes}</div>
+                )}
+                <div className="text-xs text-blue-600 font-semibold mt-1.5">
+                  Tavolo: {reservationPopup.table.name}
+                </div>
+              </div>
+              <button onClick={() => setReservationPopup(null)}
+                className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center hover:bg-slate-200 shrink-0">
+                <X className="h-4 w-4 text-slate-500" />
+              </button>
+            </div>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => { setReservationPopup(null); onTableClick(reservationPopup.table); }}
+                className="w-full py-3 bg-primary text-white rounded-xl font-semibold text-sm hover:bg-primary/90 active:scale-95 transition-all flex items-center justify-center gap-2">
+                <Send className="h-4 w-4" /> Avvia ordine
+              </button>
+              <button
+                onClick={() => { setMovingRes(reservationPopup.res); setReservationPopup(null); }}
+                className="w-full py-3 bg-blue-50 text-blue-700 border-2 border-blue-200 rounded-xl font-semibold text-sm hover:bg-blue-100 active:scale-95 transition-all flex items-center justify-center gap-2">
+                <ArrowRight className="h-4 w-4" /> Sposta a un altro tavolo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

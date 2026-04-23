@@ -128,6 +128,18 @@ Global modifiers not bound to individual products but to **categories**:
 - Price of the item is adjusted by the sum of selected modifier `priceExtra` values
 - API: `GET/POST /api/modifiers`, `PATCH/DELETE /api/modifiers/:id`, `GET /api/modifiers/by-category/:categoryId`
 
+## Reservations System (Prenotazioni)
+
+- API: `GET/POST /api/reservations`, `PATCH/DELETE /api/reservations/:id`
+- Fields: `tableId`, `date` (YYYY-MM-DD), `time` (HH:MM), `covers`, `guestName`, `phone`, `notes`, `status`
+- `status` values: `"pending"`, `"confirmed"`, `"seated"`, `"cancelled"`
+- **Front-office table map** fetches today's reservations via `?date=TODAY`
+- Unassigned reservations (no `tableId`) shown as a scrollable strip above the floor plan with "Assegna" button per card
+- Clicking "Assegna" on a reservation enters **assign mode** — free tables pulse green, tap one to assign
+- Reserved tiles (blue) show guest name + time directly on the tile
+- Clicking a reserved tile (no active order) shows a popup with: "Avvia ordine" / "Sposta a un altro tavolo"
+- "Sposta" enters **move mode** — same green-pulse behavior, tap another free table to move the reservation
+
 ## Key Commands
 
 - `pnpm --filter @workspace/api-server run dev` — Run API server
