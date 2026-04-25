@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, ordersTable, orderItemsTable, tablesTable, productsTable, categoriesTable, printersTable } from "@workspace/db";
+import { db, ordersTable, orderItemsTable, tablesTable, roomsTable, productsTable, categoriesTable, printersTable } from "@workspace/db";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import net from "net";
 import {
@@ -424,8 +424,20 @@ router.post("/:id/send-comanda", async (req, res) => {
     byPrinterAndPhase.get(key)!.items.push(item);
   }
 
-  // 4. Table label
-  const tableLabel = order.tableLabel ?? `Tavolo ${order.tableId ?? id}`;
+  // 4. Table label — join table + room to get "Sala — Nome Tavolo"
+  let tableLabel = order.notes ?? `Ordine ${id}`;
+  if (order.tableId) {
+    const [tableRow] = await db
+      .select({ tableName: tablesTable.name, roomName: roomsTable.name })
+      .from(tablesTable)
+      .leftJoin(roomsTable, eq(tablesTable.roomId, roomsTable.id))
+      .where(eq(tablesTable.id, order.tableId));
+    if (tableRow) {
+      tableLabel = tableRow.roomName
+        ? `${tableRow.roomName} — ${tableRow.tableName}`
+        : tableRow.tableName;
+    }
+  }
 
   // 5. Send one comanda per (printer, phase) group
   const printResults: { printerId: number | null; printerName: string; phase: string; items: number; ok: boolean; error?: string }[] = [];
