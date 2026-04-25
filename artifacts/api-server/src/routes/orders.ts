@@ -407,30 +407,30 @@ router.post("/:id/send-comanda", async (req, res) => {
   const printerByCategory = new Map(categories.map(c => [c.id, c.printerId]));
   const printerById     = new Map(printers.map(p => [p.id, p]));
 
-  // 3. Group items by printer (null = no printer assigned)
-  const byPrinter = new Map<number | null, typeof sentItems>();
+  // 3. Group items by (printer, phase) so each phase gets its own comanda per printer
+  const phaseLabels = ["F1", "F2", "F3", "F4"];
+
+  type GroupKey = string;
+  type GroupValue = { printerId: number | null; phase: string; items: typeof sentItems };
+  const byPrinterAndPhase = new Map<GroupKey, GroupValue>();
+
   for (const item of sentItems) {
     const catId     = catByProductId.get(item.productId ?? 0) ?? null;
     const printerId = catId ? (printerByCategory.get(catId) ?? null) : null;
-    if (!byPrinter.has(printerId)) byPrinter.set(printerId, []);
-    byPrinter.get(printerId)!.push(item);
+    const phaseNum  = (item as unknown as { phase?: number }).phase ?? 0;
+    const phaseLabel = phaseLabels[phaseNum] ?? "F1";
+    const key = `${printerId ?? "null"}-${phaseNum}`;
+    if (!byPrinterAndPhase.has(key)) byPrinterAndPhase.set(key, { printerId, phase: phaseLabel, items: [] });
+    byPrinterAndPhase.get(key)!.items.push(item);
   }
 
-  // 4. Determine phase label
-  const phaseLabels = ["F1", "F2", "F3", "F4"];
-  const phase = (() => {
-    const phases = new Set(sentItems.map(i => (i as unknown as { phase?: number }).phase ?? 0));
-    const first  = phases.values().next().value as number;
-    return phaseLabels[first] ?? "F1";
-  })();
-
-  // 5. Table label
+  // 4. Table label
   const tableLabel = order.tableLabel ?? `Tavolo ${order.tableId ?? id}`;
 
-  // 6. Send to each printer
-  const printResults: { printerId: number | null; printerName: string; items: number; ok: boolean; error?: string }[] = [];
+  // 5. Send one comanda per (printer, phase) group
+  const printResults: { printerId: number | null; printerName: string; phase: string; items: number; ok: boolean; error?: string }[] = [];
 
-  for (const [printerId, items] of byPrinter) {
+  for (const { printerId, phase, items } of byPrinterAndPhase.values()) {
     const printer = printerId ? printerById.get(printerId) : null;
     const printerName = printer?.name ?? "(nessuna stampante)";
     const lineItems = items.map(i => ({
@@ -442,23 +442,24 @@ router.post("/:id/send-comanda", async (req, res) => {
 
     if (!printer) {
       console.log(`[COMANDA][No-printer] ${tableLabel} — Fase ${phase}: ${lineItems.map(li => `${li.quantity}× ${li.productName}`).join(", ")}`);
-      printResults.push({ printerId: null, printerName, items: items.length, ok: true });
+      printResults.push({ printerId: null, printerName, phase, items: items.length, ok: true });
       continue;
     }
 
     const data = escposComanda(tableLabel, lineItems, phase, printer.name, order.id);
     try {
       await sendToPrinter(printer.ip, printer.port, data);
-      console.log(`[COMANDA][OK] → ${printer.name} (${printer.ip}:${printer.port}) — ${lineItems.length} articoli`);
-      printResults.push({ printerId, printerName, items: items.length, ok: true });
+      console.log(`[COMANDA][OK] → ${printer.name} (${printer.ip}:${printer.port}) — Fase ${phase} — ${lineItems.length} articoli`);
+      printResults.push({ printerId, printerName, phase, items: items.length, ok: true });
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e);
-      console.error(`[COMANDA][FAIL] → ${printer.name} (${printer.ip}:${printer.port}): ${errMsg}`);
-      printResults.push({ printerId, printerName, items: items.length, ok: false, error: errMsg });
+      console.error(`[COMANDA][FAIL] → ${printer.name} (${printer.ip}:${printer.port}) — Fase ${phase}: ${errMsg}`);
+      printResults.push({ printerId, printerName, phase, items: items.length, ok: false, error: errMsg });
     }
   }
 
-  res.json({ success: true, sentItems: sentItems.length, phase, printers: printResults });
+  const phases = [...new Set([...byPrinterAndPhase.values()].map(g => g.phase))].join(", ");
+  res.json({ success: true, sentItems: sentItems.length, phases, printers: printResults });
 });
 
 // Update covers (0 allowed)

@@ -2370,7 +2370,8 @@ export default function FrontOffice() {
       (i as never as { phase: number }).phase === activePriceList &&
       i.unitPrice === unitPrice &&
       ((i as never as { modifiers?: string }).modifiers ?? "[]") === "[]" &&
-      !(i as never as { notes?: string }).notes
+      !(i as never as { notes?: string }).notes &&
+      (i as never as { status: string }).status === "draft"
     ) : null;
     if (existing && orderId === activeOrderId && qty === 1) {
       await updateItem.mutateAsync({ orderId, itemId: existing.id, data: { quantity: existing.quantity + 1 } });
@@ -2557,17 +2558,20 @@ export default function FrontOffice() {
     }
   }
 
-  async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number, ragioneSocialeCliente?: string) {
+  async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number, ragioneSocialeCliente?: string, itemIds?: number[]) {
     if (!activeOrderId) return;
     setShowPayment(false);
     const isGestionale = !!invoiceCustomerId;
+    const splitAmount = amountGiven !== undefined && itemIds !== undefined ? amountGiven.toFixed(2) : total.toFixed(2);
     const paymentRes = await createPayment.mutateAsync({
       data: {
-        orderId: activeOrderId, method, amount: total.toFixed(2),
-        amountGiven: amountGiven?.toFixed(2),
+        orderId: activeOrderId, method,
+        amount: itemIds !== undefined ? splitAmount : total.toFixed(2),
+        amountGiven: itemIds !== undefined ? undefined : amountGiven?.toFixed(2),
         lotteria: lotteriaCodice || undefined,
         nonFiscale: isGestionale || undefined,
         ragioneSocialeCliente: ragioneSocialeCliente || undefined,
+        itemIds: itemIds ?? undefined,
       } as never
     });
     // Mostra risultato RT
@@ -2913,13 +2917,13 @@ export default function FrontOffice() {
             </div>
             <div className="flex items-center gap-1 shrink-0">
               <button
-                onClick={() => handleEditCovers(Math.max(0, coverCount - 1))}
+                onClick={(e) => { e.stopPropagation(); handleEditCovers(Math.max(0, coverCount - 1)); }}
                 className="h-7 w-7 rounded-lg bg-[#252840] border border-[#3a3f58] text-slate-300 hover:bg-[#2d3349] hover:text-white active:scale-95 transition-all flex items-center justify-center text-base font-bold">
                 −
               </button>
               <span className="text-sm font-bold text-white w-6 text-center tabular-nums">{coverCount}</span>
               <button
-                onClick={() => handleEditCovers(coverCount + 1)}
+                onClick={(e) => { e.stopPropagation(); handleEditCovers(coverCount + 1); }}
                 className="h-7 w-7 rounded-lg bg-[#252840] border border-[#3a3f58] text-slate-300 hover:bg-[#2d3349] hover:text-white active:scale-95 transition-all flex items-center justify-center text-base font-bold">
                 +
               </button>
@@ -2935,41 +2939,39 @@ export default function FrontOffice() {
 
           {/* Numpad compatto 3×4 */}
           <div className="flex-1 flex flex-col gap-1">
-            {/* Mode bar: when item is selected show Qtà/Prezzo apply buttons */}
-            {selectedItemId && (
-              <div className="flex gap-1">
-                <button
-                  onClick={async () => {
-                    setNumpadMode("qty");
-                    if (numBuffer) await applyNumpadToSelectedItem("qty");
-                  }}
-                  className={cn(
-                    "flex-1 h-8 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-all active:scale-95",
-                    numpadMode === "qty" && numBuffer
-                      ? "bg-primary text-white shadow-sm ring-2 ring-primary/40 animate-pulse"
-                      : numpadMode === "qty"
-                        ? "bg-primary text-white shadow-sm"
-                        : "bg-[#252840] text-slate-400 hover:bg-[#2d3044]"
-                  )}>
-                  <Hash className="h-3 w-3" /> Imposta Qtà
-                </button>
-                <button
-                  onClick={async () => {
-                    setNumpadMode("price");
-                    if (numBuffer) await applyNumpadToSelectedItem("price");
-                  }}
-                  className={cn(
-                    "flex-1 h-8 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-all active:scale-95",
-                    numpadMode === "price" && numBuffer
-                      ? "bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-500/40 animate-pulse"
-                      : numpadMode === "price"
-                        ? "bg-emerald-600 text-white shadow-sm"
-                        : "bg-[#252840] text-slate-400 hover:bg-[#2d3044]"
-                  )}>
-                  <Euro className="h-3 w-3" /> Imposta Prezzo
-                </button>
-              </div>
-            )}
+            {/* Mode bar: always visible so user can set Qtà/Prezzo BEFORE picking a product */}
+            <div className="flex gap-1">
+              <button
+                onClick={async () => {
+                  setNumpadMode("qty");
+                  if (numBuffer && selectedItemId) await applyNumpadToSelectedItem("qty");
+                }}
+                className={cn(
+                  "flex-1 h-8 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-all active:scale-95",
+                  numpadMode === "qty" && numBuffer
+                    ? "bg-primary text-white shadow-sm ring-2 ring-primary/40 animate-pulse"
+                    : numpadMode === "qty"
+                      ? "bg-primary text-white shadow-sm"
+                      : "bg-[#252840] text-slate-400 hover:bg-[#2d3044]"
+                )}>
+                <Hash className="h-3 w-3" /> Imposta Qtà
+              </button>
+              <button
+                onClick={async () => {
+                  setNumpadMode("price");
+                  if (numBuffer && selectedItemId) await applyNumpadToSelectedItem("price");
+                }}
+                className={cn(
+                  "flex-1 h-8 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-all active:scale-95",
+                  numpadMode === "price" && numBuffer
+                    ? "bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-500/40 animate-pulse"
+                    : numpadMode === "price"
+                      ? "bg-emerald-600 text-white shadow-sm"
+                      : "bg-[#252840] text-slate-400 hover:bg-[#2d3044]"
+                )}>
+                <Euro className="h-3 w-3" /> Imposta Prezzo
+              </button>
+            </div>
             <div className="grid grid-cols-3 gap-1 flex-1">
               {numpadKeys.map(k => (
                 <button key={k} onClick={() => handleNumpadKey(k)}
@@ -3793,7 +3795,7 @@ export default function FrontOffice() {
         items={items as never}
         coverPrice={coverPrice}
         coverCount={coverCount}
-        onPay={(method, amount) => handlePay(method, amount)}
+        onPay={(method, amount, itemIds) => handlePay(method, amount, undefined, undefined, itemIds)}
       />
 
       {/* ── Modifier Picker ─────────────────────────────────────────── */}

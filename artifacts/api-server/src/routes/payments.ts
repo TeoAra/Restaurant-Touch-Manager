@@ -38,9 +38,13 @@ router.post("/", async (req, res) => {
   // ── Emetti documento sulla RT (fiscale o non-fiscale) ────────────────────
   const nonFiscale = req.body?.nonFiscale === true; // documento gestionale → scontrino non fiscale
   const ragioneSocialeCliente: string | undefined = req.body?.ragioneSocialeCliente;
+  const splitItemIds: number[] | undefined = Array.isArray(req.body?.itemIds) && req.body.itemIds.length > 0
+    ? (req.body.itemIds as number[])
+    : undefined;
   let fiscalResult: { receiptId?: number; rtOk?: boolean; rtError?: string; rtIp?: string; rtBody?: string; nonFiscale?: boolean } = {};
   try {
-    const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, body.orderId));
+    const allItems = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, body.orderId));
+    const items = splitItemIds ? allItems.filter(i => splitItemIds.includes(i.id)) : allItems;
     const settings = await getSettings();
     const modalita = (order as never as { modalita?: string }).modalita ?? "tavolo";
     const aliquotaIva = settings[`iva_${modalita}`] ?? settings["iva_tavolo"] ?? "10";
