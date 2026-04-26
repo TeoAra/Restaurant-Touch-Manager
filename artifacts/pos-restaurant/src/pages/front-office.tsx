@@ -1884,12 +1884,12 @@ function InlinePaymentPanel({ total, onPay, disabled }: {
       </div>
 
       {/* Method selector */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-2">
         {([["cash","CONTANTI","text-emerald-500"],["card","BANCOMAT","text-blue-500"],["other","ALTRO","text-purple-500"]] as const).map(([id, label, col]) => (
           <button key={id} onClick={() => setMethod(id as typeof method)}
-            className={cn("py-5 rounded-2xl font-bold text-base border-2 transition-all active:scale-95",
+            className={cn("py-3 rounded-xl font-bold text-sm border-2 transition-all active:scale-95",
               method === id ? "border-primary bg-primary text-white shadow-lg" : "border-slate-200 bg-white text-slate-700 hover:border-primary")}>
-            <div className={cn("text-2xl mb-1", method === id ? "text-white" : col)}>
+            <div className={cn("text-xl mb-0.5", method === id ? "text-white" : col)}>
               {id === "cash" ? "💵" : id === "card" ? "💳" : "💼"}
             </div>
             {label}
@@ -1907,10 +1907,10 @@ function InlinePaymentPanel({ total, onPay, disabled }: {
               className="text-3xl font-bold text-center h-14 border-0 bg-slate-50 rounded-xl" />
           </div>
           {/* Denomination buttons */}
-          <div className="grid grid-cols-5 gap-2">
+          <div className="grid grid-cols-5 gap-1.5">
             {DENOMINATIONS.map(d => (
               <button key={d} onClick={() => setGiven(d.toString())}
-                className="py-3 rounded-xl bg-white border-2 border-slate-200 text-sm font-bold text-slate-700 hover:border-primary hover:text-primary active:scale-90 transition-all">
+                className="py-2 rounded-lg bg-white border-2 border-slate-200 text-xs font-bold text-slate-700 hover:border-primary hover:text-primary active:scale-90 transition-all">
                 {d >= 1 ? `€${d}` : `${(d * 100).toFixed(0)}¢`}
               </button>
             ))}
@@ -1929,7 +1929,7 @@ function InlinePaymentPanel({ total, onPay, disabled }: {
         disabled={!canPay}
         onClick={() => onPay(method, method === "cash" ? givenNum : undefined)}
         className={cn(
-          "w-full py-5 rounded-2xl text-xl font-bold transition-all active:scale-95",
+          "w-full py-3.5 rounded-xl text-base font-bold transition-all active:scale-95",
           canPay ? "bg-primary text-white shadow-lg hover:bg-primary/90" : "bg-slate-200 text-slate-400 cursor-not-allowed"
         )}>
         {disabled ? "Nessun ordine aperto" : canPay ? `INCASSA  € ${total.toFixed(2)}` : "Inserire importo"}
