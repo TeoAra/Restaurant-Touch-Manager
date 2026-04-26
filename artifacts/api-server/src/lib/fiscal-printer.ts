@@ -476,6 +476,24 @@ export async function emettiFiscalReceipt(opts: {
   if (printer) {
     const rtPort = printer.port ?? 1126;
 
+    // ── PRE-CHECK: verifica stato RT e annulla eventuale scontrino aperto ──
+    // L'errore "01 non consentita" succede quasi sempre perché la RT ha già
+    // uno scontrino aperto da un tentativo precedente fallito (connessione
+    // interrotta a metà). Prima di aprire un nuovo documento, controlliamo
+    // e annulliamo con 'k' se necessario.
+    console.log("[FISCAL] Pre-check stato RT...");
+    const preStatus = await sendXonXoff(printer.ip, rtPort, "?", 2500);
+    const preQ = parseStatusQ(preStatus.ascii);
+    console.log(`[FISCAL] Pre-check: stato=${preQ?.stato ?? "?"} ascii=${preStatus.ascii.substring(0, 100)}`);
+    if (preQ && preQ.stato !== 0) {
+      // Scontrino o documento aperto → annulla prima di procedere
+      console.warn(`[FISCAL] Scontrino aperto (stato=${preQ.stato}), invio annullo 'k'...`);
+      const annullo = await sendXonXoff(printer.ip, rtPort, "k", 2500);
+      console.log(`[FISCAL] Annullo: xoff=${annullo.xoffCount} ascii=${annullo.ascii.substring(0, 60)}`);
+      // Piccola pausa per dare tempo alla RT di tornare a riposo
+      await new Promise(r => setTimeout(r, 500));
+    }
+
     // Carica mapping IVA→Reparto dalle impostazioni
     const settings = await getSettings();
     const deptMap: Record<string, string> = {
@@ -512,7 +530,7 @@ export async function emettiFiscalReceipt(opts: {
 
     if (raw.xoffCount > 0) {
       rt = { ok: false, ms: raw.ms, body: raw.ascii,
-        error: `RT errore: ${raw.xoffCount} XOFF (verifica reparto/operatore sul display RT)` };
+        error: `RT errore XOFF (verifica reparto/operatore sul display RT) — cmd: ${cmd.substring(0, 80)}` };
     } else {
       const statusQ = parseStatusQ(raw.ascii);
       if (statusQ && statusQ.stato === 0) {
@@ -523,7 +541,7 @@ export async function emettiFiscalReceipt(opts: {
         rt = { ok: false, ms: raw.ms, body: raw.ascii,
           error: "RT: scontrino ancora aperto dopo il pagamento" };
       } else {
-        // Nessuna risposta parsabile → probabilmente OK (lotteria o modello che non risponde a ?)
+        // Nessuna risposta parsabile → probabilmente OK (modello che non risponde a ?)
         rt = { ok: raw.xoffCount === 0, ms: raw.ms, body: raw.ascii };
       }
     }
