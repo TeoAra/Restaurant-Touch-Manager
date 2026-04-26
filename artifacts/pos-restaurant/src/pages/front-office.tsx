@@ -2666,17 +2666,17 @@ export default function FrontOffice() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-screen overflow-hidden bg-[#0f1117]">
+    <div className="flex h-screen overflow-hidden bg-[#151922]">
 
       {/* ══ LEFT PANEL ════════════════════════════════════════════════════════ */}
       <div className={cn(
-        "flex-col bg-[#1a1d2a] shrink-0 border-r border-[#2d3044]",
+        "flex-col bg-[#1c2030] shrink-0 border-r border-[#37415c]",
         "w-full sm:w-[320px] lg:w-[340px]",
         mobilePanel === "left" ? "flex" : "hidden sm:flex"
       )}>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-2 py-1.5 border-b border-[#2d3044] shrink-0 bg-[#12151e]">
+        <div className="flex items-center justify-between px-2 py-1.5 border-b border-[#37415c] shrink-0 bg-[#171b27]">
           {/* Table name / brand — click to send comanda when drafts exist */}
           <button
             disabled={!activeOrderId && !selectedTableId}
@@ -2686,7 +2686,7 @@ export default function FrontOffice() {
               activeOrderId && hasDraftItems
                 ? "border-2 border-amber-500 bg-amber-900/30 hover:bg-amber-900/50 active:scale-95 cursor-pointer"
                 : activeOrderId || selectedTableId
-                  ? "border-2 border-[#3a3f58] bg-transparent hover:bg-[#22263a] active:scale-95 cursor-pointer"
+                  ? "border-2 border-[#49546f] bg-transparent hover:bg-[#242b3b] active:scale-95 cursor-pointer"
                   : "border-2 border-transparent cursor-default"
             )}>
             {activeOrderId ? (
@@ -2743,7 +2743,7 @@ export default function FrontOffice() {
 
         {/* Totale */}
         <div className="px-2.5 pt-2 pb-1 shrink-0">
-          <div className="bg-[#12151e] rounded-xl px-3 py-2 flex items-center justify-between border border-[#2d3044]">
+          <div className="bg-[#171b27] rounded-xl px-3 py-2 flex items-center justify-between border border-[#37415c]">
             <div>
               {numBuffer ? (
                 <div className="text-sm font-bold text-primary leading-none flex items-center gap-1">
@@ -2779,7 +2779,7 @@ export default function FrontOffice() {
                 "flex-1 py-1.5 rounded-md text-[11px] font-semibold transition-all",
                 activePriceList === i
                   ? "bg-primary text-white shadow-sm"
-                  : "bg-[#252840] text-slate-400 hover:bg-[#2d3044] hover:text-slate-200"
+                  : "bg-[#2a3143] text-slate-300 hover:bg-[#34405a] hover:text-slate-200"
               )}>
               {label}
             </button>
@@ -3137,7 +3137,7 @@ export default function FrontOffice() {
       )}>
 
         {/* Tab bar: GRP | ART | VAR | TAVL | CLNT | TOT */}
-        <div className="flex bg-[#0f1117] border-b border-[#2d3044] shrink-0">
+        <div className="flex bg-[#151922] border-b border-[#37415c] shrink-0">
           {(["grp","art","var","tavl","clnt","tot"] as const).map((tab) => {
             const labels: Record<string, string> = { grp:"GRP", art:"ART", var:"VAR", tavl:"TAVL", clnt:"CLNT", tot:"TOT" };
             const active = rightTab === tab;
