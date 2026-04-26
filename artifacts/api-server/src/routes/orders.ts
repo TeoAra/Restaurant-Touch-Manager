@@ -424,18 +424,15 @@ router.post("/:id/send-comanda", async (req, res) => {
     byPrinterAndPhase.get(key)!.items.push(item);
   }
 
-  // 4. Table label — join table + room to get "Sala — Nome Tavolo"
+  // 4. Table label
   let tableLabel = order.notes ?? `Ordine ${id}`;
   if (order.tableId) {
     const [tableRow] = await db
-      .select({ tableName: tablesTable.name, roomName: roomsTable.name })
+      .select({ tableName: tablesTable.name })
       .from(tablesTable)
-      .leftJoin(roomsTable, eq(tablesTable.roomId, roomsTable.id))
       .where(eq(tablesTable.id, order.tableId));
     if (tableRow) {
-      tableLabel = tableRow.roomName
-        ? `${tableRow.roomName} — ${tableRow.tableName}`
-        : tableRow.tableName;
+      tableLabel = tableRow.tableName;
     }
   }
 

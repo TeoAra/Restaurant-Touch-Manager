@@ -2096,6 +2096,16 @@ export default function FrontOffice() {
     prevTableIdRef.current = selectedTableId;
   }, [selectedTableId]);
 
+  useEffect(() => {
+    if (!selectedTableId && !isQuickMode) {
+      setSelectedItemId(null);
+      setSelectedCategoryId(null);
+      setSelectedItemCategoryId(null);
+      setKpComment("");
+      setNumBuffer("");
+    }
+  }, [selectedTableId, isQuickMode]);
+
   // Current phase (1=products, 2=table, 3=comanda sent, 4=payment)
   const currentPhase: 1 | 2 | 3 | 4 =
     showPayment ? 4
@@ -2630,8 +2640,12 @@ export default function FrontOffice() {
       } catch {
         toast({ title: "Pagamento OK — errore fattura", variant: "destructive" });
       }
+    } else if (itemIds?.length) {
+      await Promise.all(itemIds.map(itemId =>
+        fetch(`${API}/orders/${activeOrderId}/items/${itemId}`, { method: "DELETE" }).catch(() => {})
+      ));
     }
-    handleExitOrder();
+    if (!itemIds?.length) handleExitOrder();
     refresh();
     toast({ title: "Pagamento registrato", description: `€ ${total.toFixed(2)} — ${method}` });
   }
