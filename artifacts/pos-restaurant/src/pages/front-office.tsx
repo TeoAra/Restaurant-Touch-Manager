@@ -2821,7 +2821,7 @@ export default function FrontOffice() {
                   {multiPhase && (
                     <div className="flex items-center gap-2 py-1 my-0.5">
                       <div className="h-px flex-1 bg-[#3a3f58]" />
-                      <span className="text-[9px] font-bold text-slate-500 tracking-widest px-1 py-0.5 rounded bg-[#252840]">{phLabels[ph] ?? `F${ph + 1}`}</span>
+                      <span className="text-[8px] font-bold text-slate-500 tracking-widest px-1 py-0.5 rounded bg-[#252840]">{phLabels[ph] ?? `F${ph + 1}`}</span>
                       <div className="h-px flex-1 bg-[#3a3f58]" />
                     </div>
                   )}
@@ -2870,20 +2870,20 @@ export default function FrontOffice() {
                       <button
                         onClick={e => { e.stopPropagation(); setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus }); }}
                         className={cn(
-                          "h-7 w-7 rounded-lg flex items-center justify-center transition-colors shrink-0",
+                        "h-6 w-6 rounded-md flex items-center justify-center transition-colors shrink-0",
                           isSelected ? "hover:bg-primary/30 active:bg-primary/40" : "hover:bg-[#3a3f58] active:bg-[#444a6a]"
                         )}>
-                        <Pencil className={cn("h-3.5 w-3.5", isSelected ? "text-primary" : "text-slate-400")} />
+                        <Pencil className={cn("h-3 w-3", isSelected ? "text-primary" : "text-slate-400")} />
                       </button>
                       <div className="flex items-center gap-0.5 shrink-0">
                         <button onClick={e => { e.stopPropagation(); handleQty(item.id, item.quantity - 1); }}
-                          className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-red-900/40 active:bg-red-900/60 transition-colors">
-                          <Minus className="h-3.5 w-3.5 text-red-400" />
+                          className="h-6 w-6 rounded-md flex items-center justify-center hover:bg-red-900/40 active:bg-red-900/60 transition-colors">
+                          <Minus className="h-3 w-3 text-red-400" />
                         </button>
-                        <span className="w-5 text-center text-xs font-bold text-slate-200">{item.quantity}</span>
+                        <span className="w-4 text-center text-[11px] font-bold text-slate-200">{item.quantity}</span>
                         <button onClick={e => { e.stopPropagation(); handleQty(item.id, item.quantity + 1); }}
-                          className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-emerald-900/40 active:bg-emerald-900/60 transition-colors">
-                          <Plus className="h-3.5 w-3.5 text-emerald-400" />
+                          className="h-6 w-6 rounded-md flex items-center justify-center hover:bg-emerald-900/40 active:bg-emerald-900/60 transition-colors">
+                          <Plus className="h-3 w-3 text-emerald-400" />
                         </button>
                       </div>
                     </div>
