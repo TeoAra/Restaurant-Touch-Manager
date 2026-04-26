@@ -3611,14 +3611,14 @@ export default function FrontOffice() {
 
         {/* ── TOT: inline payment */}
         {rightTab === "tot" && (
-          <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 flex flex-col overflow-hidden scale-[0.92] origin-top">
             {/* Invoice customer indicator */}
             {invoiceCustomer && (
-              <div className="mx-4 mt-3 px-3 py-2 bg-emerald-900/40 border border-emerald-700 rounded-xl flex items-center gap-2 shrink-0">
+              <div className="mx-3 mt-2 px-2.5 py-1.5 bg-emerald-900/40 border border-emerald-700 rounded-xl flex items-center gap-2 shrink-0">
                 <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <div className="text-[10px] text-emerald-400 font-bold">Fattura a:</div>
-                  <div className="text-xs text-emerald-200 font-semibold truncate">{invoiceCustomer.ragioneSociale}</div>
+                  <div className="text-[11px] text-emerald-200 font-semibold truncate">{invoiceCustomer.ragioneSociale}</div>
                 </div>
                 <button onClick={() => setInvoiceCustomer(null)}
                   className="text-emerald-500 hover:text-emerald-300 transition-colors shrink-0">
@@ -3734,7 +3734,7 @@ export default function FrontOffice() {
             <Button
               onClick={handleLotteria}
               disabled={lotteriaInput.length !== 8 || lotteriaLoading}
-              className="gap-1.5 bg-blue-600 hover:bg-blue-700">
+              className="gap-1.5 bg-blue-600 hover:bg-blue-700 h-9 text-sm">
               {lotteriaLoading
                 ? <><span className="animate-spin">⏳</span> Invio...</>
                 : <><Ticket className="h-4 w-4" /> Invia alla RT ({lotteriaInput.length}/8)</>}
