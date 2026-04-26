@@ -2531,6 +2531,7 @@ export default function FrontOffice() {
     if (!activeOrderId) return;
     try {
       const res = await fetch(`${API}/orders/${activeOrderId}/send-comanda`, { method: "POST" });
+      if (!res.ok) throw new Error();
       const data = await res.json() as { sentItems: number; phases?: Array<{ phase: string; count: number }> };
       refresh();
       const phaseDesc = data.phases && data.phases.length > 0
@@ -2539,6 +2540,9 @@ export default function FrontOffice() {
       addLog("info", `Comanda inviata — ${orderLabel} — ${phaseDesc}`);
       toast({ title: "Comanda inviata ai reparti", description: phaseDesc });
       setSelectedTableId(null);
+      setSelectedCategoryId(null);
+      setSelectedItemId(null);
+      setNumBuffer("");
     } catch (e) {
       addLog("error", `Errore invio comanda — ${String(e)}`);
       toast({ title: "Errore invio comanda", variant: "destructive" });
