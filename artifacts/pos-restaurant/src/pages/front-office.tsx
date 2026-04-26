@@ -912,13 +912,13 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
             <p className="text-4xl font-bold text-slate-900">€ {total.toFixed(2)}</p>
           </div>
 
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-4 gap-1.5">
             {methods.map(m => (
               <button key={m.id} onClick={() => setMethod(m.id)}
-                className={cn("flex flex-col items-center gap-1.5 py-3 rounded-xl border-2 transition-all",
+                className={cn("flex flex-col items-center gap-1 py-2 rounded-lg border-2 transition-all",
                   method === m.id ? "border-primary bg-orange-50" : "border-slate-200 hover:border-slate-300")}>
-                <m.icon className={cn("h-5 w-5", m.color)} />
-                <span className="text-[10px] font-medium text-slate-700 text-center leading-tight">{m.label}</span>
+                <m.icon className={cn("h-4 w-4", m.color)} />
+                <span className="text-[9px] font-medium text-slate-700 text-center leading-tight">{m.label}</span>
               </button>
             ))}
           </div>
@@ -930,10 +930,10 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
                 <Input type="number" step="0.01" placeholder="0.00" value={given}
                   onChange={e => setGiven(e.target.value)} className="text-xl text-center h-12" />
               </div>
-              <div className="grid grid-cols-4 gap-1.5">
+              <div className="grid grid-cols-4 gap-1">
                 {[5, 10, 20, 50].map(v => (
                   <button key={v} onClick={() => setGiven(v.toString())}
-                    className="py-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-sm font-semibold text-slate-700 transition-colors">
+                    className="py-2 rounded-md bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-700 transition-colors">
                     €{v}
                   </button>
                 ))}
@@ -1055,12 +1055,12 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
                   <p className="text-3xl font-bold text-primary mt-2">€ {total.toFixed(2)}</p>
                 </div>
                 <div className="flex gap-2 w-full">
-                  <Button variant="outline" className="flex-1" onClick={() => setPosPhase("idle")}>Annulla</Button>
-                  <Button className="flex-1" onClick={() => {
+                  <Button variant="outline" className="flex-1 h-9 text-sm" onClick={() => setPosPhase("idle")}>Annulla</Button>
+                  <Button className="flex-1 h-9 text-sm" onClick={() => {
                     setPosPhase("idle");
                     onPay(method, parseFloat(given) || total, emittiFattura && selectedCustomer ? selectedCustomer.id : undefined, emittiFattura ? (selectedCustomer?.ragioneSociale ?? undefined) : undefined);
                   }}>
-                    <CheckCircle2 className="h-4 w-4 mr-2" /> Pagamento ricevuto
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" /> Pagamento ricevuto
                   </Button>
                 </div>
               </>
