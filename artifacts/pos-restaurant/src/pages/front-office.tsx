@@ -2532,10 +2532,10 @@ export default function FrontOffice() {
     try {
       const res = await fetch(`${API}/orders/${activeOrderId}/send-comanda`, { method: "POST" });
       if (!res.ok) throw new Error();
-      const data = await res.json() as { sentItems: number; phases?: Array<{ phase: string; count: number }> };
+      const data = await res.json() as { sentItems: number; phases?: string };
       refresh();
-      const phaseDesc = data.phases && data.phases.length > 0
-        ? data.phases.map(p => `${p.phase}: ${p.count} art.`).join(" · ")
+      const phaseDesc = data.phases
+        ? `${data.sentItems} art. — fasi: ${data.phases}`
         : `${data.sentItems} articoli`;
       addLog("info", `Comanda inviata — ${orderLabel} — ${phaseDesc}`);
       toast({ title: "Comanda inviata ai reparti", description: phaseDesc });

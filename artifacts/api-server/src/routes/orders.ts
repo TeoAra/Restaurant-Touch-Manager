@@ -256,10 +256,12 @@ function toAscii(s: string): string {
     .replace(/[^A-Za-z0-9 !"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/g, "?");
 }
 
+type ComandaItem = { productName: string; quantity: number; notes?: string | null; modifiers?: string | null };
+type PhaseGroup  = { phase: string; items: ComandaItem[] };
+
 function escposComanda(
   tableLabel: string,
-  items: { productName: string; quantity: number; notes?: string | null; modifiers?: string | null }[],
-  phase: string,
+  phaseGroups: PhaseGroup[],
   printerName?: string,
   orderId?: number,
   operatorName?: string,
@@ -267,23 +269,22 @@ function escposComanda(
   const COLS = 42;
   const SEP  = Buffer.from("-".repeat(COLS) + "\n");
 
-  const init     = Buffer.from([ESC, 0x40]);
-  const bold_on  = Buffer.from([ESC, 0x45, 0x01]);
-  const bold_off = Buffer.from([ESC, 0x45, 0x00]);
-  const dbl_on   = Buffer.from([GS,  0x21, 0x11]);  // double width+height (header tavolo)
-  const dbl_off  = Buffer.from([GS,  0x21, 0x00]);
-  const dbl_h_on  = Buffer.from([GS,  0x21, 0x01]); // double height only (righe prodotto)
+  const init      = Buffer.from([ESC, 0x40]);
+  const bold_on   = Buffer.from([ESC, 0x45, 0x01]);
+  const bold_off  = Buffer.from([ESC, 0x45, 0x00]);
+  const dbl_on    = Buffer.from([GS,  0x21, 0x11]);
+  const dbl_off   = Buffer.from([GS,  0x21, 0x00]);
+  const dbl_h_on  = Buffer.from([GS,  0x21, 0x01]);
   const dbl_h_off = Buffer.from([GS,  0x21, 0x00]);
-  const center   = Buffer.from([ESC, 0x61, 0x01]);
-  const left     = Buffer.from([ESC, 0x61, 0x00]);
-  const cut      = Buffer.from([GS,  0x56, 0x41, 0x03]);  // partial cut + feed
-  const lf       = Buffer.from([0x0a]);
+  const center    = Buffer.from([ESC, 0x61, 0x01]);
+  const left      = Buffer.from([ESC, 0x61, 0x00]);
+  const cut       = Buffer.from([GS,  0x56, 0x41, 0x03]);
+  const lf        = Buffer.from([0x0a]);
 
-  const now  = new Date().toLocaleString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).replace(",", "");
-  const phaseFull = `*** FASE->${phase} ***`;
+  const now = new Date().toLocaleString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).replace(",", "");
 
   // ── Header ──────────────────────────────────────────────────────────────
-  const headerLines: Buffer[] = [
+  const parts: Buffer[] = [
     init,
     SEP,
     center, bold_on,
@@ -291,57 +292,56 @@ function escposComanda(
     bold_off,
     SEP,
     left,
-    // Table label — double height+width, bold
     dbl_on, bold_on,
     Buffer.from(toAscii(tableLabel.substring(0, 20)) + "\n"),
     dbl_off, bold_off,
   ];
 
-  if (operatorName) headerLines.push(Buffer.from(toAscii(operatorName) + "\n"));
-  if (orderId)      headerLines.push(Buffer.from(`Ordine: ${orderId}\n`));
+  if (operatorName) parts.push(Buffer.from(toAscii(operatorName) + "\n"));
+  if (orderId)      parts.push(Buffer.from(`Ordine: ${orderId}\n`));
 
-  headerLines.push(SEP);
-  headerLines.push(center, bold_on, Buffer.from(phaseFull + "\n"), bold_off, left);
-  headerLines.push(SEP);
+  // ── Fasi — una sezione per fase all'interno della stessa comanda ─────────
+  let totalQty = 0;
+  for (const { phase, items } of phaseGroups) {
+    parts.push(SEP);
+    parts.push(center, bold_on, Buffer.from(`*** FASE->${phase} ***\n`), bold_off, left);
+    parts.push(SEP);
 
-  // ── Body — prodotti + variazioni + note ──────────────────────────────────
-  const bodyParts: Buffer[] = [];
+    for (const item of items) {
+      const qty  = String(item.quantity).padStart(2, " ");
+      const name = toAscii(item.productName.substring(0, COLS - 4));
+      parts.push(dbl_h_on, bold_on, Buffer.from(`${qty} ${name}\n`), bold_off, dbl_h_off);
+      totalQty += item.quantity;
 
-  for (const item of items) {
-    const qty  = String(item.quantity).padStart(2, " ");
-    const name = toAscii(item.productName.substring(0, COLS - 4)); // "NN " = 3 chars prefix
-    bodyParts.push(dbl_h_on, bold_on, Buffer.from(`${qty} ${name}\n`), bold_off, dbl_h_off);
+      if (item.modifiers) {
+        try {
+          const mods: Array<{ label: string; type: string }> = JSON.parse(item.modifiers);
+          for (const m of mods) {
+            const icon  = m.type === "plus" ? "+" : m.type === "minus" ? "-" : "*";
+            const label = toAscii(m.label.substring(0, COLS - 6));
+            parts.push(Buffer.from(`     ${icon} ${label}\n`));
+          }
+        } catch { /* ignora JSON malformato */ }
+      }
 
-    // Variazioni/modificatori
-    if (item.modifiers) {
-      try {
-        const mods: Array<{ label: string; type: string }> = JSON.parse(item.modifiers);
-        for (const m of mods) {
-          const icon   = m.type === "plus" ? "+" : m.type === "minus" ? "-" : "*";
-          const label  = toAscii(m.label.substring(0, COLS - 6));
-          bodyParts.push(Buffer.from(`     ${icon} ${label}\n`));
-        }
-      } catch { /* ignora JSON malformato */ }
-    }
-
-    // Nota KP
-    if (item.notes?.trim()) {
-      const note = toAscii(item.notes.trim().substring(0, COLS - 8));
-      bodyParts.push(bold_on, Buffer.from(`    ** ${note} **\n`), bold_off);
+      if (item.notes?.trim()) {
+        const note = toAscii(item.notes.trim().substring(0, COLS - 8));
+        parts.push(bold_on, Buffer.from(`    ** ${note} **\n`), bold_off);
+      }
     }
   }
 
   // ── Footer ───────────────────────────────────────────────────────────────
-  const footer = Buffer.concat([
+  parts.push(
     SEP,
-    Buffer.from(`Articoli in ordine # ${items.reduce((s, i) => s + i.quantity, 0)}\n`),
+    Buffer.from(`Articoli in ordine # ${totalQty}\n`),
     Buffer.from(`${now}\n`),
     SEP,
     lf, lf,
     cut,
-  ]);
+  );
 
-  return Buffer.concat([...headerLines, ...bodyParts, footer]);
+  return Buffer.concat(parts);
 }
 
 async function sendToPrinter(ip: string, port: number, data: Buffer, timeoutMs = 4000): Promise<void> {
@@ -407,21 +407,27 @@ router.post("/:id/send-comanda", async (req, res) => {
   const printerByCategory = new Map(categories.map(c => [c.id, c.printerId]));
   const printerById     = new Map(printers.map(p => [p.id, p]));
 
-  // 3. Group items by (printer, phase) so each phase gets its own comanda per printer
+  // 3. Group items by printer only; within each printer group, keep phase sub-groups sorted
   const phaseLabels = ["F1", "F2", "F3", "F4"];
 
-  type GroupKey = string;
-  type GroupValue = { printerId: number | null; phase: string; items: typeof sentItems };
-  const byPrinterAndPhase = new Map<GroupKey, GroupValue>();
+  type PrinterGroup = { printerId: number | null; phases: Map<string, ComandaItem[]> };
+  const byPrinter = new Map<string, PrinterGroup>();
 
   for (const item of sentItems) {
-    const catId     = catByProductId.get(item.productId ?? 0) ?? null;
-    const printerId = catId ? (printerByCategory.get(catId) ?? null) : null;
-    const phaseNum  = (item as unknown as { phase?: number }).phase ?? 0;
+    const catId      = catByProductId.get(item.productId ?? 0) ?? null;
+    const printerId  = catId ? (printerByCategory.get(catId) ?? null) : null;
+    const phaseNum   = (item as unknown as { phase?: number }).phase ?? 0;
     const phaseLabel = phaseLabels[phaseNum] ?? "F1";
-    const key = `${printerId ?? "null"}-${phaseNum}`;
-    if (!byPrinterAndPhase.has(key)) byPrinterAndPhase.set(key, { printerId, phase: phaseLabel, items: [] });
-    byPrinterAndPhase.get(key)!.items.push(item);
+    const key        = String(printerId ?? "null");
+    if (!byPrinter.has(key)) byPrinter.set(key, { printerId, phases: new Map() });
+    const pg = byPrinter.get(key)!;
+    if (!pg.phases.has(phaseLabel)) pg.phases.set(phaseLabel, []);
+    pg.phases.get(phaseLabel)!.push({
+      productName: item.productName,
+      quantity: item.quantity,
+      notes: (item as unknown as { notes?: string | null }).notes,
+      modifiers: (item as unknown as { modifiers?: string | null }).modifiers,
+    });
   }
 
   // 4. Table label
@@ -431,44 +437,45 @@ router.post("/:id/send-comanda", async (req, res) => {
       .select({ tableName: tablesTable.name })
       .from(tablesTable)
       .where(eq(tablesTable.id, order.tableId));
-    if (tableRow) {
-      tableLabel = tableRow.tableName;
-    }
+    if (tableRow) tableLabel = tableRow.tableName;
   }
 
-  // 5. Send one comanda per (printer, phase) group
-  const printResults: { printerId: number | null; printerName: string; phase: string; items: number; ok: boolean; error?: string }[] = [];
+  // 5. Send ONE comanda per printer (all phases in a single ticket, sorted)
+  const printResults: { printerId: number | null; printerName: string; phases: string; items: number; ok: boolean; error?: string }[] = [];
 
-  for (const { printerId, phase, items } of byPrinterAndPhase.values()) {
-    const printer = printerId ? printerById.get(printerId) : null;
+  for (const { printerId, phases } of byPrinter.values()) {
+    const printer     = printerId ? printerById.get(printerId) : null;
     const printerName = printer?.name ?? "(nessuna stampante)";
-    const lineItems = items.map(i => ({
-      productName: i.productName,
-      quantity: i.quantity,
-      notes: (i as unknown as { notes?: string | null }).notes,
-      modifiers: (i as unknown as { modifiers?: string | null }).modifiers,
-    }));
+
+    // Build sorted phase groups
+    const phaseGroups: PhaseGroup[] = [...phases.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([phase, items]) => ({ phase, items }));
+
+    const phasesStr  = phaseGroups.map(g => g.phase).join(", ");
+    const totalItems = phaseGroups.reduce((s, g) => s + g.items.length, 0);
 
     if (!printer) {
-      console.log(`[COMANDA][No-printer] ${tableLabel} — Fase ${phase}: ${lineItems.map(li => `${li.quantity}× ${li.productName}`).join(", ")}`);
-      printResults.push({ printerId: null, printerName, phase, items: items.length, ok: true });
+      for (const { phase, items } of phaseGroups)
+        console.log(`[COMANDA][No-printer] ${tableLabel} — Fase ${phase}: ${items.map(i => `${i.quantity}× ${i.productName}`).join(", ")}`);
+      printResults.push({ printerId: null, printerName, phases: phasesStr, items: totalItems, ok: true });
       continue;
     }
 
-    const data = escposComanda(tableLabel, lineItems, phase, printer.name, order.id);
+    const data = escposComanda(tableLabel, phaseGroups, printer.name, order.id);
     try {
       await sendToPrinter(printer.ip, printer.port, data);
-      console.log(`[COMANDA][OK] → ${printer.name} (${printer.ip}:${printer.port}) — Fase ${phase} — ${lineItems.length} articoli`);
-      printResults.push({ printerId, printerName, phase, items: items.length, ok: true });
+      console.log(`[COMANDA][OK] → ${printer.name} (${printer.ip}:${printer.port}) — Fasi ${phasesStr} — ${totalItems} art.`);
+      printResults.push({ printerId, printerName, phases: phasesStr, items: totalItems, ok: true });
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e);
-      console.error(`[COMANDA][FAIL] → ${printer.name} (${printer.ip}:${printer.port}) — Fase ${phase}: ${errMsg}`);
-      printResults.push({ printerId, printerName, phase, items: items.length, ok: false, error: errMsg });
+      console.error(`[COMANDA][FAIL] → ${printer.name} (${printer.ip}:${printer.port}): ${errMsg}`);
+      printResults.push({ printerId, printerName, phases: phasesStr, items: totalItems, ok: false, error: errMsg });
     }
   }
 
-  const phases = [...new Set([...byPrinterAndPhase.values()].map(g => g.phase))].join(", ");
-  res.json({ success: true, sentItems: sentItems.length, phases, printers: printResults });
+  const allPhases = [...new Set([...byPrinter.values()].flatMap(pg => [...pg.phases.keys()]))].sort().join(", ");
+  res.json({ success: true, sentItems: sentItems.length, phases: allPhases, printers: printResults });
 });
 
 // Update covers (0 allowed)

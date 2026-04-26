@@ -23,11 +23,25 @@ router.post("/", async (req, res) => {
     change: body.change ?? null,
   }).returning();
 
-  // Mark order as paid
-  const [order] = await db.update(ordersTable).set({ status: "paid" }).where(eq(ordersTable.id, body.orderId)).returning();
+  // For split payments: only mark order as paid if ALL items are being paid
+  const splitItemIdsPre: number[] | undefined = Array.isArray(req.body?.itemIds) && req.body.itemIds.length > 0
+    ? (req.body.itemIds as number[])
+    : undefined;
 
-  // Free the table if no other open orders
-  if (order?.tableId) {
+  let isSplitWithRemainder = false;
+  if (splitItemIdsPre) {
+    const allItemsPre = await db.select({ id: orderItemsTable.id }).from(orderItemsTable).where(eq(orderItemsTable.orderId, body.orderId));
+    const remainingCount = allItemsPre.filter(i => !splitItemIdsPre.includes(i.id)).length;
+    isSplitWithRemainder = remainingCount > 0;
+  }
+
+  // Mark order as paid only when fully paid (not a partial split)
+  const [order] = isSplitWithRemainder
+    ? await db.select().from(ordersTable).where(eq(ordersTable.id, body.orderId)).limit(1).then(r => r)
+    : await db.update(ordersTable).set({ status: "paid" }).where(eq(ordersTable.id, body.orderId)).returning();
+
+  // Free the table only when the order is fully paid
+  if (!isSplitWithRemainder && order?.tableId) {
     const openOrders = await db.select().from(ordersTable)
       .where(and(eq(ordersTable.tableId, order.tableId), eq(ordersTable.status, "open")));
     if (openOrders.length === 0) {
