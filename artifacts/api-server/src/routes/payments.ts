@@ -88,11 +88,20 @@ router.post("/", async (req, res) => {
       }));
       if (hasCover) righe.unshift({ desc: "COPERTO", qta: orderCovers, prezzoUnitario: coverPrice.toFixed(2), aliquotaIva });
 
-      console.log(`[FISCAL] Invio RT: ${printer.ip} — ${righe.length} righe — IVA ${aliquotaIva}% — totale ${body.amount}`);
+      // ── Calcola l'importo RT dalla somma esatta delle righe ──────────────
+      // IMPORTANTE: l'importo del comando di pagamento (1T/3T) DEVE corrispondere
+      // alla somma interna che la RT calcola dalle righe inserite (qty×prezzo).
+      // Usare body.amount (totale dal POS) causerebbe "operazione non consentita"
+      // ogni volta che c'è un disallineamento (coperto, arrotondamenti, split).
+      const rtImporto = righe
+        .reduce((sum, r) => sum + Math.round(parseFloat(r.prezzoUnitario) * 100) * r.qta, 0);
+      const rtImportoStr = (rtImporto / 100).toFixed(2);
+
+      console.log(`[FISCAL] Invio RT: ${printer.ip} — ${righe.length} righe — IVA ${aliquotaIva}% — totale righe ${rtImportoStr} (body.amount=${body.amount})`);
 
       const { receipt, rt } = await emettiFiscalReceipt({
         orderId: body.orderId,
-        importo: body.amount,
+        importo: rtImportoStr,
         metodoPagamento: body.method,
         righe,
         lotteria,
