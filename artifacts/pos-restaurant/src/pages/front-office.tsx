@@ -2576,12 +2576,13 @@ export default function FrontOffice() {
     if (!activeOrderId) return;
     setShowPayment(false);
     const isGestionale = !!invoiceCustomerId;
-    const splitAmount = amountGiven !== undefined && itemIds !== undefined ? amountGiven.toFixed(2) : total.toFixed(2);
+    const payAmount = amountGiven !== undefined ? amountGiven : total;
     const paymentRes = await createPayment.mutateAsync({
       data: {
-        orderId: activeOrderId, method,
-        amount: itemIds !== undefined ? splitAmount : total.toFixed(2),
-        amountGiven: itemIds !== undefined ? undefined : amountGiven?.toFixed(2),
+        orderId: activeOrderId,
+        method,
+        amount: payAmount.toFixed(2),
+        change: method === "cash" && amountGiven !== undefined && amountGiven > total ? (amountGiven - total).toFixed(2) : undefined,
         lotteria: lotteriaCodice || undefined,
         nonFiscale: isGestionale || undefined,
         ragioneSocialeCliente: ragioneSocialeCliente || undefined,
