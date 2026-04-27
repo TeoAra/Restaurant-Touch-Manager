@@ -2539,7 +2539,6 @@ export default function FrontOffice() {
         : `${data.sentItems} articoli`;
       addLog("info", `Comanda inviata — ${orderLabel} — ${phaseDesc}`);
       toast({ title: "Comanda inviata ai reparti", description: phaseDesc });
-      setSelectedTableId(null);
       setSelectedCategoryId(null);
       setSelectedItemId(null);
       setNumBuffer("");
@@ -2652,7 +2651,7 @@ export default function FrontOffice() {
     }
     if (!itemIds?.length) handleExitOrder();
     refresh();
-    toast({ title: "Pagamento registrato", description: `€ ${total.toFixed(2)} — ${method}` });
+    toast({ title: "Pagamento registrato", description: `€ ${payAmount.toFixed(2)} — ${method}` });
   }
 
   const visibleProducts = (productSearch
