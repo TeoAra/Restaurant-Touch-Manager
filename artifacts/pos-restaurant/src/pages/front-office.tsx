@@ -39,7 +39,7 @@ const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
 
 // Grid constants matching back-office planimetria
-const CELL = 80;
+const CELL = 100;
 const COLS = 12;
 const ROWS = 8;
 
@@ -260,18 +260,21 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
   useEffect(() => {
     function updateScale() {
       if (!containerRef.current) return;
-      const w = containerRef.current.clientWidth - 16;
-      const h = containerRef.current.clientHeight - 16;
+      const w = containerRef.current.clientWidth - 24;
+      const h = containerRef.current.clientHeight - 24;
       const allElements = tablesStatus;
+      const minX = allElements.length ? Math.min(...allElements.map(t => t.posX ?? 0)) : 0;
+      const minY = allElements.length ? Math.min(...allElements.map(t => t.posY ?? 0)) : 0;
       const maxX = allElements.length
-        ? Math.max(...allElements.map(t => (t.posX ?? 0) + (getElementSize(t).w))) + 1
+        ? Math.max(...allElements.map(t => (t.posX ?? 0) - minX + getElementSize(t).w)) + 1
         : 6;
       const maxY = allElements.length
-        ? Math.max(...allElements.map(t => (t.posY ?? 0) + (getElementSize(t).h))) + 1
+        ? Math.max(...allElements.map(t => (t.posY ?? 0) - minY + getElementSize(t).h)) + 1
         : 5;
       const canvasW = Math.max(maxX, 4) * CELL;
       const canvasH = Math.max(maxY, 3) * CELL;
-      setScale(Math.min(w / canvasW, h / canvasH, 1.2));
+      const fitScale = Math.min(w / canvasW, h / canvasH, 1.5);
+      setScale(Math.max(fitScale, 0.85));
     }
     updateScale();
     const ro = new ResizeObserver(updateScale);
@@ -425,11 +428,13 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
       )}
 
       {/* Floor plan */}
-      <div ref={containerRef} className="flex-1 overflow-hidden p-2 bg-[#f4f6fa] flex items-center justify-center relative">
+      <div ref={containerRef} className="flex-1 overflow-auto p-3 bg-[#f4f6fa] flex items-center justify-center relative">
         {(() => {
           const allEl = filtered;
-          const maxX = allEl.length ? Math.max(...allEl.map(t => (t.posX ?? 0) + getElementSize(t).w)) + 1 : 6;
-          const maxY = allEl.length ? Math.max(...allEl.map(t => (t.posY ?? 0) + getElementSize(t).h)) + 1 : 5;
+          const minX = allEl.length ? Math.min(...allEl.map(t => t.posX ?? 0)) : 0;
+          const minY = allEl.length ? Math.min(...allEl.map(t => t.posY ?? 0)) : 0;
+          const maxX = allEl.length ? Math.max(...allEl.map(t => (t.posX ?? 0) - minX + getElementSize(t).w)) + 1 : 6;
+          const maxY = allEl.length ? Math.max(...allEl.map(t => (t.posY ?? 0) - minY + getElementSize(t).h)) + 1 : 5;
           const canvasW = Math.max(maxX, 4) * CELL;
           const canvasH = Math.max(maxY, 3) * CELL;
           return (
@@ -448,7 +453,7 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
                   <div key={`v${i}`} className="absolute top-0 bottom-0 border-r border-slate-200/60" style={{ left: i * CELL }} />
                 ))}
                 {filtered.map(t => (
-                  <div key={t.id} className="absolute" style={{ left: (t.posX ?? 0) * CELL + 3, top: (t.posY ?? 0) * CELL + 3 }}>
+                  <div key={t.id} className="absolute" style={{ left: ((t.posX ?? 0) - minX) * CELL + 3, top: ((t.posY ?? 0) - minY) * CELL + 3 }}>
                     <FloorElement
                       t={t}
                       isSelected={t.id === selectedTableId}
