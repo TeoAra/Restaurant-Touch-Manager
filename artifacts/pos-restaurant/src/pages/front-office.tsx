@@ -2354,7 +2354,12 @@ export default function FrontOffice() {
   }
 
   async function doAddProduct(productId: number, unitPrice: string, mods: FEModifier[], notes?: string) {
-    const qty = numBuffer ? Math.max(1, parseInt(numBuffer) || 1) : 1;
+    // If numBuffer has a value, use it as the price override (not quantity)
+    const priceOverride = numBuffer ? parseFloat(numBuffer) : null;
+    const qty = 1;
+    if (priceOverride !== null && !isNaN(priceOverride) && priceOverride > 0) {
+      unitPrice = priceOverride.toFixed(2);
+    }
     setNumBuffer("");
     let orderId = activeOrderId;
     if (!orderId) {
@@ -2539,6 +2544,7 @@ export default function FrontOffice() {
         : `${data.sentItems} articoli`;
       addLog("info", `Comanda inviata — ${orderLabel} — ${phaseDesc}`);
       toast({ title: "Comanda inviata ai reparti", description: phaseDesc });
+      setSelectedTableId(null);
       setSelectedCategoryId(null);
       setSelectedItemId(null);
       setNumBuffer("");
@@ -2749,8 +2755,8 @@ export default function FrontOffice() {
                 <div className="text-sm font-bold text-primary leading-none flex items-center gap-1">
                   {selectedItemId
                     ? (numpadMode === "price" ? <Euro className="h-3 w-3" /> : <Hash className="h-3 w-3" />)
-                    : null}
-                  {numBuffer}{selectedItemId ? "" : "×"}
+                    : <Euro className="h-3 w-3" />}
+                  {numBuffer}
                 </div>
               ) : (
                 <div className="text-[11px] font-medium text-slate-500">
@@ -3203,8 +3209,8 @@ export default function FrontOffice() {
                   className="w-full pl-8 pr-3 py-2 bg-[#1a1d2a] border border-[#2d3044] rounded-lg text-sm outline-none focus:border-primary text-slate-200 placeholder:text-slate-600" />
               </div>
               {numBuffer && !selectedItemId && (
-                <div className="px-3 py-1.5 rounded-xl bg-primary text-white font-bold text-sm shrink-0 animate-pulse">
-                  {numBuffer}×
+                <div className="px-3 py-1.5 rounded-xl bg-primary text-white font-bold text-sm shrink-0 animate-pulse flex items-center gap-0.5">
+                  €{numBuffer}
                 </div>
               )}
             </div>
