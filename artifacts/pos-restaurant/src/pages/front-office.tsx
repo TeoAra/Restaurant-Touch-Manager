@@ -1131,7 +1131,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
 }
 
 // ─── Covers Dialog (allows 0) ─────────────────────────────────────────────────
-function CoversDialog({ open, onClose, tableName, onConfirm, initialCovers = 2, mode = "open" }: {
+function CoversDialog({ open, onClose, tableName, onConfirm, initialCovers = 0, mode = "open" }: {
   open: boolean; onClose: () => void; tableName: string; onConfirm: (covers: number) => void;
   initialCovers?: number; mode?: "open" | "edit";
 }) {
