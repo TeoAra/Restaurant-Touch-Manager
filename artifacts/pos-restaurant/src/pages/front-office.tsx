@@ -182,17 +182,6 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
     refetchInterval: 60000,
   });
 
-  function formatDateShort(d: string) {
-    const dt = new Date(d + "T00:00:00");
-    const days = ["Dom","Lun","Mar","Mer","Gio","Ven","Sab"];
-    const months = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
-    return `${days[dt.getDay()]} ${dt.getDate()} ${months[dt.getMonth()]}`;
-  }
-  function shiftDate(d: string, delta: number) {
-    const dt = new Date(d + "T00:00:00");
-    dt.setDate(dt.getDate() + delta);
-    return dt.toISOString().split("T")[0];
-  }
   const reservationByTableId = useMemo(() => {
     const m = new Map<number, Reservation>();
     for (const r of reservations) {
@@ -312,7 +301,7 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
   return (
     <div className="relative flex flex-col h-full">
       {/* Panel header */}
-      <div className="px-4 py-3 bg-white border-b border-slate-200 shrink-0">
+      <div className="px-3 py-2 bg-white border-b border-slate-200 shrink-0">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <button onClick={onBack}
@@ -350,7 +339,7 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
           </div>
         </div>
         {rooms.length > 1 && (
-          <div className="flex gap-1.5 mt-2.5 overflow-x-auto pb-0.5">
+          <div className="flex gap-1.5 mt-1.5 overflow-x-auto pb-0.5">
             {rooms.map(r => (
               <button key={r} onClick={() => setRoomFilter(r)}
                 className={cn("px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all",
@@ -360,26 +349,6 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
             ))}
           </div>
         )}
-        {/* ── Navigatore data prenotazioni ─────────────────────────────── */}
-        <div className="flex items-center gap-2 mt-2.5 bg-slate-50 rounded-xl px-2 py-1">
-          <button onClick={() => setMapDate(d => shiftDate(d, -1))}
-            className="h-8 w-8 rounded-lg flex items-center justify-center hover:bg-slate-200 transition-colors shrink-0">
-            <ChevronLeft className="h-4 w-4 text-slate-600" />
-          </button>
-          <div className="flex-1 text-center">
-            <span className={cn("text-xs font-bold", mapDate === todayStr ? "text-primary" : "text-slate-700")}>
-              {mapDate === todayStr ? "Oggi — " : ""}{formatDateShort(mapDate)}
-            </span>
-            {mapDate !== todayStr && (
-              <button onClick={() => setMapDate(todayStr)}
-                className="ml-2 text-[10px] text-primary underline">oggi</button>
-            )}
-          </div>
-          <button onClick={() => setMapDate(d => shiftDate(d, 1))}
-            className="h-8 w-8 rounded-lg flex items-center justify-center hover:bg-slate-200 transition-colors shrink-0">
-            <ChevronRight className="h-4 w-4 text-slate-600" />
-          </button>
-        </div>
       </div>
 
       {/* Assign / Move mode banner */}
