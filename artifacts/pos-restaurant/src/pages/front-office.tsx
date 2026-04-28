@@ -39,7 +39,7 @@ const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
 
 // Grid constants matching back-office planimetria
-const CELL = 100;
+const CELL = 80;
 const COLS = 12;
 const ROWS = 8;
 
@@ -273,8 +273,7 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
         : 5;
       const canvasW = Math.max(maxX, 4) * CELL;
       const canvasH = Math.max(maxY, 3) * CELL;
-      const fitScale = Math.min(w / canvasW, h / canvasH, 1.5);
-      setScale(Math.max(fitScale, 0.85));
+      setScale(Math.min(w / canvasW, h / canvasH, 1.5));
     }
     updateScale();
     const ro = new ResizeObserver(updateScale);
@@ -428,7 +427,7 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
       )}
 
       {/* Floor plan */}
-      <div ref={containerRef} className="flex-1 overflow-auto p-3 bg-[#f4f6fa] flex items-center justify-center relative">
+      <div ref={containerRef} className="flex-1 overflow-hidden p-3 bg-[#f4f6fa] flex items-center justify-center relative">
         {(() => {
           const allEl = filtered;
           const minX = allEl.length ? Math.min(...allEl.map(t => t.posX ?? 0)) : 0;
@@ -1881,20 +1880,20 @@ function InlinePaymentPanel({ total, onPay, disabled }: {
   const canPay = !disabled && total > 0 && (method !== "cash" || givenNum >= total);
 
   return (
-    <div className="flex-1 overflow-auto bg-[#f4f6fa] p-4 space-y-4">
+    <div className="flex-1 overflow-hidden bg-[#f4f6fa] p-3 flex flex-col gap-2.5">
       {/* Total */}
-      <div className="bg-slate-800 rounded-2xl px-6 py-5 text-center">
-        <div className="text-xs text-slate-400 uppercase tracking-widest mb-1">Totale da pagare</div>
-        <div className="text-5xl font-bold text-white font-mono">€ {total.toFixed(2)}</div>
+      <div className="bg-slate-800 rounded-2xl px-4 py-3 text-center shrink-0">
+        <div className="text-[10px] text-slate-400 uppercase tracking-widest mb-0.5">Totale da pagare</div>
+        <div className="text-4xl font-bold text-white font-mono">€ {total.toFixed(2)}</div>
       </div>
 
       {/* Method selector */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-2 shrink-0">
         {([["cash","CONTANTI","text-emerald-500"],["card","BANCOMAT","text-blue-500"],["other","ALTRO","text-purple-500"]] as const).map(([id, label, col]) => (
           <button key={id} onClick={() => setMethod(id as typeof method)}
-            className={cn("py-3 rounded-xl font-bold text-sm border-2 transition-all active:scale-95",
+            className={cn("py-2.5 rounded-xl font-bold text-sm border-2 transition-all active:scale-95",
               method === id ? "border-primary bg-primary text-white shadow-lg" : "border-slate-200 bg-white text-slate-700 hover:border-primary")}>
-            <div className={cn("text-xl mb-0.5", method === id ? "text-white" : col)}>
+            <div className={cn("text-lg mb-0.5", method === id ? "text-white" : col)}>
               {id === "cash" ? "💵" : id === "card" ? "💳" : "💼"}
             </div>
             {label}
@@ -1905,25 +1904,25 @@ function InlinePaymentPanel({ total, onPay, disabled }: {
       {/* Cash input */}
       {method === "cash" && (
         <>
-          <div className="bg-white rounded-2xl border-2 border-slate-200 p-4">
-            <div className="text-xs text-slate-500 mb-2 font-semibold uppercase tracking-wide">Importo ricevuto</div>
+          <div className="bg-white rounded-2xl border-2 border-slate-200 px-4 py-2.5 shrink-0">
+            <div className="text-[10px] text-slate-500 mb-1 font-semibold uppercase tracking-wide">Importo ricevuto</div>
             <Input type="number" step="0.01" placeholder="0.00" value={given}
               onChange={e => setGiven(e.target.value)}
-              className="text-3xl font-bold text-center h-14 border-0 bg-slate-50 rounded-xl" />
+              className="text-2xl font-bold text-center h-11 border-0 bg-slate-50 rounded-xl" />
           </div>
           {/* Denomination buttons */}
-          <div className="grid grid-cols-5 gap-1.5">
+          <div className="grid grid-cols-5 gap-1 shrink-0">
             {DENOMINATIONS.map(d => (
               <button key={d} onClick={() => setGiven(d.toString())}
-                className="py-2 rounded-lg bg-white border-2 border-slate-200 text-xs font-bold text-slate-700 hover:border-primary hover:text-primary active:scale-90 transition-all">
+                className="py-1.5 rounded-lg bg-white border-2 border-slate-200 text-xs font-bold text-slate-700 hover:border-primary hover:text-primary active:scale-90 transition-all">
                 {d >= 1 ? `€${d}` : `${(d * 100).toFixed(0)}¢`}
               </button>
             ))}
           </div>
           {givenNum >= total && total > 0 && (
-            <div className="flex justify-between items-center p-4 bg-emerald-50 border-2 border-emerald-200 rounded-2xl">
-              <span className="text-base font-semibold text-emerald-700">Resto</span>
-              <span className="text-3xl font-bold text-emerald-700 font-mono">€ {change.toFixed(2)}</span>
+            <div className="flex justify-between items-center px-4 py-2.5 bg-emerald-50 border-2 border-emerald-200 rounded-2xl shrink-0">
+              <span className="text-sm font-semibold text-emerald-700">Resto</span>
+              <span className="text-2xl font-bold text-emerald-700 font-mono">€ {change.toFixed(2)}</span>
             </div>
           )}
         </>
@@ -1934,7 +1933,7 @@ function InlinePaymentPanel({ total, onPay, disabled }: {
         disabled={!canPay}
         onClick={() => onPay(method, method === "cash" ? givenNum : undefined)}
         className={cn(
-          "w-full py-3.5 rounded-xl text-base font-bold transition-all active:scale-95",
+          "w-full py-3 rounded-xl text-base font-bold transition-all active:scale-95 mt-auto shrink-0",
           canPay ? "bg-primary text-white shadow-lg hover:bg-primary/90" : "bg-slate-200 text-slate-400 cursor-not-allowed"
         )}>
         {disabled ? "Nessun ordine aperto" : canPay ? `INCASSA  € ${total.toFixed(2)}` : "Inserire importo"}
@@ -3622,7 +3621,7 @@ export default function FrontOffice() {
 
         {/* ── TOT: inline payment */}
         {rightTab === "tot" && (
-          <div className="flex-1 flex flex-col overflow-hidden scale-[0.92] origin-top">
+          <div className="flex-1 flex flex-col overflow-hidden">
             {/* Invoice customer indicator */}
             {invoiceCustomer && (
               <div className="mx-3 mt-2 px-2.5 py-1.5 bg-emerald-900/40 border border-emerald-700 rounded-xl flex items-center gap-2 shrink-0">
