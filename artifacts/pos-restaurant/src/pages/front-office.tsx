@@ -396,7 +396,7 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
       )}
 
       {/* Floor plan */}
-      <div ref={containerRef} className="flex-1 overflow-hidden p-3 bg-[#f4f6fa] flex items-center justify-center relative">
+      <div ref={containerRef} className="flex-1 overflow-hidden bg-[#f4f6fa] relative">
         {(() => {
           const allEl = filtered;
           const minX = allEl.length ? Math.min(...allEl.map(t => t.posX ?? 0)) : 0;
@@ -407,8 +407,7 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
           const canvasH = Math.max(maxY, 3) * CELL;
           return (
             <div
-              className="border border-slate-200 rounded-2xl bg-[#f8fafc] overflow-hidden shrink-0 shadow-sm"
-              style={{ width: canvasW * scale, height: canvasH * scale }}
+              className="bg-[#f8fafc] overflow-hidden w-full h-full"
             >
               <div
                 className="relative select-none origin-top-left"
