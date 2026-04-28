@@ -172,6 +172,7 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
 
   // ── Reservations + date nav ───────────────────────────────────────────────
   const todayStr = new Date().toISOString().split("T")[0];
@@ -249,8 +250,9 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
   useEffect(() => {
     function updateScale() {
       if (!containerRef.current) return;
-      const w = containerRef.current.clientWidth - 24;
-      const h = containerRef.current.clientHeight - 24;
+      const w = containerRef.current.clientWidth;
+      const h = containerRef.current.clientHeight;
+      setContainerSize({ w, h });
       const allElements = tablesStatus;
       const minX = allElements.length ? Math.min(...allElements.map(t => t.posX ?? 0)) : 0;
       const minY = allElements.length ? Math.min(...allElements.map(t => t.posY ?? 0)) : 0;
@@ -401,22 +403,23 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
           const allEl = filtered;
           const minX = allEl.length ? Math.min(...allEl.map(t => t.posX ?? 0)) : 0;
           const minY = allEl.length ? Math.min(...allEl.map(t => t.posY ?? 0)) : 0;
-          const maxX = allEl.length ? Math.max(...allEl.map(t => (t.posX ?? 0) - minX + getElementSize(t).w)) + 1 : 6;
-          const maxY = allEl.length ? Math.max(...allEl.map(t => (t.posY ?? 0) - minY + getElementSize(t).h)) + 1 : 5;
-          const canvasW = Math.max(maxX, 4) * CELL;
-          const canvasH = Math.max(maxY, 3) * CELL;
+          // Grid always fills the full container — extend cols/rows beyond table extents
+          const gridCols = scale > 0 ? Math.ceil(containerSize.w / (CELL * scale)) + 1 : 8;
+          const gridRows = scale > 0 ? Math.ceil(containerSize.h / (CELL * scale)) + 1 : 6;
+          const fullCanvasW = gridCols * CELL;
+          const fullCanvasH = gridRows * CELL;
           return (
             <div
               className="bg-[#f8fafc] overflow-hidden w-full h-full"
             >
               <div
                 className="relative select-none origin-top-left"
-                style={{ width: canvasW, height: canvasH, transform: `scale(${scale})` }}
+                style={{ width: fullCanvasW, height: fullCanvasH, transform: `scale(${scale})` }}
               >
-                {Array.from({ length: maxY + 1 }).map((_, i) => (
+                {Array.from({ length: gridRows + 1 }).map((_, i) => (
                   <div key={`h${i}`} className="absolute left-0 right-0 border-b border-slate-200/60" style={{ top: i * CELL }} />
                 ))}
-                {Array.from({ length: maxX + 1 }).map((_, i) => (
+                {Array.from({ length: gridCols + 1 }).map((_, i) => (
                   <div key={`v${i}`} className="absolute top-0 bottom-0 border-r border-slate-200/60" style={{ left: i * CELL }} />
                 ))}
                 {filtered.map(t => (
