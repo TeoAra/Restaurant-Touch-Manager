@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -15,6 +15,7 @@ export const tablesTable = pgTable("tables", {
   shape: text("shape").notNull().default("square"),
   elementType: text("element_type").notNull().default("table"),
   rotation: integer("rotation").notNull().default(0),
+  sizeScale: real("size_scale").notNull().default(1.0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

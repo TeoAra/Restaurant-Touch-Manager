@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, Users, LayoutGrid, List, Move, RotateCw } from "lucide-react";
+import { Plus, Pencil, Trash2, Users, LayoutGrid, List, Move, RotateCw, ZoomIn, ZoomOut } from "lucide-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -25,7 +25,7 @@ import { CSS } from "@dnd-kit/utilities";
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
 type Room = { id: number; name: string };
-type ExtTable = Table & { roomId?: number; sortOrder?: number; posX?: number; posY?: number; shape?: string; elementType?: string; rotation?: number };
+type ExtTable = Table & { roomId?: number; sortOrder?: number; posX?: number; posY?: number; shape?: string; elementType?: string; rotation?: number; sizeScale?: number };
 
 function useRooms() {
   return useQuery<Room[]>({ queryKey: ["rooms"], queryFn: () => fetch(`${API}/rooms`).then(r => r.json()) });
@@ -101,12 +101,13 @@ function getElementSize(t: { elementType?: string; shape?: string }) {
   return { w: 1, h: 1 };
 }
 
-function TableShape({ t, status, isSelected, isDragging, onMouseDown, onTouchStart, onEdit, onDelete, onRotate }: {
+function TableShape({ t, status, isSelected, isDragging, onMouseDown, onTouchStart, onEdit, onDelete, onRotate, onResize }: {
   t: ExtTable; status: string; isSelected: boolean; isDragging: boolean;
   onMouseDown: (e: React.MouseEvent) => void;
   onTouchStart: (e: React.TouchEvent) => void;
   onEdit: () => void; onDelete: (id: number) => void;
   onRotate?: (id: number) => void;
+  onResize?: (id: number, delta: number) => void;
 }) {
   const { w, h } = getElementSize(t);
   const et = t.elementType ?? "table";
@@ -114,6 +115,7 @@ function TableShape({ t, status, isSelected, isDragging, onMouseDown, onTouchSta
   const isDecor = et !== "table";
   const isRound = sh === "round" && !isDecor;
   const rotation = t.rotation ?? 0;
+  const ss = t.sizeScale ?? 1.0;
 
   const statusBg = { free: "bg-emerald-50 border-emerald-300", occupied: "bg-orange-50 border-orange-300", reserved: "bg-blue-50 border-blue-300" }[status as "free" | "occupied" | "reserved"] ?? "bg-slate-50 border-slate-300";
   const statusDot = { free: "bg-emerald-500", occupied: "bg-orange-500", reserved: "bg-blue-500" }[status as "free" | "occupied" | "reserved"] ?? "bg-slate-400";
@@ -141,7 +143,7 @@ function TableShape({ t, status, isSelected, isDragging, onMouseDown, onTouchSta
       style={{
         width: w * CELL - 6,
         height: h * CELL - 6,
-        transform: rotation ? `rotate(${rotation}deg)` : undefined,
+        transform: [rotation ? `rotate(${rotation}deg)` : "", ss !== 1 ? `scale(${ss})` : ""].filter(Boolean).join(" ") || undefined,
       }}
       onMouseDown={onMouseDown}
       onTouchStart={onTouchStart}
@@ -167,11 +169,27 @@ function TableShape({ t, status, isSelected, isDragging, onMouseDown, onTouchSta
       )}
         style={{ transform: rotation ? `rotate(-${rotation}deg)` : undefined }}
       >
+        {onResize && (
+          <button onClick={e => { e.stopPropagation(); onResize(t.id, -1); }}
+            onMouseDown={e => e.stopPropagation()}
+            className="h-5 w-5 rounded bg-white shadow border border-slate-200 flex items-center justify-center text-slate-500 hover:text-orange-500 hover:border-orange-300 transition-colors"
+            title="Rimpicciolisci">
+            <ZoomOut className="h-2.5 w-2.5" />
+          </button>
+        )}
+        {onResize && (
+          <button onClick={e => { e.stopPropagation(); onResize(t.id, 1); }}
+            onMouseDown={e => e.stopPropagation()}
+            className="h-5 w-5 rounded bg-white shadow border border-slate-200 flex items-center justify-center text-slate-500 hover:text-emerald-600 hover:border-emerald-300 transition-colors"
+            title="Ingrandisci">
+            <ZoomIn className="h-2.5 w-2.5" />
+          </button>
+        )}
         {!isDecor && onRotate && (
           <button onClick={e => { e.stopPropagation(); onRotate(t.id); }}
             onMouseDown={e => e.stopPropagation()}
             className="h-5 w-5 rounded bg-white shadow border border-slate-200 flex items-center justify-center text-slate-500 hover:text-blue-600 hover:border-blue-300 transition-colors"
-            title="Ruota 90°">
+            title="Ruota 45°">
             <RotateCw className="h-2.5 w-2.5" />
           </button>
         )}
@@ -192,7 +210,7 @@ function TableShape({ t, status, isSelected, isDragging, onMouseDown, onTouchSta
   );
 }
 
-function PositionEditor({ tables, rooms, activeRoom, onActiveRoomChange, onEdit, onDelete, onPositionChange, onRotate }: {
+function PositionEditor({ tables, rooms, activeRoom, onActiveRoomChange, onEdit, onDelete, onPositionChange, onRotate, onResize }: {
   tables: ExtTable[];
   rooms: Room[];
   activeRoom: number | null;
@@ -201,6 +219,7 @@ function PositionEditor({ tables, rooms, activeRoom, onActiveRoomChange, onEdit,
   onDelete: (id: number) => void;
   onPositionChange: (id: number, x: number, y: number) => void;
   onRotate: (id: number) => void;
+  onResize: (id: number, delta: number) => void;
 }) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef<{ id: number; startX: number; startY: number; origX: number; origY: number } | null>(null);
@@ -316,14 +335,16 @@ function PositionEditor({ tables, rooms, activeRoom, onActiveRoomChange, onEdit,
                   onEdit={() => onEdit(t)}
                   onDelete={onDelete}
                   onRotate={onRotate}
+                  onResize={onResize}
                 />
               </div>
             );
           })}
         </div>
       </div>
-      <p className="text-xs text-slate-400 mt-2 flex items-center gap-1">
-        <Move className="h-3 w-3" /> Trascina i tavoli per posizionarli nella planimetria
+      <p className="text-xs text-slate-400 mt-2 flex items-center gap-2 flex-wrap">
+        <span className="flex items-center gap-1"><Move className="h-3 w-3" /> Trascina per posizionare</span>
+        <span className="flex items-center gap-1"><ZoomIn className="h-3 w-3" /><ZoomOut className="h-3 w-3" /> Passa sopra il tavolo per ingrandire/rimpicciolire e ruotare</span>
       </p>
     </div>
   );
@@ -471,6 +492,23 @@ export default function TablesPage() {
     qc.invalidateQueries({ queryKey: getListTablesQueryKey() });
   }, [allTables, tables, qc]);
 
+  const handleResize = useCallback(async (id: number, delta: number) => {
+    const table = allTables.find(t => t.id === id);
+    if (!table) return;
+    const STEP = 0.1;
+    const newScale = Math.round(Math.min(3.0, Math.max(0.3, (table.sizeScale ?? 1.0) + delta * STEP)) * 10) / 10;
+    setLocalTables(prev => {
+      const base = prev.length > 0 ? prev : (tables as ExtTable[]);
+      return base.map(t => t.id === id ? { ...t, sizeScale: newScale } : t);
+    });
+    await fetch(`${API}/tables/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sizeScale: newScale }),
+    });
+    qc.invalidateQueries({ queryKey: getListTablesQueryKey() });
+  }, [allTables, tables, qc]);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 100, tolerance: 5 } }),
@@ -587,6 +625,7 @@ export default function TablesPage() {
             onDelete={id => deleteTable.mutate({ id }, { onSuccess: () => { qc.invalidateQueries({ queryKey: getListTablesQueryKey() }); setLocalTables([]); } })}
             onPositionChange={savePosition}
             onRotate={handleRotate}
+            onResize={handleResize}
           />
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>

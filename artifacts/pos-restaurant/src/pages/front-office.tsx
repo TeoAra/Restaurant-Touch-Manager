@@ -64,7 +64,7 @@ function getElementSize(t: { elementType?: string; shape?: string }) {
 }
 
 // ─── Floor plan element renderer ─────────────────────────────────────────────
-type FETable = TableStatus & { roomName?: string; posX?: number; posY?: number; shape?: string; elementType?: string; rotation?: number };
+type FETable = TableStatus & { roomName?: string; posX?: number; posY?: number; shape?: string; elementType?: string; rotation?: number; sizeScale?: number };
 
 type Reservation = {
   id: number; tableId: number | null; tableIds?: string | null; date: string; time: string;
@@ -125,7 +125,7 @@ function FloorElement({ t, isSelected, onClick, reservation, assignMode, moveMod
         isTargetable && "cursor-pointer",
         (assignMode || moveMode) && !isTargetable && !isDecor && "opacity-40",
       )}
-      style={{ width: w * CELL - 6, height: h * CELL - 6, rotate: t.rotation ? `${t.rotation}deg` : undefined }}
+      style={{ width: w * CELL - 6, height: h * CELL - 6, transform: [t.rotation ? `rotate(${t.rotation}deg)` : "", (t.sizeScale && t.sizeScale !== 1) ? `scale(${t.sizeScale})` : ""].filter(Boolean).join(" ") || undefined }}
     >
       {isDecor ? (
         <span className={cn("text-xs font-bold tracking-widest", et === "pianta" && "text-xl")}>{decorLabel}</span>

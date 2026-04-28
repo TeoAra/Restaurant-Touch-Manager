@@ -185,6 +185,7 @@ export const ListTablesResponseItem = zod.object({
   shape: zod.string().optional(),
   elementType: zod.string().optional(),
   rotation: zod.number().optional(),
+  sizeScale: zod.number().optional(),
   createdAt: zod.string(),
 });
 export const ListTablesResponse = zod.array(ListTablesResponseItem);
@@ -240,6 +241,7 @@ export const UpdateTableBody = zod.object({
   shape: zod.string().optional(),
   elementType: zod.string().optional(),
   rotation: zod.number().optional(),
+  sizeScale: zod.number().optional(),
 });
 
 export const UpdateTableResponse = zod.object({
