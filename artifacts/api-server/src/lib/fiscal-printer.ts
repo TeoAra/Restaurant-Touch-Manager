@@ -465,9 +465,22 @@ export async function emettiPreconto(opts: {
   const printer = opts.printer ?? await getFiscalPrinter();
   if (!printer) return { ok: false, error: "Nessuna stampante fiscale configurata" };
 
-  const cmd = buildPrecontoDocument(opts);
   const rtPort = printer.port ?? 1126;
-  const raw = await sendXonXoff(printer.ip, rtPort, cmd, 6000);
+
+  // ── Pre-check: annulla eventuali documenti aperti (fiscali o non-fiscali) ─
+  // Stesso approccio di emettiFiscalReceipt: se stato != 0 inviamo 'k'
+  const preStatus = await sendXonXoff(printer.ip, rtPort, "?", 2500);
+  const preQ = parseStatusQ(preStatus.ascii);
+  if (preQ && preQ.stato !== 0) {
+    console.warn(`[PRECONTO] Documento aperto (stato=${preQ.stato}), invio annullo 'k'...`);
+    await sendXonXoff(printer.ip, rtPort, "k", 2500);
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  const cmd = buildPrecontoDocument(opts);
+  console.log("[PRECONTO] cmd len:", cmd.length, "totale:", opts.totale);
+  const raw = await sendXonXoff(printer.ip, rtPort, cmd, 8000);
+  console.log("[PRECONTO] RT raw: ok=%s xoff=%s ascii=%s", raw.ok, raw.xoffCount, raw.ascii.substring(0, 200));
   return {
     ok: raw.xoffCount === 0,
     ms: raw.ms,
