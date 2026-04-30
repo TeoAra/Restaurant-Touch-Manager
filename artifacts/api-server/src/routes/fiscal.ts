@@ -496,8 +496,19 @@ router.post("/romana", async (req, res) => {
     console.error(`[ROMANA] Eccezione quota ${quotaNum}:`, rtError);
   }
 
-  // Se è l'ultima quota: chiudi l'ordine nel gestionale
+  // ── Aggiorna paid_romana sull'ordine per ogni quota pagata ─────────────────
   let orderClosed = false;
+  try {
+    const [currentOrder] = await db.select().from(ordersTable).where(eq(ordersTable.id, orderId));
+    const nuovoPagato = (parseFloat(currentOrder?.paidRomana ?? "0") + parseFloat(importo)).toFixed(2);
+    await db.update(ordersTable)
+      .set({ paidRomana: nuovoPagato })
+      .where(eq(ordersTable.id, orderId));
+  } catch (e) {
+    console.error("[ROMANA] Errore aggiornamento paid_romana:", e);
+  }
+
+  // Se è l'ultima quota: chiudi l'ordine nel gestionale
   if (isUltima) {
     try {
       // Inserisci record di pagamento riepilogativo
@@ -508,9 +519,9 @@ router.post("/romana", async (req, res) => {
         change: null,
       }).returning();
 
-      // Marca ordine come pagato
+      // Marca ordine come pagato e azzera paid_romana
       const [updatedOrder] = await db.update(ordersTable)
-        .set({ status: "paid" })
+        .set({ status: "paid", paidRomana: "0.00" })
         .where(eq(ordersTable.id, orderId))
         .returning();
 

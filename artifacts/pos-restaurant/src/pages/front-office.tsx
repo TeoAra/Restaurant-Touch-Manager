@@ -1171,28 +1171,41 @@ type RomanaQuota = {
   receiptId?: number;
 };
 
-function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed }: {
+function RomanaDialog({ open, onClose, total, paidRomana = 0, orderId, tableName, onOrderClosed }: {
   open: boolean; onClose: () => void;
-  total: number; orderId?: number; tableName?: string;
+  total: number; paidRomana?: number; orderId?: number; tableName?: string;
   onOrderClosed?: () => void;
 }) {
   const { data: rdSettings = {} } = useSettings();
   const rdPosType = rdSettings["pos_type"] ?? "none";
 
+  // Importo da incassare in questa sessione (totale ordine - già pagato con romana)
+  const restante = Math.max(0, Math.round((total - paidRomana) * 100) / 100);
+  const hasPagatiPrecedenti = paidRomana > 0.005;
+
   const [phase, setPhase] = useState<"setup" | "pagamento">("setup");
-  const [numSplits, setNumSplits] = useState(2);
+  const [numSplits, setNumSplits] = useState(1);
   const [quote, setQuote] = useState<RomanaQuota[]>([]);
 
   useEffect(() => {
-    if (!open) { setPhase("setup"); setNumSplits(2); setQuote([]); }
+    if (!open) {
+      setPhase("setup");
+      setNumSplits(hasPagatiPrecedenti ? 1 : 2);
+      setQuote([]);
+    }
   }, [open]);
 
+  // Inizializza numSplits corretto all'apertura
+  useEffect(() => {
+    if (open) setNumSplits(hasPagatiPrecedenti ? 1 : 2);
+  }, [open, hasPagatiPrecedenti]);
+
   function calcolaQuote(n: number): RomanaQuota[] {
-    const base = Math.floor((total * 100) / n);        // centesimi base per quota
-    const resto = Math.round(total * 100) - base * n;   // centesimi residui
+    const baseCent = Math.floor((restante * 100) / n);
+    const restoCent = Math.round(restante * 100) - baseCent * n;
     return Array.from({ length: n }, (_, i) => ({
       n: i + 1,
-      importo: (base + (i === n - 1 ? resto : 0)) / 100, // ultima quota assorbe il resto
+      importo: (baseCent + (i === n - 1 ? restoCent : 0)) / 100,
       stato: "pending" as const,
     }));
   }
@@ -1202,12 +1215,12 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
     setPhase("pagamento");
   }
 
-  const totalePagato = quote.filter(q => q.stato === "paid").reduce((s, q) => s + q.importo, 0);
-  const rimanente   = Math.max(0, total - totalePagato);
+  const totalePagatoInSession = quote.filter(q => q.stato === "paid").reduce((s, q) => s + q.importo, 0);
+  const rimanente   = Math.max(0, restante - totalePagatoInSession);
   const tuttePagate = quote.length > 0 && quote.every(q => q.stato === "paid");
   const primaInAttesa = quote.find(q => q.stato === "pending");
 
-  // Invia scontrino + chiude ordine se isUltima
+  // Invia scontrino + chiude ordine se è l'ultima quota in assoluto
   async function emettiSconto(n: number, metodo: "cash" | "card", quotaImporto: number) {
     const isUltima = n === quote.length;
     const resp = await fetch(`${API}/fiscal/romana`, {
@@ -1256,7 +1269,6 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
         const posData = await posResp.json();
 
         if (posData.manualConfirmRequired) {
-          // myPOS: mostra il pulsante "Confermato" nella riga quota
           setQuote(prev => prev.map(q => q.n === n ? { ...q, stato: "pos_manual" } : q));
           return;
         }
@@ -1268,7 +1280,6 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
           } : q));
           return;
         }
-        // POS approvato → emetti scontrino
         setQuote(prev => prev.map(q => q.n === n ? { ...q, stato: "paying" } : q));
         await emettiSconto(n, metodo, quota.importo);
       } catch (e) {
@@ -1286,7 +1297,6 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
     }
   }
 
-  // Conferma manuale myPOS (utente ha visto il terminale approvare)
   async function confermaManuale(n: number) {
     const quota = quote.find(q => q.n === n)!;
     setQuote(prev => prev.map(q => q.n === n ? { ...q, stato: "paying" } : q));
@@ -1322,6 +1332,8 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
     </div>
   );
 
+  const minSplits = hasPagatiPrecedenti ? 1 : 2;
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-sm">
@@ -1333,18 +1345,34 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
 
         {phase === "setup" && (
           <>
-            <div className="py-3 text-center space-y-5">
-              {/* Totale */}
+            <div className="py-3 text-center space-y-4">
+
+              {/* Banner "già pagato" (solo se ci sono pagamenti precedenti) */}
+              {hasPagatiPrecedenti && (
+                <div className="flex items-center justify-between rounded-xl bg-green-50 border border-green-200 px-4 py-2.5 text-sm">
+                  <span className="text-green-700 font-medium">Già incassato</span>
+                  <span className="font-bold text-green-800">€ {paidRomana.toFixed(2)}</span>
+                </div>
+              )}
+
+              {/* Restante da incassare */}
               <div className="bg-slate-50 rounded-xl py-3 px-4">
-                <p className="text-xs text-slate-500 mb-0.5">Totale da dividere</p>
-                <p className="text-4xl font-bold text-slate-900">€ {total.toFixed(2)}</p>
+                <p className="text-xs text-slate-500 mb-0.5">
+                  {hasPagatiPrecedenti ? "Restante da incassare" : "Totale da dividere"}
+                </p>
+                <p className="text-4xl font-bold text-slate-900">€ {restante.toFixed(2)}</p>
+                {hasPagatiPrecedenti && (
+                  <p className="text-[11px] text-slate-400 mt-0.5">Totale ordine € {total.toFixed(2)}</p>
+                )}
               </div>
 
               {/* Stepper persone */}
               <div className="space-y-2">
-                <p className="text-sm font-semibold text-slate-600">Numero di persone</p>
+                <p className="text-sm font-semibold text-slate-600">
+                  {hasPagatiPrecedenti ? "Quante quote rimaste?" : "Numero di persone"}
+                </p>
                 <div className="flex items-center justify-center gap-5">
-                  <button onClick={() => setNumSplits(p => Math.max(2, p - 1))}
+                  <button onClick={() => setNumSplits(p => Math.max(minSplits, p - 1))}
                     className="h-12 w-12 rounded-full border-2 border-slate-200 flex items-center justify-center hover:border-primary active:scale-90 transition-all text-slate-700">
                     <Minus className="h-5 w-5" />
                   </button>
@@ -1356,7 +1384,7 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
                 </div>
                 {/* Quick-select */}
                 <div className="flex items-center justify-center gap-2 flex-wrap">
-                  {[2,3,4,5,6,8].map(n => (
+                  {(hasPagatiPrecedenti ? [1,2,3,4,5] : [2,3,4,5,6,8]).map(n => (
                     <button key={n} onClick={() => setNumSplits(n)}
                       className={cn("h-9 w-9 rounded-lg border-2 text-sm font-bold transition-all",
                         numSplits === n ? "border-primary bg-orange-50 text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300")}>
@@ -1366,18 +1394,30 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
                 </div>
               </div>
 
-              {/* Quota */}
+              {/* Quota stimata */}
               <div className="p-4 bg-orange-50 border border-orange-200 rounded-xl">
-                <p className="text-sm text-slate-600 mb-1">Ognuno paga circa</p>
+                <p className="text-sm text-slate-600 mb-1">
+                  {numSplits === 1 ? "Paga tutto il restante" : "Ognuno paga circa"}
+                </p>
                 <p className="text-4xl font-bold text-primary">
-                  € {numSplits > 0 ? (total / numSplits).toFixed(2) : "0.00"}
+                  € {numSplits > 0 ? (restante / numSplits).toFixed(2) : "0.00"}
                 </p>
               </div>
+
+              {/* Nota se si può aggiungere merce */}
+              {hasPagatiPrecedenti && (
+                <p className="text-xs text-slate-400 text-center">
+                  Puoi chiudere, aggiungere merce e tornare qui — il restante si aggiornerà automaticamente.
+                </p>
+              )}
             </div>
+
             <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={onClose} className="flex-1">Annulla</Button>
-              <Button onClick={avviaRomana} className="flex-1" disabled={!orderId}>
-                Avvia divisione →
+              <Button variant="outline" onClick={onClose} className="flex-1">
+                {hasPagatiPrecedenti ? "Chiudi / aggiungi merce" : "Annulla"}
+              </Button>
+              <Button onClick={avviaRomana} className="flex-1" disabled={!orderId || restante <= 0}>
+                {hasPagatiPrecedenti ? "Continua →" : "Avvia divisione →"}
               </Button>
             </DialogFooter>
           </>
@@ -1386,7 +1426,7 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
         {phase === "pagamento" && (
           <>
             <div className="space-y-3 py-1 max-h-[70vh] overflow-y-auto">
-              {/* Residuo */}
+              {/* Residuo sessione corrente */}
               <div className={cn(
                 "rounded-xl px-4 py-2.5 text-center transition-all",
                 tuttePagate
@@ -1399,8 +1439,11 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
                   </div>
                 ) : (
                   <>
-                    <p className="text-xs text-slate-500">Rimanente da incassare</p>
+                    <p className="text-xs text-slate-500">Da incassare</p>
                     <p className="text-3xl font-bold text-primary">€ {rimanente.toFixed(2)}</p>
+                    {hasPagatiPrecedenti && (
+                      <p className="text-[11px] text-slate-400">Già pagato precedentemente: € {paidRomana.toFixed(2)}</p>
+                    )}
                   </>
                 )}
               </div>
@@ -1428,7 +1471,6 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
                       : "border-slate-200 bg-white opacity-60"
                     )}>
                       <div className="flex items-center gap-3">
-                        {/* Numero quota */}
                         <div className={cn(
                           "h-9 w-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0",
                           isPaid      ? "bg-green-500 text-white"
@@ -1444,7 +1486,6 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
                            : q.n}
                         </div>
 
-                        {/* Info quota */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-baseline gap-2">
                             <span className={cn("font-bold text-lg",
@@ -1479,7 +1520,6 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
                           )}
                         </div>
 
-                        {/* Indicatori di stato / bottoni */}
                         {(isPaying || isPosWait) && (
                           <div className="shrink-0 text-xs text-slate-400 flex items-center gap-1">
                             <RefreshCw className="h-3.5 w-3.5 animate-spin" />
@@ -3828,6 +3868,7 @@ export default function FrontOffice() {
         open={showRomana}
         onClose={() => setShowRomana(false)}
         total={total}
+        paidRomana={parseFloat((activeOrder as unknown as { paidRomana?: string })?.paidRomana ?? "0")}
         orderId={activeOrderId}
         tableName={orderLabel}
         onOrderClosed={() => {
