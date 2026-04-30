@@ -396,6 +396,86 @@ export function buildNonFiscalDocument(opts: {
   return copia1 + copia2;
 }
 
+// ── Costruisce documento PRECONTO (non-fiscale, senza pagamento) ─────────────
+// Due copie: ristorante + cliente
+function buildPrecontoCopy(opts: {
+  ragioneSociale?: string;
+  tavolo?: string;
+  coperti?: number;
+  righe: { desc: string; qta: number; prezzoUnitario: string }[];
+  totale: string;
+  isCopiaCliente: boolean;
+}): string {
+  const { ragioneSociale, tavolo, coperti, righe, totale, isCopiaCliente } = opts;
+  const parts: string[] = [];
+  const sep = "--------------------------------";
+  const printLine = (s: string) => parts.push(`"${xonDesc(s)}"@`);
+
+  printLine("DOCUMENTO NON FISCALE");
+  printLine("*** PRECONTO ***");
+  if (isCopiaCliente) printLine("--- COPIA CLIENTE ---");
+  printLine(sep);
+  if (tavolo) printLine(`TAVOLO: ${tavolo}`);
+  if (coperti != null && coperti > 0) printLine(`COPERTI: ${coperti}`);
+  if (ragioneSociale) printLine(ragioneSociale);
+  printLine(sep);
+
+  for (const r of righe) {
+    const qta = parseFloat(String(r.qta));
+    const pu = parseFloat(r.prezzoUnitario);
+    const tot = (qta * pu).toFixed(2);
+    const desc = xonDesc(r.desc);
+    const qtaStr = Number.isInteger(qta) && qta === 1 ? "" : `${Math.round(qta)}x `;
+    printLine(`${qtaStr}${desc}`);
+    printLine(`  EUR ${tot}`);
+  }
+
+  printLine(sep);
+  printLine(`TOTALE EUR ${parseFloat(totale).toFixed(2)}`);
+  printLine(sep);
+  printLine("DOCUMENTO NON VALIDO AI");
+  printLine("FINI FISCALI");
+
+  parts.push("@");
+  return parts.join("");
+}
+
+export function buildPrecontoDocument(opts: {
+  ragioneSociale?: string;
+  tavolo?: string;
+  coperti?: number;
+  righe: { desc: string; qta: number; prezzoUnitario: string }[];
+  totale: string;
+}): string {
+  return (
+    buildPrecontoCopy({ ...opts, isCopiaCliente: false }) +
+    buildPrecontoCopy({ ...opts, isCopiaCliente: true })
+  );
+}
+
+// ── Stampa preconto sulla RT (ordine rimane aperto) ───────────────────────────
+export async function emettiPreconto(opts: {
+  tavolo?: string;
+  coperti?: number;
+  righe: { desc: string; qta: number; prezzoUnitario: string }[];
+  totale: string;
+  ragioneSociale?: string;
+  printer?: RtPrinter | null;
+}): Promise<CgiResult> {
+  const printer = opts.printer ?? await getFiscalPrinter();
+  if (!printer) return { ok: false, error: "Nessuna stampante fiscale configurata" };
+
+  const cmd = buildPrecontoDocument(opts);
+  const rtPort = printer.port ?? 1126;
+  const raw = await sendXonXoff(printer.ip, rtPort, cmd, 6000);
+  return {
+    ok: raw.xoffCount === 0,
+    ms: raw.ms,
+    body: raw.ascii,
+    error: raw.error ?? (raw.xoffCount > 0 ? `RT errore: ${raw.xoffCount} XOFF` : undefined),
+  };
+}
+
 // ── Emetti documento non-fiscale sulla RT ─────────────────────────────────
 export async function emettiDocumentoNonFiscale(opts: {
   orderId: number;

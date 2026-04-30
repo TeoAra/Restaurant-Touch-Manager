@@ -30,7 +30,7 @@ import {
   AlertTriangle, CheckCircle2, User, LogOut, Building2, Pencil,
   ArrowRightFromLine, ReceiptText, Trash2, BadgePercent, StickyNote, Ticket,
   ScrollText, Hash, Euro, RefreshCw, CalendarClock, ArrowRight, BookOpen,
-  Loader2, XCircle,
+  Loader2, XCircle, Printer,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link } from "wouter";
@@ -1523,12 +1523,42 @@ function RomanaDialog({ open, onClose, total, orderId, tableName, onOrderClosed 
 }
 
 // ─── Preconto Dialog ──────────────────────────────────────────────────────────
-function PrecontoDialog({ open, onClose, order, items }: {
+function PrecontoDialog({ open, onClose, order, items, orderId, coverPrice, coverCount }: {
   open: boolean; onClose: () => void;
+  orderId?: number;
   order: { tableName?: string | null; covers?: number; total: string; createdAt: string } | null;
   items: Array<{ productName: string; quantity: number; unitPrice: string; subtotal: string }>;
+  coverPrice: number;
+  coverCount: number;
 }) {
+  const [printing, setPrinting] = useState(false);
+  const [printResult, setPrintResult] = useState<{ ok: boolean; error?: string | null } | null>(null);
+
+  useEffect(() => {
+    if (open) setPrintResult(null);
+  }, [open]);
+
   if (!order) return null;
+
+  const covers = coverCount;
+  const coverTotal = covers > 0 && coverPrice > 0 ? covers * coverPrice : 0;
+  const grandTotal = parseFloat(order.total) + coverTotal;
+
+  async function handleStampa() {
+    if (!orderId) return;
+    setPrinting(true);
+    setPrintResult(null);
+    try {
+      const res = await fetch(`${API}/orders/${orderId}/preconto`, { method: "POST" });
+      const json = await res.json();
+      setPrintResult({ ok: json.ok, error: json.error });
+    } catch (e) {
+      setPrintResult({ ok: false, error: "Errore di rete" });
+    } finally {
+      setPrinting(false);
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-sm">
@@ -1537,22 +1567,44 @@ function PrecontoDialog({ open, onClose, order, items }: {
           <div className="text-center border-b border-dashed border-slate-200 pb-3">
             <div className="font-bold text-base">{order.tableName || "Scontrino Rapido"}</div>
             <div className="text-xs text-slate-400">{new Date(order.createdAt).toLocaleString("it-IT")}</div>
-            {order.covers != null && <div className="text-xs text-slate-400">Coperti: {order.covers}</div>}
+            {covers > 0 && (
+              <div className="text-xs text-slate-500">
+                {covers} coperti{coverPrice > 0 ? ` × €${coverPrice.toFixed(2)} = €${coverTotal.toFixed(2)}` : ""}
+              </div>
+            )}
           </div>
-          <div className="space-y-1 max-h-52 overflow-y-auto">
+          <div className="space-y-1 max-h-48 overflow-y-auto">
             {items.map((item, i) => (
               <div key={i} className="flex justify-between">
                 <span>{item.quantity}x {item.productName}</span>
                 <span>€ {parseFloat(item.subtotal).toFixed(2)}</span>
               </div>
             ))}
+            {coverTotal > 0 && (
+              <div className="flex justify-between text-slate-500">
+                <span>{covers}x Coperto</span>
+                <span>€ {coverTotal.toFixed(2)}</span>
+              </div>
+            )}
           </div>
           <div className="border-t-2 border-slate-300 pt-2 flex justify-between text-base font-bold">
             <span>TOTALE</span>
-            <span>€ {parseFloat(order.total).toFixed(2)}</span>
+            <span>€ {grandTotal.toFixed(2)}</span>
           </div>
+          {printResult && (
+            <div className={cn("text-center text-xs font-semibold px-3 py-2 rounded-lg", printResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700")}>
+              {printResult.ok ? "✓ Preconto stampato" : `Errore RT: ${printResult.error ?? "sconosciuto"}`}
+            </div>
+          )}
         </div>
-        <DialogFooter><Button variant="outline" onClick={onClose} className="w-full">Chiudi</Button></DialogFooter>
+        <DialogFooter className="gap-2 flex-row">
+          <Button variant="outline" onClick={onClose} className="flex-1">Chiudi</Button>
+          {orderId && (
+            <Button onClick={handleStampa} disabled={printing} className="flex-1 gap-1.5">
+              {printing ? <><span className="animate-spin">⏳</span> Stampa...</> : <><Printer className="h-3.5 w-3.5" /> Stampa RT</>}
+            </Button>
+          )}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -3787,7 +3839,10 @@ export default function FrontOffice() {
         }}
       />
       <PrecontoDialog open={showPreconto} onClose={() => setShowPreconto(false)}
-        order={activeOrder as never} items={items as never} />
+        order={activeOrder as never} items={items as never}
+        orderId={activeOrderId}
+        coverPrice={coverPrice}
+        coverCount={coverCount} />
       <SplitBillDialog
         open={showSplitBill}
         onClose={() => setShowSplitBill(false)}

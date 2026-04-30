@@ -2,6 +2,8 @@ import { Router } from "express";
 import { db, ordersTable, orderItemsTable, tablesTable, roomsTable, productsTable, categoriesTable, printersTable } from "@workspace/db";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import net from "net";
+import { emettiPreconto } from "../lib/fiscal-printer";
+import { getSettings } from "../lib/settings";
 import {
   CreateOrderBody,
   UpdateOrderBody,
@@ -516,6 +518,49 @@ router.post("/:id/merge-into/:targetId", async (req, res) => {
   }
 
   res.json({ success: true, targetOrderId: targetId, newTotal });
+});
+
+// ── Stampa preconto sulla RT (ordine rimane aperto) ─────────────────────────
+router.post("/:id/preconto", async (req, res) => {
+  const id = Number(req.params.id);
+  const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+  if (!order) return res.status(404).json({ error: "Ordine non trovato" });
+  if (order.status !== "open") return res.status(400).json({ error: "Ordine non aperto" });
+
+  const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id));
+  const settings = await getSettings();
+
+  // Tavolo
+  let tableName: string | undefined;
+  if (order.tableId) {
+    const [tbl] = await db.select().from(tablesTable).where(eq(tablesTable.id, order.tableId));
+    if (tbl) tableName = tbl.name;
+  }
+
+  // Coperti + prezzo coperto
+  const covers = order.covers ?? 0;
+  const coverPrice = parseFloat(settings["cover_price"] ?? "0");
+  const coverTotal = covers > 0 && coverPrice > 0 ? covers * coverPrice : 0;
+
+  // Righe articoli
+  const righe = items.map(i => ({
+    desc: i.productName,
+    qta: parseFloat(i.quantity.toString()),
+    prezzoUnitario: i.unitPrice,
+  }));
+
+  // Aggiungi riga coperto se presente
+  if (coverTotal > 0) {
+    righe.push({ desc: "Coperto", qta: covers, prezzoUnitario: coverPrice.toFixed(2) });
+  }
+
+  const totale = (parseFloat(order.total) + coverTotal).toFixed(2);
+  const ragioneSociale = settings["ragione_sociale"] as string | undefined;
+
+  const rt = await emettiPreconto({ tavolo: tableName, coperti: covers > 0 ? covers : undefined, righe, totale, ragioneSociale });
+  req.log.info({ orderId: id, rt: rt.ok }, "[PRECONTO] stampa");
+
+  res.json({ ok: rt.ok, error: rt.error ?? null, totale });
 });
 
 // Void item: mark as deleted and optionally notify department (future: trigger print)
