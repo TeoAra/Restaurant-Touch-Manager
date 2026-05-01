@@ -2115,6 +2115,9 @@ export default function FrontOffice() {
   const coverCount = isQuickMode ? 0 : ((activeOrder as unknown as { covers?: number })?.covers ?? 0);
   const coverTotal = coverPrice > 0 && coverCount > 0 ? coverCount * coverPrice : 0;
   const total = subtotal + coverTotal;
+  const paidRomana = parseFloat((activeOrder as unknown as { paidRomana?: string })?.paidRomana ?? "0");
+  // Importo residuo dopo eventuali quote alla romana già pagate
+  const totalNettoRomana = Math.max(0, Math.round((total - paidRomana) * 100) / 100);
   const hasDraftItems = items.some(i => (i as never as { status: string }).status === "draft");
   const hasSentItems = items.some(i => (i as never as { status: string }).status === "sent");
 
@@ -2649,13 +2652,56 @@ export default function FrontOffice() {
     if (!activeOrderId) return;
     setShowPayment(false);
     const isGestionale = !!invoiceCustomerId;
-    const payAmount = amountGiven !== undefined ? amountGiven : total;
+    const isSplitPay = !!(itemIds?.length || coversToDeduct > 0);
+
+    // Se ci sono quote alla romana già pagate, il pagamento normale deve usare il restante
+    const effectiveTotal = paidRomana > 0 && !isSplitPay && !isGestionale
+      ? totalNettoRomana
+      : total;
+    const payAmount = amountGiven !== undefined ? amountGiven : effectiveTotal;
+
+    // ── Caso speciale: pagamento finale dopo romana parziale ─────────────────
+    // Usa la route /fiscal/romana come ultima quota per emettere lo scontrino
+    // corretto (solo il restante) e chiudere l'ordine.
+    if (paidRomana > 0 && !isSplitPay && !isGestionale) {
+      try {
+        const resp = await fetch(`${API}/fiscal/romana`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orderId: activeOrderId,
+            importo: payAmount.toFixed(2),
+            metodoPagamento: method,
+            quotaNum: 1,
+            quoteTotali: 1,
+            tableName: orderLabel ?? "",
+            isUltima: true,
+          }),
+        });
+        const data = await resp.json();
+        if (data.rtOk) {
+          addLog("info", `RT OK — scontrino #${data.receiptId ?? "-"} — €${payAmount.toFixed(2)} ${method} (finale romana)`);
+          toast({ title: "Scontrino fiscale emesso", description: `€${payAmount.toFixed(2)} — ${method}` });
+        } else {
+          addLog("error", `RT ERRORE (finale romana) — ${data.rtError ?? "errore sconosciuto"}`);
+          toast({ title: "Scontrino non inviato alla RT", description: data.rtError ?? "Errore sconosciuto", variant: "destructive" });
+        }
+        if (data.orderClosed) handleExitOrder();
+      } catch (e) {
+        toast({ title: "Errore pagamento", description: String(e), variant: "destructive" });
+      }
+      refresh();
+      toast({ title: "Pagamento registrato", description: `€ ${payAmount.toFixed(2)} — ${method}` });
+      return;
+    }
+
+    // ── Pagamento normale (nessuna romana parziale precedente) ───────────────
     const paymentRes = await createPayment.mutateAsync({
       data: {
         orderId: activeOrderId,
         method,
         amount: payAmount.toFixed(2),
-        change: method === "cash" && amountGiven !== undefined && amountGiven > total ? (amountGiven - total).toFixed(2) : undefined,
+        change: method === "cash" && amountGiven !== undefined && amountGiven > effectiveTotal ? (amountGiven - effectiveTotal).toFixed(2) : undefined,
         lotteria: lotteriaCodice || undefined,
         nonFiscale: isGestionale || undefined,
         ragioneSocialeCliente: ragioneSocialeCliente || undefined,
@@ -2667,10 +2713,10 @@ export default function FrontOffice() {
     if (fiscal) {
       if (fiscal.rtOk) {
         if (fiscal.nonFiscale) {
-          addLog("info", `RT OK — documento NON FISCALE @ ${fiscal.rtIp ?? "RT"} — €${total.toFixed(2)} ${method}`);
+          addLog("info", `RT OK — documento NON FISCALE @ ${fiscal.rtIp ?? "RT"} — €${payAmount.toFixed(2)} ${method}`);
           toast({ title: "Documento non fiscale emesso", description: `RT ${fiscal.rtIp ?? ""} — documento gestionale` });
         } else {
-          addLog("info", `RT OK — scontrino #${fiscal.receiptId} @ ${fiscal.rtIp ?? "RT"} — €${total.toFixed(2)} ${method}`);
+          addLog("info", `RT OK — scontrino #${fiscal.receiptId} @ ${fiscal.rtIp ?? "RT"} — €${payAmount.toFixed(2)} ${method}`);
           toast({ title: "Scontrino fiscale emesso", description: `RT ${fiscal.rtIp ?? ""} — ricevuta #${fiscal.receiptId}` });
         }
       } else {
@@ -2682,9 +2728,9 @@ export default function FrontOffice() {
         });
       }
     } else {
-      addLog("info", `Pagamento €${total.toFixed(2)} — ${method} — ${orderLabel}`);
+      addLog("info", `Pagamento €${payAmount.toFixed(2)} — ${method} — ${orderLabel}`);
     }
-    setInvoiceCustomer(null); // clear after payment
+    setInvoiceCustomer(null);
     if (invoiceCustomerId && items.length > 0) {
       try {
         const righe = items.map(i => ({
@@ -2718,8 +2764,8 @@ export default function FrontOffice() {
       } catch {
         toast({ title: "Pagamento OK — errore fattura", variant: "destructive" });
       }
-    } else if (itemIds?.length || coversToDeduct > 0) {
-      // Elimina articoli pagati
+    } else if (isSplitPay) {
+      // Elimina articoli pagati nel conto separato
       if (itemIds?.length) {
         await Promise.all(itemIds.map(itemId =>
           fetch(`${API}/orders/${activeOrderId}/items/${itemId}`, { method: "DELETE" }).catch(() => {})
@@ -2735,7 +2781,7 @@ export default function FrontOffice() {
         }).catch(() => {});
       }
     }
-    if (!itemIds?.length && coversToDeduct === 0) handleExitOrder();
+    if (!isSplitPay) handleExitOrder();
     refresh();
     toast({ title: "Pagamento registrato", description: `€ ${payAmount.toFixed(2)} — ${method}` });
   }
@@ -3871,7 +3917,7 @@ export default function FrontOffice() {
       <PaymentDialog
         open={showPayment}
         onClose={() => setShowPayment(false)}
-        total={total}
+        total={totalNettoRomana}
         orderId={activeOrderId}
         orderItems={items as never}
         onPay={handlePay}
