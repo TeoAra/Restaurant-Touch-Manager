@@ -1654,7 +1654,7 @@ function PrecontoDialog({ open, onClose, order, items, orderId, coverPrice, cove
 function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }: {
   open: boolean; onClose: () => void;
   items: Array<{ id: number; productName: string; quantity: number; unitPrice: string; subtotal: string }>;
-  onPay: (method: string, amount: number, itemIds: number[]) => void;
+  onPay: (method: string, amount: number, itemIds: number[], coversToDeduct: number) => void;
   coverPrice: number; coverCount: number;
 }) {
   const coverRows = coverPrice > 0 && coverCount > 0
@@ -1795,7 +1795,8 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
           <Button
             onClick={() => {
               const ids = allRows.filter(r => (qty[r.id] ?? 0) > 0 && !r.isCover).map(r => r.id);
-              onPay(method, splitTotal, ids);
+              const coversToDeduct = coverRows.filter(r => (qty[r.id] ?? 0) > 0).length;
+              onPay(method, splitTotal, ids, coversToDeduct);
               onClose();
             }}
             disabled={!hasSelection}
@@ -2644,7 +2645,7 @@ export default function FrontOffice() {
     }
   }
 
-  async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number, ragioneSocialeCliente?: string, itemIds?: number[]) {
+  async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number, ragioneSocialeCliente?: string, itemIds?: number[], coversToDeduct = 0) {
     if (!activeOrderId) return;
     setShowPayment(false);
     const isGestionale = !!invoiceCustomerId;
@@ -2717,12 +2718,24 @@ export default function FrontOffice() {
       } catch {
         toast({ title: "Pagamento OK — errore fattura", variant: "destructive" });
       }
-    } else if (itemIds?.length) {
-      await Promise.all(itemIds.map(itemId =>
-        fetch(`${API}/orders/${activeOrderId}/items/${itemId}`, { method: "DELETE" }).catch(() => {})
-      ));
+    } else if (itemIds?.length || coversToDeduct > 0) {
+      // Elimina articoli pagati
+      if (itemIds?.length) {
+        await Promise.all(itemIds.map(itemId =>
+          fetch(`${API}/orders/${activeOrderId}/items/${itemId}`, { method: "DELETE" }).catch(() => {})
+        ));
+      }
+      // Scala i coperti pagati nel conto separato
+      if (coversToDeduct > 0) {
+        const newCovers = Math.max(0, coverCount - coversToDeduct);
+        await fetch(`${API}/orders/${activeOrderId}/covers`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ covers: newCovers }),
+        }).catch(() => {});
+      }
     }
-    if (!itemIds?.length) handleExitOrder();
+    if (!itemIds?.length && coversToDeduct === 0) handleExitOrder();
     refresh();
     toast({ title: "Pagamento registrato", description: `€ ${payAmount.toFixed(2)} — ${method}` });
   }
@@ -3890,7 +3903,7 @@ export default function FrontOffice() {
         items={items as never}
         coverPrice={coverPrice}
         coverCount={coverCount}
-        onPay={(method, amount, itemIds) => handlePay(method, amount, undefined, undefined, itemIds)}
+        onPay={(method, amount, itemIds, coversToDeduct) => handlePay(method, amount, undefined, undefined, itemIds, coversToDeduct)}
       />
 
       {/* ── Modifier Picker ─────────────────────────────────────────── */}
