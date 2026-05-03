@@ -42,9 +42,6 @@ const API = `${BASE}/api`;
 const CELL = 96;
 const COLS = 12;
 const ROWS = 8;
-// Front-office: dimensione minima desiderata in px di una cella tavolo
-// dopo lo scale, per garantire leggibilità (numero tavolo + stato + totale).
-const MIN_RENDERED_CELL = 130;
 
 // ─── Settings hook ────────────────────────────────────────────────────────────
 function useSettings() {
@@ -548,11 +545,13 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
         : 5;
       const canvasW = Math.max(maxX, 4) * CELL;
       const canvasH = Math.max(maxY, 3) * CELL;
-      // Scala in modo che la mappa riempia il container, ma garantisci una
-      // dimensione minima leggibile per le celle (MIN_RENDERED_CELL).
+      // Scala in modo che la mappa stia nel container, MA mai oltre la
+      // dimensione naturale (max 1.0): con pochi tavoli evitiamo l'effetto
+      // "tavolo gigante a tutto schermo". Se la mappa è più grande del
+      // container, lasciamo scalare giù (overflow-auto gestisce lo scroll
+      // se la cella diventa troppo piccola).
       const fitScale = Math.min(w / canvasW, h / canvasH);
-      const minScale = MIN_RENDERED_CELL / CELL;
-      setScale(Math.min(Math.max(fitScale, minScale), 2));
+      setScale(Math.min(fitScale, 1));
     }
     updateScale();
     const ro = new ResizeObserver(updateScale);
