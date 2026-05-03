@@ -165,6 +165,12 @@ Global modifiers not bound to individual products but to **categories**:
 - **Atomic transactions** — `orders.ts` (close order + free table), `payments.ts` (payment + free), `fiscal.ts` (`paid_romana` SQL increment). All via `db.transaction()` o SQL atomico per evitare race conditions.
 - `recalcOrderTotal` calcola in centesimi (no float drift).
 - New PATCH passthrough fields su `orders`: `discountType`, `discountValue`, `discountReason`, `mancia`, `sospeso`, `sospesoNote`, `sospesoCustomerId`, `covers`.
+- **Operazioni tavolo avanzate** (feature flag `feat_table_ops`):
+  - `POST /api/orders/:id/move-table` — sposta ordine su tavolo libero, atomico via `db.transaction`
+  - `POST /api/orders/:id/merge` — unisce due ordini (items spostati, total ricalcolato da SUM(subtotal), source eliminato). Bloccato se source ha sconto/mancia/sospeso.
+  - `POST /api/orders/:fromId/items/move` — sposta items selezionati tra ordini, ricalcola entrambi i total da SUM(subtotal). Tutto in transazione.
+- **Buoni Pasto** come metodo di pagamento (feature flag `feat_buoni_pasto`): aggiunto "ticket" all'enum OpenAPI/Zod (`cash|card|ticket|other`); UI condizionale in PaymentDialog e SplitBillDialog.
+- Bug fix: `payments.ts` referenziava `splitItemIds` in TDZ (linea 74 prima della dichiarazione a linea 80) → corretto a `splitItemIdsPre`.
 - New PATCH passthrough field su `products`: `allergeni`.
 
 ### New endpoints
@@ -172,7 +178,8 @@ Global modifiers not bound to individual products but to **categories**:
 - `GET /api/fiscal/iva-report?from=&to=` — riepilogo IVA per aliquota nel periodo.
 - `GET /api/fiscal/sospesi` — lista conti sospesi non pagati.
 - `GET /api/audit?from=&to=&action=&entityType=&limit=` — visualizzazione audit log.
-- Lib `src/lib/audit.ts` (`logAudit`) usata da operazioni critiche (sconto, sospeso, cassetto, storno, delete item).
+- Lib `src/lib/audit.ts` (`logAudit`) usata da operazioni critiche (sconto, sospeso, cassetto, storno, delete item, move-table, merge, move-items).
+- **Pagina Funzioni** (`/backoffice/funzioni`): toggle on/off per feature flags opzionali (`feat_table_ops`, `feat_buoni_pasto` live; `feat_corsi`, `feat_kds`, `feat_chiusura_turno`, `feat_fidelity`, `feat_magazzino` placeholder "in arrivo"). Salvati in `app_settings` come stringhe `"true"/"false"`.
 
 ### Schema DB (push-force già fatto)
 - `orders`: `discountType`, `discountValue`, `discountReason`, `mancia`, `sospeso`, `sospesoCustomerId`, `sospesoNote`.

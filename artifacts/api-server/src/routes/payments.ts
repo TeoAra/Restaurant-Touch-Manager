@@ -71,7 +71,7 @@ router.post("/", async (req, res) => {
     action: "payment.create",
     entityType: "order",
     entityId: body.orderId,
-    details: { amount: body.amount, method: body.method, isSplit: !!splitItemIds, isSplitWithRemainder },
+    details: { amount: body.amount, method: body.method, isSplit: !!splitItemIdsPre, isSplitWithRemainder },
   });
 
   // ── Emetti documento sulla RT (fiscale o non-fiscale) ────────────────────

@@ -4,6 +4,7 @@ import { eq, and, sql, inArray } from "drizzle-orm";
 import net from "net";
 import { emettiPreconto } from "../lib/fiscal-printer";
 import { getSettings } from "../lib/settings";
+import { logAudit } from "../lib/audit";
 import {
   CreateOrderBody,
   UpdateOrderBody,
@@ -608,6 +609,130 @@ router.post("/:id/preconto", async (req, res) => {
   req.log.info({ orderId: id, rt: rt.ok }, "[PRECONTO] stampa");
 
   res.json({ ok: rt.ok, error: rt.error ?? null, totale });
+});
+
+// ── Sposta ordine su altro tavolo ──────────────────────────────────────────
+// POST /orders/:id/move-table  body: { tableId }
+// Sposta un ordine aperto su un altro tavolo. Il tavolo destinazione deve
+// essere libero (status='free') a meno di forceMerge=true (in tal caso accetta
+// di mettere un secondo ordine su un tavolo già occupato).
+router.post("/:id/move-table", async (req, res) => {
+  const id = Number(req.params.id);
+  const tableId = Number(req.body?.tableId);
+  const forceMerge = !!req.body?.forceMerge;
+  if (!Number.isInteger(id) || !Number.isInteger(tableId)) {
+    return res.status(400).json({ error: "id e tableId obbligatori" });
+  }
+  const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+  if (!order) return res.status(404).json({ error: "Ordine non trovato" });
+  if (order.status !== "open") return res.status(400).json({ error: "Solo ordini aperti possono essere spostati" });
+  if (order.tableId === tableId) return res.json({ ok: true, order });
+
+  const [target] = await db.select().from(tablesTable).where(eq(tablesTable.id, tableId));
+  if (!target) return res.status(404).json({ error: "Tavolo destinazione non trovato" });
+  if (target.status === "occupied" && !forceMerge) {
+    return res.status(409).json({ error: "Tavolo destinazione occupato. Usa Unisci tavoli per spostare gli articoli." });
+  }
+
+  const oldTableId = order.tableId;
+  const updated = await db.transaction(async (tx) => {
+    const [u] = await tx.update(ordersTable).set({ tableId }).where(eq(ordersTable.id, id)).returning();
+    await tx.update(tablesTable).set({ status: "occupied" }).where(eq(tablesTable.id, tableId));
+    return u;
+  });
+  // freeTableIfEmpty è già atomico (UPDATE con NOT EXISTS); fuori transaction è ok
+  if (oldTableId && oldTableId !== tableId) await freeTableIfEmpty(oldTableId);
+
+  void logAudit({ req, action: "order.move_table", entityType: "order", entityId: id, details: { from: oldTableId, to: tableId } });
+  res.json({ ok: true, order: updated });
+});
+
+// ── Unisci due ordini (merge) ──────────────────────────────────────────────
+// POST /orders/:id/merge  body: { sourceOrderId }
+// Sposta tutti gli articoli dell'ordine source in :id, ricalcola il totale,
+// elimina l'ordine source e libera il suo tavolo se vuoto.
+router.post("/:id/merge", async (req, res) => {
+  const id = Number(req.params.id);
+  const sourceOrderId = Number(req.body?.sourceOrderId);
+  if (!Number.isInteger(id) || !Number.isInteger(sourceOrderId) || id === sourceOrderId) {
+    return res.status(400).json({ error: "id e sourceOrderId obbligatori e diversi" });
+  }
+  const [target] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+  const [source] = await db.select().from(ordersTable).where(eq(ordersTable.id, sourceOrderId));
+  if (!target || !source) return res.status(404).json({ error: "Ordine non trovato" });
+  if (target.status !== "open" || source.status !== "open") {
+    return res.status(400).json({ error: "Entrambi gli ordini devono essere aperti" });
+  }
+  // Blocca il merge se l'ordine source ha sconto o mancia: altrimenti li perderemmo
+  // silenziosamente nel ricalcolo. Il cameriere deve azzerarli prima del merge.
+  const srcDiscount = parseFloat(source.discountValue ?? "0");
+  const srcMancia   = parseFloat(source.mancia ?? "0");
+  if (srcDiscount > 0 || srcMancia > 0 || source.sospeso) {
+    return res.status(409).json({ error: "L'ordine sorgente ha sconto, mancia o è sospeso. Azzerali prima di unire." });
+  }
+
+  // Tutto in transazione per evitare incoerenze (items spostati ma source non eliminato)
+  const result = await db.transaction(async (tx) => {
+    await tx.update(orderItemsTable).set({ orderId: id }).where(eq(orderItemsTable.orderId, sourceOrderId));
+    // Ricalcola total dal SUM dei subtotal degli items adesso appartenenti a target
+    const sumRow = await tx.execute<{ tot: string | null }>(sql`
+      SELECT COALESCE(SUM(subtotal::numeric), 0)::text AS tot
+      FROM order_items WHERE order_id = ${id}
+    `);
+    const itemsTot = parseFloat(sumRow.rows[0]?.tot ?? "0");
+    const newTotal = itemsTot.toFixed(2);
+    const newCovers = (target.covers ?? 0) + (source.covers ?? 0);
+    await tx.update(ordersTable).set({ total: newTotal, covers: newCovers }).where(eq(ordersTable.id, id));
+    await tx.delete(ordersTable).where(eq(ordersTable.id, sourceOrderId));
+    return { newTotal };
+  });
+  if (source.tableId) await freeTableIfEmpty(source.tableId);
+
+  void logAudit({ req, action: "order.merge", entityType: "order", entityId: id, details: { from: sourceOrderId, mergedTotal: result.newTotal } });
+  res.json({ ok: true, mergedItems: true, newTotal: result.newTotal });
+});
+
+// ── Sposta articoli tra ordini ─────────────────────────────────────────────
+// POST /orders/:fromId/items/move  body: { itemIds: number[], toOrderId: number }
+// Sposta uno o più articoli da un ordine a un altro (ricalcola totali entrambi).
+router.post("/:fromId/items/move", async (req, res) => {
+  const fromId = Number(req.params.fromId);
+  const toOrderId = Number(req.body?.toOrderId);
+  const itemIds: number[] = Array.isArray(req.body?.itemIds) ? req.body.itemIds.map(Number).filter(Number.isInteger) : [];
+  if (!Number.isInteger(fromId) || !Number.isInteger(toOrderId) || fromId === toOrderId || itemIds.length === 0) {
+    return res.status(400).json({ error: "fromId, toOrderId e itemIds obbligatori" });
+  }
+  const [from] = await db.select().from(ordersTable).where(eq(ordersTable.id, fromId));
+  const [to]   = await db.select().from(ordersTable).where(eq(ordersTable.id, toOrderId));
+  if (!from || !to) return res.status(404).json({ error: "Ordine non trovato" });
+  if (from.status !== "open" || to.status !== "open") {
+    return res.status(400).json({ error: "Entrambi gli ordini devono essere aperti" });
+  }
+
+  // Verifica che gli items appartengano davvero a fromId
+  const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, fromId));
+  const valid = items.filter(i => itemIds.includes(i.id));
+  if (valid.length === 0) return res.status(400).json({ error: "Nessun articolo valido da spostare" });
+
+  const moved = valid.reduce((s, i) => s + parseFloat(i.subtotal), 0);
+
+  // Tutto in transazione: spostamento + ricalcolo totali da SUM dei subtotal
+  // (più robusto contro discount/mancia al livello order, evita drift dei totali)
+  await db.transaction(async (tx) => {
+    await tx.update(orderItemsTable).set({ orderId: toOrderId })
+      .where(and(eq(orderItemsTable.orderId, fromId), inArray(orderItemsTable.id, valid.map(i => i.id))));
+    for (const oid of [fromId, toOrderId]) {
+      const sumRow = await tx.execute<{ tot: string | null }>(sql`
+        SELECT COALESCE(SUM(subtotal::numeric), 0)::text AS tot
+        FROM order_items WHERE order_id = ${oid}
+      `);
+      const tot = parseFloat(sumRow.rows[0]?.tot ?? "0").toFixed(2);
+      await tx.update(ordersTable).set({ total: tot }).where(eq(ordersTable.id, oid));
+    }
+  });
+
+  void logAudit({ req, action: "order.move_items", entityType: "order", entityId: fromId, details: { to: toOrderId, count: valid.length, amount: moved.toFixed(2) } });
+  res.json({ ok: true, movedCount: valid.length, movedAmount: moved.toFixed(2) });
 });
 
 // Void item: mark as deleted and optionally notify department (future: trigger print)

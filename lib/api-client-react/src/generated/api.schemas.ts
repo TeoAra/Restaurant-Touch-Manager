@@ -203,6 +203,7 @@ export type PaymentMethod = (typeof PaymentMethod)[keyof typeof PaymentMethod];
 export const PaymentMethod = {
   cash: "cash",
   card: "card",
+  ticket: "ticket",
   other: "other",
 } as const;
 
@@ -222,6 +223,7 @@ export type CreatePaymentBodyMethod =
 export const CreatePaymentBodyMethod = {
   cash: "cash",
   card: "card",
+  ticket: "ticket",
   other: "other",
 } as const;
 

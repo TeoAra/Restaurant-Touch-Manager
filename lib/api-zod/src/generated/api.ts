@@ -35,7 +35,6 @@ export const CreateCategoryBody = zod.object({
   color: zod.string(),
   icon: zod.string().nullish(),
   sortOrder: zod.number(),
-  printerId: zod.number().nullable().optional(),
 });
 
 /**
@@ -66,7 +65,6 @@ export const UpdateCategoryBody = zod.object({
   color: zod.string(),
   icon: zod.string().nullish(),
   sortOrder: zod.number(),
-  printerId: zod.number().nullable().optional(),
 });
 
 export const UpdateCategoryResponse = zod.object({
@@ -75,7 +73,6 @@ export const UpdateCategoryResponse = zod.object({
   color: zod.string(),
   icon: zod.string().nullish(),
   sortOrder: zod.number(),
-  printerId: zod.number().nullable().optional(),
   createdAt: zod.string(),
 });
 
@@ -178,14 +175,6 @@ export const ListTablesResponseItem = zod.object({
   name: zod.string(),
   seats: zod.number(),
   status: zod.enum(["free", "occupied", "reserved"]),
-  roomId: zod.number().nullable().optional(),
-  sortOrder: zod.number().optional(),
-  posX: zod.number().optional(),
-  posY: zod.number().optional(),
-  shape: zod.string().optional(),
-  elementType: zod.string().optional(),
-  rotation: zod.number().optional(),
-  sizeScale: zod.number().optional(),
   createdAt: zod.string(),
 });
 export const ListTablesResponse = zod.array(ListTablesResponseItem);
@@ -198,12 +187,6 @@ export const CreateTableBody = zod.object({
   name: zod.string(),
   seats: zod.number(),
   status: zod.enum(["free", "occupied", "reserved"]),
-  roomId: zod.number().nullable().optional(),
-  sortOrder: zod.number().optional(),
-  posX: zod.number().optional(),
-  posY: zod.number().optional(),
-  shape: zod.string().optional(),
-  elementType: zod.string().optional(),
 });
 
 /**
@@ -234,14 +217,6 @@ export const UpdateTableBody = zod.object({
   name: zod.string().optional(),
   seats: zod.number().optional(),
   status: zod.enum(["free", "occupied", "reserved"]).optional(),
-  roomId: zod.number().nullable().optional(),
-  sortOrder: zod.number().optional(),
-  posX: zod.number().optional(),
-  posY: zod.number().optional(),
-  shape: zod.string().optional(),
-  elementType: zod.string().optional(),
-  rotation: zod.number().optional(),
-  sizeScale: zod.number().optional(),
 });
 
 export const UpdateTableResponse = zod.object({
@@ -293,7 +268,6 @@ export const ListOrdersResponse = zod.array(ListOrdersResponseItem);
 export const CreateOrderBody = zod.object({
   tableId: zod.number().nullish(),
   notes: zod.string().nullish(),
-  modalita: zod.enum(["tavolo", "asporto", "delivery", "rapida"]).optional(),
 });
 
 /**
@@ -339,7 +313,6 @@ export const UpdateOrderBody = zod.object({
   status: zod.enum(["open", "paid", "cancelled"]).optional(),
   notes: zod.string().nullish(),
   tableId: zod.number().nullish(),
-  modalita: zod.enum(["tavolo", "asporto", "delivery", "rapida"]).optional(),
 });
 
 export const UpdateOrderResponse = zod.object({
@@ -392,8 +365,6 @@ export const AddOrderItemBody = zod.object({
   productId: zod.number(),
   quantity: zod.number(),
   notes: zod.string().nullish(),
-  unitPrice: zod.string().optional(),
-  phase: zod.number().int().min(0).max(3).optional(),
 });
 
 /**
@@ -407,7 +378,6 @@ export const UpdateOrderItemParams = zod.object({
 export const UpdateOrderItemBody = zod.object({
   quantity: zod.number().optional(),
   notes: zod.string().nullish(),
-  unitPrice: zod.string().optional(),
 });
 
 export const UpdateOrderItemResponse = zod.object({
@@ -437,7 +407,7 @@ export const DeleteOrderItemParams = zod.object({
 export const ListPaymentsResponseItem = zod.object({
   id: zod.number(),
   orderId: zod.number(),
-  method: zod.enum(["cash", "card", "other"]),
+  method: zod.enum(["cash", "card", "ticket", "other"]),
   amount: zod.string(),
   change: zod.string().nullish(),
   createdAt: zod.string(),
@@ -449,7 +419,7 @@ export const ListPaymentsResponse = zod.array(ListPaymentsResponseItem);
  */
 export const CreatePaymentBody = zod.object({
   orderId: zod.number(),
-  method: zod.enum(["cash", "card", "other"]),
+  method: zod.enum(["cash", "card", "ticket", "other"]),
   amount: zod.string(),
   change: zod.string().nullish(),
 });
@@ -464,7 +434,7 @@ export const GetPaymentParams = zod.object({
 export const GetPaymentResponse = zod.object({
   id: zod.number(),
   orderId: zod.number(),
-  method: zod.enum(["cash", "card", "other"]),
+  method: zod.enum(["cash", "card", "ticket", "other"]),
   amount: zod.string(),
   change: zod.string().nullish(),
   createdAt: zod.string(),
@@ -512,13 +482,6 @@ export const GetTablesStatusResponseItem = zod.object({
   name: zod.string(),
   seats: zod.number(),
   status: zod.enum(["free", "occupied", "reserved"]),
-  roomId: zod.number().nullish(),
-  roomName: zod.string().nullish(),
-  posX: zod.number().optional(),
-  posY: zod.number().optional(),
-  shape: zod.string().optional(),
-  elementType: zod.string().optional(),
-  rotation: zod.number().optional(),
   activeOrderId: zod.number().nullish(),
   activeOrderTotal: zod.string().nullish(),
   activeOrderCreatedAt: zod.string().nullish(),

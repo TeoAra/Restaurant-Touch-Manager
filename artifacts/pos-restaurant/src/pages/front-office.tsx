@@ -28,7 +28,7 @@ import {
   ShoppingBag, Truck, Clock, Send, FileText, Divide,
   ChevronLeft, ChevronRight, Search, X, UtensilsCrossed, Zap, Map as MapIcon,
   AlertTriangle, CheckCircle2, User, LogOut, Building2, Pencil,
-  ArrowRightFromLine, ReceiptText, Trash2, BadgePercent, StickyNote, Ticket,
+  ArrowRightFromLine, ArrowLeftRight, GitMerge, ReceiptText, Trash2, BadgePercent, StickyNote, Ticket,
   ScrollText, Hash, Euro, RefreshCw, CalendarClock, ArrowRight, BookOpen,
   Loader2, XCircle, Printer,
 } from "lucide-react";
@@ -188,6 +188,239 @@ function FloorElement({ t, isSelected, onClick, reservation, assignMode, moveMod
         </div>
       )}
     </button>
+  );
+}
+
+// ─── Table Actions Dialog (sposta / unisci / sposta articoli) ────────────────
+function TableActionsDialog({ open, onClose, order, items, tablesStatus, onDone }: {
+  open: boolean; onClose: () => void;
+  order: { id: number; tableId: number | null; tableName?: string | null } | null;
+  items: Array<{ id: number; productName: string; quantity: number; subtotal: string }>;
+  tablesStatus: FETable[];
+  onDone: () => void;
+}) {
+  const { toast } = useToast();
+  const [mode, setMode] = useState<"menu" | "move" | "merge" | "moveItems">("menu");
+  const [targetTableId, setTargetTableId] = useState<number | null>(null);
+  const [targetOrderId, setTargetOrderId] = useState<number | null>(null);
+  const [selectedItems, setSelectedItems] = useState<number[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) { setMode("menu"); setTargetTableId(null); setTargetOrderId(null); setSelectedItems([]); }
+  }, [open]);
+
+  if (!order) return null;
+
+  const freeTables = tablesStatus.filter(t => (t.elementType ?? "table") === "table" && t.status === "free" && t.id !== order.tableId);
+  const occupiedTables = tablesStatus.filter(t => (t.elementType ?? "table") === "table" && t.status === "occupied" && t.id !== order.tableId && t.activeOrderId);
+
+  async function doMove() {
+    if (!targetTableId) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${API}/orders/${order!.id}/move-table`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tableId: targetTableId }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Errore spostamento");
+      toast({ title: "Tavolo spostato", description: `Ordine spostato sul nuovo tavolo` });
+      onDone(); onClose();
+    } catch (e) {
+      toast({ title: "Spostamento fallito", description: String(e instanceof Error ? e.message : e), variant: "destructive" });
+    } finally { setBusy(false); }
+  }
+
+  async function doMerge() {
+    if (!targetOrderId) return;
+    setBusy(true);
+    try {
+      // L'ordine corrente diventa il "destinatario"; il sourceOrderId è l'altro
+      // ma per coerenza UI: il cameriere sceglie il tavolo SU CUI portare gli articoli.
+      // Quindi qui l'ordine target dell'utente diventa il :id e il corrente è il source.
+      const r = await fetch(`${API}/orders/${targetOrderId}/merge`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceOrderId: order!.id }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Errore unione");
+      toast({ title: "Tavoli uniti", description: `Articoli spostati. Nuovo totale € ${data.newTotal}` });
+      onDone(); onClose();
+    } catch (e) {
+      toast({ title: "Unione fallita", description: String(e instanceof Error ? e.message : e), variant: "destructive" });
+    } finally { setBusy(false); }
+  }
+
+  async function doMoveItems() {
+    if (!targetOrderId || selectedItems.length === 0) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${API}/orders/${order!.id}/items/move`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toOrderId: targetOrderId, itemIds: selectedItems }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Errore spostamento articoli");
+      toast({ title: "Articoli spostati", description: `${data.movedCount} articoli (€ ${data.movedAmount}) spostati` });
+      onDone(); onClose();
+    } catch (e) {
+      toast({ title: "Spostamento fallito", description: String(e instanceof Error ? e.message : e), variant: "destructive" });
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ArrowLeftRight className="h-5 w-5 text-primary" />
+            {mode === "menu" && "Operazioni tavolo"}
+            {mode === "move" && "Sposta su altro tavolo"}
+            {mode === "merge" && "Unisci con altro tavolo"}
+            {mode === "moveItems" && "Sposta articoli"}
+          </DialogTitle>
+        </DialogHeader>
+
+        {mode === "menu" && (
+          <div className="space-y-2 py-2">
+            <button onClick={() => setMode("move")}
+              className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border-2 border-slate-200 hover:border-primary hover:bg-orange-50 transition-all text-left">
+              <ArrowRightFromLine className="h-6 w-6 text-primary shrink-0" />
+              <div>
+                <div className="font-bold text-sm text-slate-800">Sposta tavolo</div>
+                <div className="text-xs text-slate-500">L'intero ordine va su un tavolo libero</div>
+              </div>
+            </button>
+            <button onClick={() => setMode("merge")} disabled={occupiedTables.length === 0}
+              className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border-2 border-slate-200 hover:border-primary hover:bg-orange-50 transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed">
+              <GitMerge className="h-6 w-6 text-primary shrink-0" />
+              <div>
+                <div className="font-bold text-sm text-slate-800">Unisci con altro tavolo</div>
+                <div className="text-xs text-slate-500">Sposta tutto l'ordine su un tavolo già occupato</div>
+              </div>
+            </button>
+            <button onClick={() => setMode("moveItems")} disabled={items.length === 0 || occupiedTables.length === 0}
+              className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border-2 border-slate-200 hover:border-primary hover:bg-orange-50 transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed">
+              <ArrowLeftRight className="h-6 w-6 text-primary shrink-0" />
+              <div>
+                <div className="font-bold text-sm text-slate-800">Sposta articoli</div>
+                <div className="text-xs text-slate-500">Sposta singoli articoli su un altro conto aperto</div>
+              </div>
+            </button>
+          </div>
+        )}
+
+        {mode === "move" && (
+          <div className="space-y-2 py-1">
+            <div className="text-xs text-slate-500 mb-2">Seleziona un tavolo libero:</div>
+            <ScrollArea className="max-h-72">
+              <div className="grid grid-cols-3 gap-2 pr-2">
+                {freeTables.length === 0 ? (
+                  <div className="col-span-3 text-center text-sm text-slate-400 py-6">Nessun tavolo libero disponibile</div>
+                ) : freeTables.map(t => (
+                  <button key={t.id} onClick={() => setTargetTableId(t.id)}
+                    className={cn("p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1",
+                      targetTableId === t.id ? "border-primary bg-orange-50 ring-2 ring-primary/30" : "border-slate-200 hover:border-slate-400")}>
+                    <span className="font-bold text-base text-slate-800">{t.name}</span>
+                    <span className="text-[10px] text-slate-500 flex items-center gap-1"><Users className="h-2.5 w-2.5" />{t.seats}</span>
+                    {t.roomName && <span className="text-[9px] text-slate-400 truncate w-full text-center">{t.roomName}</span>}
+                  </button>
+                ))}
+              </div>
+            </ScrollArea>
+            <DialogFooter className="gap-2 pt-3">
+              <Button variant="outline" onClick={() => setMode("menu")}>Indietro</Button>
+              <Button onClick={doMove} disabled={!targetTableId || busy}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Sposta tavolo"}
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+
+        {mode === "merge" && (
+          <div className="space-y-2 py-1">
+            <div className="text-xs text-slate-500 mb-2">Tutti gli articoli verranno spostati sull'ordine selezionato:</div>
+            <ScrollArea className="max-h-72">
+              <div className="space-y-1 pr-2">
+                {occupiedTables.length === 0 ? (
+                  <div className="text-center text-sm text-slate-400 py-6">Nessun altro tavolo occupato</div>
+                ) : occupiedTables.map(t => (
+                  <button key={t.id} onClick={() => setTargetOrderId(t.activeOrderId ?? null)}
+                    className={cn("w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all",
+                      targetOrderId === t.activeOrderId ? "border-primary bg-orange-50 ring-2 ring-primary/30" : "border-slate-200 hover:border-slate-400")}>
+                    <div className="flex items-center gap-2">
+                      <div className="h-9 w-9 rounded-lg bg-orange-100 flex items-center justify-center font-bold text-sm text-primary">{t.name}</div>
+                      <div className="text-left">
+                        <div className="text-xs font-semibold text-slate-700">{t.roomName ?? "Sala"}</div>
+                        <div className="text-[10px] text-slate-400">Ordine #{t.activeOrderId}</div>
+                      </div>
+                    </div>
+                    {t.activeOrderTotal && <span className="text-sm font-bold text-primary">€ {t.activeOrderTotal}</span>}
+                  </button>
+                ))}
+              </div>
+            </ScrollArea>
+            <DialogFooter className="gap-2 pt-3">
+              <Button variant="outline" onClick={() => setMode("menu")}>Indietro</Button>
+              <Button onClick={doMerge} disabled={!targetOrderId || busy}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Unisci tavoli"}
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+
+        {mode === "moveItems" && (
+          <div className="space-y-3 py-1">
+            <div>
+              <div className="text-xs text-slate-500 mb-1.5">1. Seleziona articoli da spostare:</div>
+              <ScrollArea className="max-h-40 border rounded-lg">
+                <div className="p-1">
+                  {items.map(it => {
+                    const checked = selectedItems.includes(it.id);
+                    return (
+                      <button key={it.id}
+                        onClick={() => setSelectedItems(prev => prev.includes(it.id) ? prev.filter(x => x !== it.id) : [...prev, it.id])}
+                        className={cn("w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm transition-colors",
+                          checked ? "bg-orange-50 text-primary font-semibold" : "hover:bg-slate-50")}>
+                        <div className={cn("h-4 w-4 rounded border-2 flex items-center justify-center shrink-0",
+                          checked ? "bg-primary border-primary" : "border-slate-300")}>
+                          {checked && <CheckCircle2 className="h-3 w-3 text-white" />}
+                        </div>
+                        <span className="flex-1 truncate">{it.quantity}× {it.productName}</span>
+                        <span className="text-xs text-slate-500">€ {it.subtotal}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500 mb-1.5">2. Seleziona ordine destinazione:</div>
+              <ScrollArea className="max-h-40 border rounded-lg">
+                <div className="p-1 space-y-1">
+                  {occupiedTables.map(t => (
+                    <button key={t.id} onClick={() => setTargetOrderId(t.activeOrderId ?? null)}
+                      className={cn("w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm transition-colors",
+                        targetOrderId === t.activeOrderId ? "bg-orange-50 text-primary font-semibold" : "hover:bg-slate-50")}>
+                      <span className="h-7 w-7 rounded bg-orange-100 flex items-center justify-center text-xs font-bold">{t.name}</span>
+                      <span className="flex-1">{t.roomName ?? "—"}</span>
+                      {t.activeOrderTotal && <span className="text-xs text-slate-500">€ {t.activeOrderTotal}</span>}
+                    </button>
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
+            <DialogFooter className="gap-2 pt-1">
+              <Button variant="outline" onClick={() => setMode("menu")}>Indietro</Button>
+              <Button onClick={doMoveItems} disabled={!targetOrderId || selectedItems.length === 0 || busy}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : `Sposta ${selectedItems.length} articol${selectedItems.length === 1 ? "o" : "i"}`}
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -957,7 +1190,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
   orderItems?: Array<{ productName: string; quantity: number; unitPrice: string; subtotal: string }>;
   onPay: (method: string, amountGiven?: number, invoiceCustomerId?: number, ragioneSociale?: string) => void;
 }) {
-  const [method, setMethod] = useState<"cash" | "card" | "other">("cash");
+  const [method, setMethod] = useState<"cash" | "card" | "ticket" | "other">("cash");
   const [given, setGiven] = useState("");
   const [emittiFattura, setEmittiFattura] = useState(false);
   const [customerSearch, setCustomerSearch] = useState("");
@@ -1002,10 +1235,12 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
   const canPay = method !== "cash" || parseFloat(given) >= totalConMancia;
   const canConfirm = canPay && (!emittiFattura || selectedCustomer !== null);
 
+  const buoniPastoOn = pdSettings["feat_buoni_pasto"] === "true";
   const methods = [
-    { id: "cash" as const,  label: "Contanti",  icon: Banknote,   color: "text-emerald-600" },
-    { id: "card" as const,  label: "Carta/POS", icon: CreditCard, color: "text-blue-600" },
-    { id: "other" as const, label: "Altro",     icon: Wallet,     color: "text-purple-600" },
+    { id: "cash" as const,   label: "Contanti",   icon: Banknote,   color: "text-emerald-600" },
+    { id: "card" as const,   label: "Carta/POS",  icon: CreditCard, color: "text-blue-600" },
+    ...(buoniPastoOn ? [{ id: "ticket" as const, label: "Buoni Pasto", icon: Ticket, color: "text-amber-600" }] : []),
+    { id: "other" as const,  label: "Altro",      icon: Wallet,     color: "text-purple-600" },
   ];
 
   return (
@@ -1836,7 +2071,9 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
 
   // qty[id] = selected quantity for this row (0 = not included)
   const [qty, setQty] = useState<Record<number, number>>({});
-  const [method, setMethod] = useState<"cash" | "card" | "other">("cash");
+  const [method, setMethod] = useState<"cash" | "card" | "ticket" | "other">("cash");
+  const { data: sbSettings = {} } = useSettings();
+  const sbBuoniPastoOn = sbSettings["feat_buoni_pasto"] === "true";
 
   useEffect(() => {
     if (open) { setQty({}); setMethod("cash"); }
@@ -1940,10 +2177,10 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
           {hasSelection && (
             <div>
               <div className="text-xs font-semibold text-slate-500 mb-2">Metodo di pagamento</div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {(["cash", "card", "other"] as const).map(m => {
-                  const icons = { cash: <Banknote className="h-3.5 w-3.5" />, card: <CreditCard className="h-3.5 w-3.5" />, other: <Wallet className="h-3.5 w-3.5" /> };
-                  const labels = { cash: "Contanti", card: "Carta", other: "Altro" };
+              <div className={cn("grid gap-1.5", sbBuoniPastoOn ? "grid-cols-4" : "grid-cols-3")}>
+                {((sbBuoniPastoOn ? ["cash", "card", "ticket", "other"] : ["cash", "card", "other"]) as Array<"cash"|"card"|"ticket"|"other">).map(m => {
+                  const icons = { cash: <Banknote className="h-3.5 w-3.5" />, card: <CreditCard className="h-3.5 w-3.5" />, ticket: <Ticket className="h-3.5 w-3.5" />, other: <Wallet className="h-3.5 w-3.5" /> };
+                  const labels = { cash: "Contanti", card: "Carta", ticket: "Buoni", other: "Altro" };
                   return (
                     <button key={m} onClick={() => setMethod(m)}
                       className={cn("flex items-center justify-center gap-1 py-2 rounded-lg text-[10px] font-semibold border-2 transition-colors",
@@ -2133,7 +2370,7 @@ function InlinePaymentPanel({ total, onPay, disabled }: {
   disabled: boolean;
   onPay: (method: string, amountGiven?: number) => void;
 }) {
-  const [method, setMethod] = useState<"cash" | "card" | "other">("cash");
+  const [method, setMethod] = useState<"cash" | "card" | "ticket" | "other">("cash");
   const [given, setGiven] = useState("");
   const givenNum = parseFloat(given) || 0;
   const change = method === "cash" && givenNum >= total ? givenNum - total : 0;
@@ -2269,6 +2506,7 @@ export default function FrontOffice() {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showDiscount, setShowDiscount] = useState(false);
   const [showSospeso, setShowSospeso] = useState(false);
+  const [showTableActions, setShowTableActions] = useState(false);
   const [editingItem, setEditingItem] = useState<EditableItem | null>(null);
   const [kpComment, setKpComment] = useState("");
   const [kpSaving, setKpSaving] = useState(false);
@@ -3433,6 +3671,17 @@ export default function FrontOffice() {
               className="h-10 rounded-lg flex items-center justify-center bg-slate-700 text-slate-200 hover:bg-slate-600 text-[10px] font-bold transition-all active:scale-95 leading-tight">
               Cassetto
             </button>
+
+            {/* Riga 6 — Tavolo (sposta/unisci/sposta articoli) — feature flag */}
+            {settings["feat_table_ops"] === "true" && (
+              <button
+                disabled={!activeOrderId}
+                onClick={() => setShowTableActions(true)}
+                className="col-span-2 h-10 rounded-lg flex items-center justify-center gap-1.5 bg-indigo-800 text-indigo-100 hover:bg-indigo-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+                <ArrowLeftRight className="h-3.5 w-3.5" />
+                Tavolo
+              </button>
+            )}
           </div>
         </div>
 
@@ -4242,6 +4491,15 @@ export default function FrontOffice() {
           refresh();
         }}
       />
+      <TableActionsDialog
+        open={showTableActions}
+        onClose={() => setShowTableActions(false)}
+        order={activeOrder ? { id: activeOrder.id, tableId: activeOrder.tableId ?? null, tableName: activeOrder.tableName ?? null } : null}
+        items={items as never}
+        tablesStatus={tablesStatus}
+        onDone={() => { refresh(); setSelectedTableId(null); }}
+      />
+
       <PrecontoDialog open={showPreconto} onClose={() => setShowPreconto(false)}
         order={activeOrder as never} items={items as never}
         orderId={activeOrderId}

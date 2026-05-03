@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { UtensilsCrossed, LayoutGrid, BarChart3, CreditCard, ArrowRight, BookOpen, Layers, Printer, Settings, Users, Receipt, FileText, User, Tag, Zap, Bike, Package, Sun, BadgePercent, SlidersHorizontal, CalendarDays } from "lucide-react";
+import { UtensilsCrossed, LayoutGrid, BarChart3, CreditCard, ArrowRight, BookOpen, Layers, Printer, Settings, Users, Receipt, FileText, User, Tag, Zap, Bike, Package, Sun, BadgePercent, SlidersHorizontal, CalendarDays, Sparkles } from "lucide-react";
 import { useGetDashboardSummary } from "@workspace/api-client-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
 
@@ -38,6 +38,7 @@ const sections = [
   // Gestione
   { href: "/backoffice/users", icon: Users, label: "Utenti", description: "Accessi e PIN", color: "bg-teal-50 text-teal-600 border-teal-200" },
   { href: "/backoffice/settings", icon: Settings, label: "Impostazioni", description: "Configurazione app", color: "bg-orange-50 text-orange-600 border-orange-200" },
+  { href: "/backoffice/funzioni", icon: Sparkles, label: "Funzioni", description: "Attiva funzionalità opzionali", color: "bg-fuchsia-50 text-fuchsia-600 border-fuchsia-200" },
 ];
 
 const GROUPS = [
@@ -45,7 +46,7 @@ const GROUPS = [
   { label: "Sconti & Promozioni", range: [4, 7] },
   { label: "Sala & Stampa", range: [7, 11] },
   { label: "Report & Cassa", range: [11, 15] },
-  { label: "Clienti & Gestione", range: [15, 19] },
+  { label: "Clienti & Gestione", range: [15, 20] },
 ];
 
 export default function BackOfficeIndex() {
