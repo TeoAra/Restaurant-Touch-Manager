@@ -129,8 +129,9 @@ function CategoryForm({ initial, printers, onSave, onClose }: {
 // ── ProductForm ───────────────────────────────────────────────────────────────
 type ProductExt = Product & { sku?: string; barcode?: string; price2?: string; price3?: string; price4?: string };
 
-function ProductForm({ initial, categories, onSave, onClose }: {
+function ProductForm({ initial, defaultCategoryId, categories, onSave, onClose }: {
   initial?: Product;
+  defaultCategoryId?: number | null;
   categories: Category[];
   onSave: (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; available: boolean; sortOrder: number; sku: string | null; barcode: string | null; allergeni: string | null }) => void;
   onClose: () => void
@@ -141,7 +142,7 @@ function ProductForm({ initial, categories, onSave, onClose }: {
   const [price2, setPrice2] = useState(ext?.price2 ?? "0.00");
   const [price3, setPrice3] = useState(ext?.price3 ?? "0.00");
   const [price4, setPrice4] = useState(ext?.price4 ?? "0.00");
-  const [categoryId, setCategoryId] = useState<number | null>(ext?.categoryId ?? null);
+  const [categoryId, setCategoryId] = useState<number | null>(ext?.categoryId ?? defaultCategoryId ?? null);
   const [description, setDescription] = useState(ext?.description ?? "");
   const [available, setAvailable] = useState(ext?.available ?? true);
   const [sortOrder, setSortOrder] = useState(ext?.sortOrder ?? 0);
@@ -909,7 +910,7 @@ export default function MenuPage() {
           <DialogHeader>
             <DialogTitle>{prodDialog.item ? "Modifica Prodotto" : "Nuovo Prodotto"}</DialogTitle>
           </DialogHeader>
-          <ProductForm initial={prodDialog.item} categories={categories} onSave={handleSaveProduct} onClose={() => setProdDialog({ open: false })} />
+          <ProductForm initial={prodDialog.item} defaultCategoryId={filterCatId} categories={categories} onSave={handleSaveProduct} onClose={() => setProdDialog({ open: false })} />
         </DialogContent>
       </Dialog>
 
