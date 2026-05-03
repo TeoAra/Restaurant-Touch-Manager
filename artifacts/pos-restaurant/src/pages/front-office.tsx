@@ -3203,7 +3203,12 @@ export default function FrontOffice() {
         lotteria: lotteriaCodice || undefined,
         nonFiscale: isGestionale || undefined,
         ragioneSocialeCliente: ragioneSocialeCliente || undefined,
-        itemIds: itemIds ?? undefined,
+        // ── Conto separato: passa esplicitamente articoli + coperti pagati
+        // e flag `partial` così il backend NON chiude l'ordine intero anche
+        // quando l'utente paga solo coperti (caso senza itemIds).
+        itemIds: itemIds && itemIds.length > 0 ? itemIds : undefined,
+        coversCount: coversToDeduct > 0 ? coversToDeduct : undefined,
+        partial: isSplitPay || undefined,
       } as never
     });
     // Mostra risultato RT

@@ -26,10 +26,40 @@ router.post("/", async (req, res) => {
   const lotteria: string | undefined = req.body?.lotteria; // letto PRIMA del parse (Zod striperebbe)
   const body = CreatePaymentBody.parse(req.body);
 
-  // For split payments: only mark order as paid if ALL items are being paid
+  // ── Conto separato (split bill): rilevamento del pagamento parziale ──────
+  // Tre segnali (basta uno per considerarlo parziale):
+  //  1) `itemIds`: lista di articoli selezionati per questo conto separato
+  //  2) `coversCount`: numero di coperti pagati separatamente (riga PLU singola
+  //     sulla RT, senza chiudere l'ordine)
+  //  3) `partial`: flag esplicito dal client
+  // Senza questa rilevazione, un conto separato di SOLI coperti chiuderebbe
+  // erroneamente l'ordine completo (regressione: tutto messo in conto).
   const splitItemIdsPre: number[] | undefined = Array.isArray(req.body?.itemIds) && req.body.itemIds.length > 0
     ? (req.body.itemIds as number[])
     : undefined;
+  const coversCountPre: number = Number.isFinite(Number(req.body?.coversCount))
+    ? Math.max(0, Math.trunc(Number(req.body.coversCount)))
+    : 0;
+  const partialFlag: boolean = req.body?.partial === true;
+  const isPartialPayment = !!splitItemIdsPre || coversCountPre > 0 || partialFlag;
+
+  // ── Validazione server-side: coversCount <= coperti correnti dell'ordine ──
+  if (coversCountPre > 0) {
+    const [ordCheck] = await db.select({ covers: ordersTable.covers })
+      .from(ordersTable).where(eq(ordersTable.id, body.orderId)).limit(1);
+    const orderCoversNow = ordCheck?.covers ?? 0;
+    if (coversCountPre > orderCoversNow) {
+      res.status(400).json({ error: `coversCount (${coversCountPre}) supera i coperti dell'ordine (${orderCoversNow})` });
+      return;
+    }
+  }
+
+  // ── Costo coperti (per calcolo del dovuto totale, vedi sotto) ────────────
+  // ATTENZIONE: orders.total contiene SOLO la somma degli item (recalcOrderTotal),
+  // i coperti sono fuori. Per stabilire se un pagamento split chiude l'ordine
+  // dobbiamo includere anche il costo dei coperti residui.
+  const settingsForDue = isPartialPayment ? await getSettings() : null;
+  const coverPriceForDue = settingsForDue ? parseFloat(settingsForDue["cover_price"] ?? "0") : 0;
 
   // ── Atomico: INSERT pagamento + UPDATE ordine (status=paid) in una sola
   // transazione. Evita lo stato incoerente in cui un pagamento risulta inserito
@@ -43,20 +73,25 @@ router.post("/", async (req, res) => {
       change: body.change ?? null,
     }).returning();
 
-    // Determina se l'ordine è completamente pagato sommando TUTTI i pagamenti.
-    // Gestisce correttamente split-bill multipli senza link item↔payment.
+    // ── Determina se restano item/coperti da pagare DOPO questo split ────
+    // Approccio robusto a split sequenziali con DELETE lato client:
+    // calcoliamo il residuo dagli ARTICOLI E COPERTI rimanenti dopo questo
+    // pagamento, NON da SUM(payments) (che divergerebbe quando il client
+    // elimina gli item pagati e abbassa orders.total).
     let remainder = false;
-    if (splitItemIdsPre) {
-      const [orderRow] = await tx.select({ id: ordersTable.id, total: ordersTable.total })
+    if (isPartialPayment) {
+      const [orderRow] = await tx.select({ covers: ordersTable.covers })
         .from(ordersTable).where(eq(ordersTable.id, body.orderId)).limit(1);
-      const totaleOrdine = parseFloat(orderRow?.total ?? "0");
-      const sumRow = await tx.execute<{ totale: string | null }>(sql`
-        SELECT COALESCE(SUM(amount::numeric), 0)::text AS totale
-        FROM payments WHERE order_id = ${body.orderId}
-      `);
-      const totalePagato = parseFloat(sumRow.rows[0]?.totale ?? "0");
+      const allItemsTx = await tx.select({ id: orderItemsTable.id, subtotal: orderItemsTable.subtotal })
+        .from(orderItemsTable).where(eq(orderItemsTable.orderId, body.orderId));
+      const paidIds = new Set(splitItemIdsPre ?? []);
+      const itemsResidui = allItemsTx.filter(i => !paidIds.has(i.id));
+      const totaleItemsResidui = itemsResidui.reduce((s, i) => s + parseFloat(i.subtotal ?? "0"), 0);
+      const coversResidui = Math.max(0, (orderRow?.covers ?? 0) - coversCountPre);
+      const totaleCopertiResidui = coversResidui * coverPriceForDue;
+      const totaleResiduo = totaleItemsResidui + totaleCopertiResidui;
       // Tolleranza 1 cent per arrotondamenti
-      remainder = totalePagato + 0.01 < totaleOrdine;
+      remainder = totaleResiduo > 0.01;
     }
 
     // Mark order as paid only when fully paid (not a partial split)
@@ -78,7 +113,7 @@ router.post("/", async (req, res) => {
     action: "payment.create",
     entityType: "order",
     entityId: body.orderId,
-    details: { amount: body.amount, method: body.method, isSplit: !!splitItemIdsPre, isSplitWithRemainder },
+    details: { amount: body.amount, method: body.method, isSplit: isPartialPayment, isSplitWithRemainder, coversCount: coversCountPre },
   });
 
   // ── Emetti documento sulla RT (fiscale o non-fiscale) ────────────────────
@@ -90,18 +125,27 @@ router.post("/", async (req, res) => {
   let fiscalResult: { receiptId?: number; rtOk?: boolean; rtError?: string; rtIp?: string; rtBody?: string; nonFiscale?: boolean } = {};
   try {
     const allItems = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, body.orderId));
-    const items = splitItemIds ? allItems.filter(i => splitItemIds.includes(i.id)) : allItems;
+    // ── Selezione righe RT in base al tipo di pagamento ──────────────────
+    // - Conto separato con item: solo gli item selezionati
+    // - Conto separato di SOLI coperti: nessun item (solo riga COPERTO)
+    // - Pagamento totale: tutti gli item
+    const items = splitItemIds
+      ? allItems.filter(i => splitItemIds.includes(i.id))
+      : (coversCountPre > 0 ? [] : allItems);
     const settings = await getSettings();
     const modalita = (order as never as { modalita?: string }).modalita ?? "tavolo";
     const aliquotaIva = settings[`iva_${modalita}`] ?? settings["iva_tavolo"] ?? "10";
     const printer = await getFiscalPrinter();
 
-    console.log(`[FISCAL] Pagamento ordine ${body.orderId} — stampante: ${printer ? `${printer.name} (${printer.ip})` : "NESSUNA"} — nonFiscale: ${nonFiscale}`);
+    console.log(`[FISCAL] Pagamento ordine ${body.orderId} — stampante: ${printer ? `${printer.name} (${printer.ip})` : "NESSUNA"} — nonFiscale: ${nonFiscale} — partial: ${isPartialPayment} — covers: ${coversCountPre}`);
 
-    // ── Riga coperto (se presente) ───────────────────────────────────────
+    // ── Riga coperto ──────────────────────────────────────────────────────
+    // - Conto separato: usa coversCountPre (numero coperti pagati ora)
+    // - Pagamento totale: usa orderCovers (tutti i coperti dell'ordine)
     const orderCovers = (order as unknown as { covers?: number }).covers ?? 0;
     const coverPrice = parseFloat(settings["cover_price"] ?? "0");
-    const hasCover = orderCovers > 0 && coverPrice > 0;
+    const coverQty = isPartialPayment ? coversCountPre : orderCovers;
+    const hasCover = coverQty > 0 && coverPrice > 0;
 
     if (!printer) {
       console.warn("[FISCAL] Nessuna stampante con is_fiscale=true e active=true trovata in DB");
@@ -113,7 +157,7 @@ router.post("/", async (req, res) => {
         qta: i.quantity,
         prezzoUnitario: i.unitPrice,
       }));
-      if (hasCover) righe.unshift({ desc: "COPERTO", qta: orderCovers, prezzoUnitario: coverPrice.toFixed(2) });
+      if (hasCover) righe.unshift({ desc: "COPERTO", qta: coverQty, prezzoUnitario: coverPrice.toFixed(2) });
       const rt = await emettiDocumentoNonFiscale({
         orderId: body.orderId,
         importo: body.amount,
@@ -132,7 +176,7 @@ router.post("/", async (req, res) => {
         prezzoUnitario: i.unitPrice,
         aliquotaIva,
       }));
-      if (hasCover) righe.unshift({ desc: "COPERTO", qta: orderCovers, prezzoUnitario: coverPrice.toFixed(2), aliquotaIva });
+      if (hasCover) righe.unshift({ desc: "COPERTO", qta: coverQty, prezzoUnitario: coverPrice.toFixed(2), aliquotaIva });
 
       // ── Calcola l'importo RT dalla somma esatta delle righe ──────────────
       // IMPORTANTE: l'importo del comando di pagamento (1T/3T) DEVE corrispondere

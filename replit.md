@@ -236,3 +236,20 @@ Audit del piano T001-T011: praticamente tutto era già implementato dalle sessio
 3. **T008 / `backoffice/menu.tsx`** — Toggle rapido "Esaurito/Disponibile" sulla riga prodotto (icona Check/Ban, PATCH `/api/products/:id` su `available`). Gestione errori con `res.ok` + `try/catch` + `disabled` durante PATCH per prevenire doppi click; toast italiano di esito.
 
 Code review architect: PASS sulle 3 fix; nessuna regressione introdotta. Errori typecheck residui solo su `mockup-sandbox/components/ui/calendar.tsx` e `spinner.tsx` (duplicate `@types/react`) — preesistenti, indipendenti da queste modifiche.
+
+### Fix UX: mappa tavoli front-office troppo grande
+
+`TableMapPanel` (front-office.tsx) faceva upscale fino a 2× quando c'erano pochi tavoli (un solo tavolo occupava tutto lo schermo). Cambiato `setScale(Math.min(fitScale, 1))` per non ingrandire mai oltre la dimensione naturale; con tanti tavoli scala giù come prima. Costante `MIN_RENDERED_CELL` rimossa (unused).
+
+### Fix bug critico: conto separato di soli coperti
+
+**Bug utente**: in conto separato, selezionando 1 solo coperto e premendo Incassa, il sistema chiudeva l'intero ordine e mandava TUTTI gli articoli alla RT.
+
+**Causa**: `payments.ts` rilevava lo split solo da `itemIds.length > 0`. Selezione di soli coperti → `itemIds=[]` → backend trattava come pagamento totale.
+
+**Fix**:
+- **`payments.ts`**: rilevamento parziale ora include anche `coversCount > 0` e flag esplicito `partial`. Validazione server-side `coversCount <= order.covers` con HTTP 400. Selezione righe RT: con split di soli coperti `items=[]` (solo riga COPERTO con `qty=coversCountPre`); pagamento totale invariato (tutti items + tutti coperti).
+- **Calcolo residuo robusto a split sequenziali**: il residuo è calcolato dagli **item ancora in DB** (escludendo `splitItemIdsPre`) + coperti residui × `cover_price`, NON da `SUM(payments)` (che divergerebbe quando il client elimina gli item pagati e abbassa `orders.total`). L'ordine viene chiuso solo se `totaleResiduo <= 0.01€`.
+- **`front-office.tsx handlePay`**: invia `itemIds`, `coversCount`, `partial: isSplitPay` al POST `/api/payments`.
+
+Code review architect (2 iterazioni): PASS finale su tutti gli scenari (items-only, soli coperti, mix, full payment, edge case ordine vuoto). Typecheck OK su api-server.
