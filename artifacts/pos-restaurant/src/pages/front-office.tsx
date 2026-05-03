@@ -4396,74 +4396,101 @@ export default function FrontOffice() {
 
       {/* ── Lotteria degli Scontrini ─────────────────────────────────────────── */}
       <Dialog open={showLotteria} onOpenChange={o => !o && setShowLotteria(false)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-md w-[calc(100vw-2rem)] sm:w-full p-4 sm:p-6">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className="flex items-center gap-2 text-base">
               <Ticket className="h-5 w-5 text-blue-600" /> Codice Lotteria Scontrini
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-1">
-            <p className="text-xs text-slate-500">
+          <div className="space-y-3">
+            <p className="text-xs text-slate-500 leading-relaxed">
               Il cliente fornisce il codice di 8 caratteri dalla app <strong>Lotteria degli Scontrini</strong>.
               Verrà trasmesso alla RT e registrato dall'Agenzia delle Entrate.
             </p>
 
-            {/* Display del codice */}
-            <div className="flex justify-center">
-              <div className="font-mono text-3xl tracking-[0.4em] font-bold text-slate-800 bg-slate-100 border-2 border-slate-300 rounded-xl px-6 py-3 min-w-[220px] text-center">
-                {(lotteriaInput || "________").split("").map((ch, i) => (
-                  <span key={i} className={ch === "_" ? "text-slate-300" : "text-slate-800"}>{ch}</span>
-                ))}
-              </div>
+            {/* Display del codice — 8 celle uniformi */}
+            <div className="grid grid-cols-8 gap-1 sm:gap-1.5 mx-auto max-w-[320px]">
+              {Array.from({ length: 8 }).map((_, i) => {
+                const ch = lotteriaInput[i] ?? "";
+                return (
+                  <div key={i} className={cn(
+                    "aspect-square flex items-center justify-center font-mono text-xl sm:text-2xl font-bold rounded-lg border-2",
+                    ch ? "bg-slate-50 border-blue-400 text-slate-800" : "bg-slate-50 border-slate-200 text-slate-300",
+                    i === lotteriaInput.length && lotteriaInput.length < 8 && "border-blue-500 ring-2 ring-blue-200",
+                  )}>
+                    {ch || "·"}
+                  </div>
+                );
+              })}
             </div>
 
-            {/* Tastiera alfanumerica touchscreen */}
-            <div className="space-y-1.5">
+            {/* Tastiera alfanumerica — grid uniforme 10 colonne */}
+            <div className="space-y-1">
               {[
                 ["1","2","3","4","5","6","7","8","9","0"],
                 ["Q","W","E","R","T","Y","U","I","O","P"],
                 ["A","S","D","F","G","H","J","K","L","⌫"],
-                ["Z","X","C","V","B","N","M","✕"],
               ].map((row, ri) => (
-                <div key={ri} className="flex gap-1 justify-center">
+                <div key={ri} className="grid grid-cols-10 gap-1">
                   {row.map(k => (
                     <button
                       key={k}
+                      type="button"
                       onPointerDown={e => {
                         e.preventDefault();
                         if (k === "⌫") { setLotteriaInput(p => p.slice(0, -1)); return; }
-                        if (k === "✕") { setLotteriaInput(""); return; }
                         if (lotteriaInput.length < 8) setLotteriaInput(p => p + k);
                       }}
                       className={cn(
-                        "h-10 rounded-lg text-sm font-bold select-none active:scale-95 transition-all",
-                        k === "⌫" ? "bg-amber-100 text-amber-800 px-3" :
-                        k === "✕" ? "bg-red-100 text-red-700 px-3 flex-1" :
-                        "bg-slate-100 hover:bg-slate-200 text-slate-800 w-8"
+                        "h-10 sm:h-11 rounded-lg text-sm font-bold select-none active:scale-95 transition-all",
+                        k === "⌫" ? "bg-amber-100 hover:bg-amber-200 text-amber-800"
+                                  : "bg-slate-100 hover:bg-slate-200 text-slate-800",
                       )}>
                       {k}
                     </button>
                   ))}
                 </div>
               ))}
+              {/* Riga ZXCVBNM centrata + Cancella */}
+              <div className="grid grid-cols-10 gap-1">
+                <div /> {/* spacer per centrare */}
+                {["Z","X","C","V","B","N","M"].map(k => (
+                  <button
+                    key={k}
+                    type="button"
+                    onPointerDown={e => {
+                      e.preventDefault();
+                      if (lotteriaInput.length < 8) setLotteriaInput(p => p + k);
+                    }}
+                    className="h-10 sm:h-11 rounded-lg text-sm font-bold select-none active:scale-95 transition-all bg-slate-100 hover:bg-slate-200 text-slate-800">
+                    {k}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onPointerDown={e => { e.preventDefault(); setLotteriaInput(""); }}
+                  className="col-span-2 h-10 sm:h-11 rounded-lg text-xs font-bold select-none active:scale-95 transition-all bg-red-100 hover:bg-red-200 text-red-700">
+                  Pulisci
+                </button>
+              </div>
             </div>
 
             {lotteriaCodice && (
-              <div className="text-xs text-center text-green-600 font-semibold">
-                Codice attivo: <span className="font-mono tracking-widest">{lotteriaCodice}</span>
+              <div className="text-xs text-center text-green-700 bg-green-50 border border-green-200 rounded-lg py-2 px-3">
+                Codice attivo: <span className="font-mono tracking-widest font-bold">{lotteriaCodice}</span>
                 <button className="ml-2 underline text-red-500" onPointerDown={() => { setLotteriaCodice(""); setLotteriaInput(""); }}>Rimuovi</button>
               </div>
             )}
           </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowLotteria(false)}>Chiudi</Button>
+          <DialogFooter className="gap-2 mt-2 flex-row">
+            <Button variant="outline" onClick={() => setShowLotteria(false)} className="flex-1">Chiudi</Button>
             <Button
               onClick={handleLotteria}
               disabled={lotteriaInput.length !== 8 || lotteriaLoading}
-              className="gap-1.5 bg-blue-600 hover:bg-blue-700 h-9 text-sm">
+              className="flex-1 gap-1.5 bg-blue-600 hover:bg-blue-700 h-9 text-sm">
               {lotteriaLoading
-                ? <><span className="animate-spin">⏳</span> Invio...</>
-                : <><Ticket className="h-4 w-4" /> Invia alla RT ({lotteriaInput.length}/8)</>}
+                ? <><RefreshCw className="h-4 w-4 animate-spin" /> Invio…</>
+                : <><Ticket className="h-4 w-4" /> Invia ({lotteriaInput.length}/8)</>}
             </Button>
           </DialogFooter>
         </DialogContent>
