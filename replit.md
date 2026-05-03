@@ -35,6 +35,18 @@ Full-stack POS (Point of Sale) system for restaurants, pubs, and breweries. Buil
 - API: `POST /api/auth/login` (validate PIN → user object), `GET/POST/PATCH/DELETE /api/auth/users`
 - Frontend: `AuthContext`, `LoginPage`, route protection in `App.tsx`
 
+## Wizard di Onboarding (Idempotente)
+
+Il wizard a 7 step (`/onboarding`) è **idempotente** e sicuro da rieseguire:
+
+- **Detection retroattiva**: l'endpoint `GET /api/setup-status` ritorna `completed=true` se il flag `onboarding_completed` è `"true"` OPPURE se l'installazione contiene almeno 1 admin + 1 sala + 1 categoria + 1 prodotto. In quel secondo caso, il flag viene auto-settato per le richieste future. Questo evita che installazioni esistenti (es. una cassa già configurata pre-flag) vengano rispedite al wizard dopo un update.
+- **App.tsx** redirige a `/onboarding` solo se `setupStatus.completed === false` (no flicker pre-fetch).
+- **Pre-popolazione**: all'avvio, `onboarding.tsx` carica via `Promise.allSettled` settings + rooms + tables + categories + products + users. Se un endpoint fallisce, gli altri popolano comunque i campi corrispondenti.
+- **Idempotenza per-step**: ogni save step (sale, categorie, prodotti, personale) salta i duplicati per nome (lowercase compare) e mostra un toast con conteggio creati/saltati. Dopo ogni save, lo snapshot `existing` viene ricaricato (`refreshExistingCollections()`) per garantire idempotenza anche su back/forward nella stessa sessione.
+- **Bottoni gated**: tutti i pulsanti Avanti/Crea sono disabled durante `loadingExisting`, impossibile salvare prima del preload.
+- **Riapertura manuale**: dal Backoffice → Funzioni il bottone "Riapri wizard" naviga semplicemente a `/onboarding` senza toccare il flag (idempotenza fa il resto).
+- **Settings via batch PATCH** (upsert su `INSERT ... ON CONFLICT`): non c'è rischio di sovrascrittura distruttiva su step Attività/Cassa.
+
 ## Codegen Caveat (Orval Zod)
 
 Il target `zod` di Orval (modalità `split`) non genera `api.schemas.ts` ma rigenera

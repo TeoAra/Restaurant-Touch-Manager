@@ -96,11 +96,8 @@ export default function FunzioniPage() {
   const [, setLocation] = useLocation();
 
   async function reopenWizard() {
-    await fetch(`${API}/settings`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key: "onboarding_completed", value: "false" }),
-    });
-    qc.invalidateQueries({ queryKey: ["settings"] });
+    // Non tocchiamo il flag onboarding_completed: il wizard è ora idempotente
+    // (pre-popola dati esistenti e salta i duplicati). Navigare basta.
     setLocation("/onboarding");
   }
 

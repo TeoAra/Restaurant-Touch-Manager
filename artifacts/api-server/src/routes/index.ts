@@ -25,6 +25,7 @@ import kpCommentsRouter from "./kp-comments";
 import posRouter from "./pos";
 import viesRouter from "./vies";
 import auditRouter from "./audit";
+import setupStatusRouter from "./setup-status";
 
 const router: IRouter = Router();
 
@@ -54,5 +55,6 @@ router.use("/kp-comments", kpCommentsRouter);
 router.use("/pos", posRouter);
 router.use("/vies", viesRouter);
 router.use("/audit", auditRouter);
+router.use("/setup-status", setupStatusRouter);
 
 export default router;

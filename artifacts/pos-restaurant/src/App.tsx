@@ -48,21 +48,33 @@ const queryClient = new QueryClient({
 
 function AppRouter() {
   const { user, isAdmin } = useAuth();
-  const { data: settings = {} } = useQuery<Record<string, string>>({
-    queryKey: ["settings"],
-    queryFn: () => fetch(`${API_BASE}/settings`).then(r => r.json()),
+  const { data: setupStatus, isLoading: setupLoading } = useQuery<{
+    completed: boolean;
+    reason: "flag" | "detected" | "fresh";
+  }>({
+    queryKey: ["setup-status"],
+    queryFn: () => fetch(`${API_BASE}/setup-status`).then(r => r.json()),
     enabled: !!user,
-    staleTime: 30000,
+    staleTime: 60000,
   });
   const [location, setLocation] = useLocation();
-  const onboardingDone = settings["onboarding_completed"] === "true";
+  const onboardingDone = setupStatus?.completed === true;
 
-  // Auto-redirect admin a /onboarding al primo accesso
+  // Auto-redirect admin a /onboarding solo se l'installazione è davvero
+  // "fresh" (no flag + no dati esistenti). Le installazioni esistenti senza
+  // il flag vengono auto-rilevate dal backend e non rispedite al wizard.
   useEffect(() => {
-    if (user && isAdmin && !onboardingDone && location !== "/onboarding") {
+    if (
+      user &&
+      isAdmin &&
+      !setupLoading &&
+      setupStatus &&
+      !onboardingDone &&
+      location !== "/onboarding"
+    ) {
       setLocation("/onboarding");
     }
-  }, [user, isAdmin, onboardingDone, location, setLocation]);
+  }, [user, isAdmin, setupLoading, setupStatus, onboardingDone, location, setLocation]);
 
   if (!user) return <LoginPage />;
 

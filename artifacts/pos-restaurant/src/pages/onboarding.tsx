@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -93,6 +93,16 @@ export default function OnboardingPage() {
   const { toast } = useToast();
   const [stepIdx, setStepIdx] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [loadingExisting, setLoadingExisting] = useState(true);
+
+  // Stato esistente sul server (per idempotenza + badge "Già configurato")
+  const [existing, setExisting] = useState<{
+    rooms: Array<{ id: number; name: string }>;
+    tables: Array<{ id: number; name: string; roomId: number }>;
+    categories: Array<{ id: number; name: string }>;
+    products: Array<{ id: number; name: string; categoryId: number }>;
+    users: Array<{ id: number; name: string; role: string }>;
+  }>({ rooms: [], tables: [], categories: [], products: [], users: [] });
 
   // Step Attività
   const [attivita, setAttivita] = useState({
@@ -116,6 +126,78 @@ export default function OnboardingPage() {
 
   // Step Personale
   const [cassiere, setCassiere] = useState({ name: "", pin: "", role: "cashier" });
+
+  // Refresh idempotenza: ricarica solo le liste collection (no settings)
+  // Usato dopo ogni step di creazione per evitare duplicati su retry/back-forward
+  // nella stessa sessione del wizard.
+  async function refreshExistingCollections() {
+    const results = await Promise.allSettled([
+      fetch(`${API}/rooms`).then(r => r.json()),
+      fetch(`${API}/tables`).then(r => r.json()),
+      fetch(`${API}/categories`).then(r => r.json()),
+      fetch(`${API}/products`).then(r => r.json()),
+      fetch(`${API}/auth/users`).then(r => r.json()),
+    ]);
+    const pickArr = <T,>(r: PromiseSettledResult<unknown>, fallback: T[]): T[] =>
+      r.status === "fulfilled" && Array.isArray(r.value) ? (r.value as T[]) : fallback;
+    setExisting(prev => ({
+      rooms: pickArr(results[0]!, prev.rooms),
+      tables: pickArr(results[1]!, prev.tables),
+      categories: pickArr(results[2]!, prev.categories),
+      products: pickArr(results[3]!, prev.products),
+      users: pickArr(results[4]!, prev.users),
+    }));
+  }
+
+  // Pre-carica dati esistenti (per pre-popolare + idempotenza).
+  // Usa allSettled: se un endpoint fallisce, gli altri popolano comunque
+  // i campi corrispondenti (evita di perdere settings cassa per un errore
+  // su /products, ecc.).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const results = await Promise.allSettled([
+        fetch(`${API}/settings`).then(r => r.json()),
+        fetch(`${API}/rooms`).then(r => r.json()),
+        fetch(`${API}/tables`).then(r => r.json()),
+        fetch(`${API}/categories`).then(r => r.json()),
+        fetch(`${API}/products`).then(r => r.json()),
+        fetch(`${API}/auth/users`).then(r => r.json()),
+      ]);
+      if (cancelled) return;
+      const settingsR = results[0];
+      if (settingsR?.status === "fulfilled" && settingsR.value && typeof settingsR.value === "object") {
+        const s = settingsR.value as Record<string, string>;
+        setAttivita(a => ({
+          ragioneSociale: s["ristorante_ragione_sociale"] || a.ragioneSociale,
+          partitaIva: s["ristorante_partita_iva"] || a.partitaIva,
+          codiceFiscale: s["ristorante_codice_fiscale"] || a.codiceFiscale,
+          indirizzo: s["ristorante_indirizzo"] || a.indirizzo,
+          cap: s["ristorante_cap"] || a.cap,
+          comune: s["ristorante_comune"] || a.comune,
+          provincia: s["ristorante_provincia"] || a.provincia,
+          telefono: s["ristorante_telefono"] || a.telefono,
+          email: s["ristorante_email"] || a.email,
+        }));
+        setCassa(c => ({
+          rtIp: s["rt_printer_ip"] || c.rtIp,
+          codiceCassa: s["rt_codice_cassa"] || c.codiceCassa,
+          aliquotaDefault: s["iva_default"] || c.aliquotaDefault,
+        }));
+      }
+      const pickArr = <T,>(r: PromiseSettledResult<unknown> | undefined, fallback: T[]): T[] =>
+        r?.status === "fulfilled" && Array.isArray(r.value) ? (r.value as T[]) : fallback;
+      setExisting({
+        rooms: pickArr(results[1], []),
+        tables: pickArr(results[2], []),
+        categories: pickArr(results[3], []),
+        products: pickArr(results[4], []),
+        users: pickArr(results[5], []),
+      });
+      setLoadingExisting(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   async function verificaPiva() {
     const piva = attivita.partitaIva.trim().replace(/\s/g, "");
@@ -187,29 +269,55 @@ export default function OnboardingPage() {
   async function saveStepSale() {
     setBusy(true);
     try {
-      const roomResp = await fetch(`${API}/rooms`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: sale.nomeSala, color: "#3b82f6", sortOrder: 0 }),
-      });
-      const room = await roomResp.json() as { id: number };
-      // Crea N tavoli con coperti default 4
+      // Idempotenza: se esiste già una sala con stesso nome, riutilizzala
+      const nomeSalaTrim = sale.nomeSala.trim();
+      let roomId: number;
+      const existingRoom = existing.rooms.find(
+        r => r.name.toLowerCase() === nomeSalaTrim.toLowerCase()
+      );
+      let createdRoom = false;
+      if (existingRoom) {
+        roomId = existingRoom.id;
+      } else {
+        const roomResp = await fetch(`${API}/rooms`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: nomeSalaTrim, color: "#3b82f6", sortOrder: 0 }),
+        });
+        const room = await roomResp.json() as { id: number };
+        roomId = room.id;
+        createdRoom = true;
+      }
+
+      // Crea solo i tavoli mancanti (per nome, all'interno della stessa sala)
+      const existingTableNames = new Set(
+        existing.tables.filter(t => t.roomId === roomId).map(t => t.name)
+      );
+      let createdTables = 0;
       for (let i = 1; i <= sale.numTavoli; i++) {
+        if (existingTableNames.has(String(i))) continue;
         await fetch(`${API}/tables`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            roomId: room.id,
+            roomId,
             name: String(i),
             capacity: 4,
             posX: 50 + (i - 1) % 6 * 90,
             posY: 50 + Math.floor((i - 1) / 6) * 90,
           }),
         });
+        createdTables++;
       }
       qc.invalidateQueries({ queryKey: ["rooms"] });
       qc.invalidateQueries({ queryKey: ["tables"] });
-      toast({ title: `Creata sala "${sale.nomeSala}" con ${sale.numTavoli} tavoli` });
+      await refreshExistingCollections();
+      const msg = createdRoom
+        ? `Creata sala "${nomeSalaTrim}" con ${createdTables} tavoli`
+        : createdTables > 0
+          ? `Sala già esistente: aggiunti ${createdTables} tavoli`
+          : `Sala "${nomeSalaTrim}" già configurata, nessuna modifica`;
+      toast({ title: msg });
       next();
     } catch {
       toast({ title: "Errore creazione sala/tavoli", variant: "destructive" });
@@ -219,8 +327,11 @@ export default function OnboardingPage() {
   async function saveStepCategorie() {
     setBusy(true);
     try {
-      let order = 0;
+      const existingNames = new Set(existing.categories.map(c => c.name.toLowerCase()));
+      let order = existing.categories.length;
+      let created = 0;
       for (const name of catSelected) {
+        if (existingNames.has(name.toLowerCase())) continue;
         const preset = CATEGORIE_PRESET.find(c => c.name === name);
         if (!preset) continue;
         await fetch(`${API}/categories`, {
@@ -228,9 +339,15 @@ export default function OnboardingPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: preset.name, color: preset.color, sortOrder: order++ }),
         });
+        created++;
       }
       qc.invalidateQueries({ queryKey: ["categories"] });
-      toast({ title: `Create ${catSelected.length} categorie` });
+      await refreshExistingCollections();
+      toast({
+        title: created > 0
+          ? `Create ${created} categorie (${catSelected.length - created} già presenti)`
+          : "Tutte le categorie selezionate erano già presenti",
+      });
       next();
     } catch {
       toast({ title: "Errore creazione categorie", variant: "destructive" });
@@ -241,14 +358,20 @@ export default function OnboardingPage() {
     if (template === "none") { next(); return; }
     setBusy(true);
     try {
-      // Recupera categorie per id->nome map
+      // Recupera categorie aggiornate (potrebbero essere appena state create)
       const catResp = await fetch(`${API}/categories`);
       const cats = await catResp.json() as Array<{ id: number; name: string }>;
+      const prodResp = await fetch(`${API}/products`);
+      const prods = await prodResp.json() as Array<{ name: string; categoryId: number }>;
+      const existingProdKeys = new Set(prods.map(p => `${p.categoryId}::${p.name.toLowerCase()}`));
       const items = TEMPLATES_PRODOTTI[template] || [];
       let created = 0;
+      let skipped = 0;
       for (const p of items) {
         const cat = cats.find(c => c.name === p.cat);
-        if (!cat) continue;
+        if (!cat) { skipped++; continue; }
+        const key = `${cat.id}::${p.name.toLowerCase()}`;
+        if (existingProdKeys.has(key)) { skipped++; continue; }
         await fetch(`${API}/products`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -262,7 +385,12 @@ export default function OnboardingPage() {
         created++;
       }
       qc.invalidateQueries({ queryKey: ["products"] });
-      toast({ title: `Creati ${created} prodotti dal template` });
+      await refreshExistingCollections();
+      toast({
+        title: created > 0
+          ? `Creati ${created} prodotti${skipped > 0 ? ` (${skipped} già presenti)` : ""}`
+          : "Tutti i prodotti del template erano già presenti",
+      });
       next();
     } catch {
       toast({ title: "Errore creazione prodotti", variant: "destructive" });
@@ -275,19 +403,27 @@ export default function OnboardingPage() {
       toast({ title: "Compila nome e PIN a 4 cifre, oppure salta", variant: "destructive" });
       return;
     }
+    // Idempotenza: skip se utente con stesso nome esiste già
+    const nameTrim = cassiere.name.trim();
+    if (existing.users.some(u => u.name.toLowerCase() === nameTrim.toLowerCase())) {
+      toast({ title: `Utente "${nameTrim}" già esistente, saltato` });
+      next();
+      return;
+    }
     setBusy(true);
     try {
       const resp = await fetch(`${API}/auth/users`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: cassiere.name.trim(),
+          name: nameTrim,
           pin: cassiere.pin,
           role: cassiere.role,
         }),
       });
       if (!resp.ok) throw new Error();
-      toast({ title: `Cassiere "${cassiere.name}" creato` });
+      await refreshExistingCollections();
+      toast({ title: `Cassiere "${nameTrim}" creato` });
       next();
     } catch {
       toast({ title: "Errore creazione utente", variant: "destructive" });
@@ -299,6 +435,7 @@ export default function OnboardingPage() {
     try {
       await patchSettings({ onboarding_completed: "true" });
       qc.invalidateQueries({ queryKey: ["settings"] });
+      qc.invalidateQueries({ queryKey: ["setup-status"] });
       toast({ title: "Configurazione completata!", description: "Buon servizio." });
       setLocation("/");
     } finally { setBusy(false); }
@@ -446,6 +583,12 @@ export default function OnboardingPage() {
 
           {step.key === "sale" && (
             <div className="space-y-4">
+              {existing.rooms.length > 0 && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center gap-2 text-sm text-emerald-800">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span>Già configurato: <b>{existing.rooms.length}</b> sale, <b>{existing.tables.length}</b> tavoli. Procedi se vuoi aggiungerne altri (i duplicati verranno saltati).</span>
+                </div>
+              )}
               <p className="text-sm text-slate-500">Iniziamo con una sala. Potrai aggiungerne altre e disporre i tavoli sulla mappa dal backoffice.</p>
               <div>
                 <Label>Nome della sala</Label>
@@ -476,6 +619,12 @@ export default function OnboardingPage() {
 
           {step.key === "menu" && (
             <div className="space-y-4">
+              {existing.categories.length > 0 && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center gap-2 text-sm text-emerald-800">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span>Già presenti <b>{existing.categories.length}</b> categorie. Le selezioni con nome già esistente verranno saltate.</span>
+                </div>
+              )}
               <p className="text-sm text-slate-500">Seleziona le categorie del tuo menu. Sceglile in base al tipo di locale — potrai modificarle e aggiungerne altre dopo.</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {CATEGORIE_PRESET.map(c => {
@@ -498,6 +647,12 @@ export default function OnboardingPage() {
 
           {step.key === "prodotti" && (
             <div className="space-y-4">
+              {existing.products.length > 0 && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center gap-2 text-sm text-emerald-800">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span>Hai già <b>{existing.products.length}</b> prodotti a menu. I template aggiungeranno solo quelli non ancora presenti.</span>
+                </div>
+              )}
               <p className="text-sm text-slate-500">Vuoi partire con un menu di esempio? Carichiamo qualche prodotto pronto, così puoi provare subito il sistema. Modificali poi dal backoffice.</p>
               <div className="grid sm:grid-cols-2 gap-3">
                 {([
@@ -528,6 +683,12 @@ export default function OnboardingPage() {
 
           {step.key === "personale" && (
             <div className="space-y-4">
+              {existing.users.length > 0 && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center gap-2 text-sm text-emerald-800">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span>Già configurati <b>{existing.users.length}</b> utenti. Lascia vuoto per saltare questo passo.</span>
+                </div>
+              )}
               <p className="text-sm text-slate-500">Hai già il tuo account amministratore. Vuoi aggiungere subito un cassiere o cameriere? Puoi farlo anche dopo dal backoffice → Utenti.</p>
               <div>
                 <Label>Nome del dipendente</Label>
@@ -614,33 +775,33 @@ export default function OnboardingPage() {
               </Button>
             )}
             {step.key === "attivita" && (
-              <Button onClick={saveStepAttivita} disabled={!attivita.ragioneSociale.trim() || busy} className="bg-orange-500 hover:bg-orange-600">
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Avanti <ChevronRight className="h-4 w-4 ml-1" /></>}
+              <Button onClick={saveStepAttivita} disabled={!attivita.ragioneSociale.trim() || busy || loadingExisting} className="bg-orange-500 hover:bg-orange-600">
+                {busy || loadingExisting ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Avanti <ChevronRight className="h-4 w-4 ml-1" /></>}
               </Button>
             )}
             {step.key === "cassa" && (
-              <Button onClick={saveStepCassa} disabled={busy} className="bg-orange-500 hover:bg-orange-600">
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Avanti <ChevronRight className="h-4 w-4 ml-1" /></>}
+              <Button onClick={saveStepCassa} disabled={busy || loadingExisting} className="bg-orange-500 hover:bg-orange-600">
+                {busy || loadingExisting ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Avanti <ChevronRight className="h-4 w-4 ml-1" /></>}
               </Button>
             )}
             {step.key === "sale" && (
-              <Button onClick={saveStepSale} disabled={!sale.nomeSala.trim() || sale.numTavoli < 1 || busy} className="bg-orange-500 hover:bg-orange-600">
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Crea sala <ChevronRight className="h-4 w-4 ml-1" /></>}
+              <Button onClick={saveStepSale} disabled={!sale.nomeSala.trim() || sale.numTavoli < 1 || busy || loadingExisting} className="bg-orange-500 hover:bg-orange-600">
+                {busy || loadingExisting ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Crea sala <ChevronRight className="h-4 w-4 ml-1" /></>}
               </Button>
             )}
             {step.key === "menu" && (
-              <Button onClick={saveStepCategorie} disabled={catSelected.length === 0 || busy} className="bg-orange-500 hover:bg-orange-600">
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Crea categorie <ChevronRight className="h-4 w-4 ml-1" /></>}
+              <Button onClick={saveStepCategorie} disabled={catSelected.length === 0 || busy || loadingExisting} className="bg-orange-500 hover:bg-orange-600">
+                {busy || loadingExisting ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Crea categorie <ChevronRight className="h-4 w-4 ml-1" /></>}
               </Button>
             )}
             {step.key === "prodotti" && (
-              <Button onClick={saveStepProdotti} disabled={busy} className="bg-orange-500 hover:bg-orange-600">
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>{template === "none" ? "Avanti" : "Importa"} <ChevronRight className="h-4 w-4 ml-1" /></>}
+              <Button onClick={saveStepProdotti} disabled={busy || loadingExisting} className="bg-orange-500 hover:bg-orange-600">
+                {busy || loadingExisting ? <Loader2 className="h-4 w-4 animate-spin" /> : <>{template === "none" ? "Avanti" : "Importa"} <ChevronRight className="h-4 w-4 ml-1" /></>}
               </Button>
             )}
             {step.key === "personale" && (
-              <Button onClick={saveStepPersonale} disabled={busy} className="bg-orange-500 hover:bg-orange-600">
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Avanti <ChevronRight className="h-4 w-4 ml-1" /></>}
+              <Button onClick={saveStepPersonale} disabled={busy || loadingExisting} className="bg-orange-500 hover:bg-orange-600">
+                {busy || loadingExisting ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Avanti <ChevronRight className="h-4 w-4 ml-1" /></>}
               </Button>
             )}
             {step.key === "stampanti" && (
