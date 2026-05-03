@@ -22,7 +22,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Pencil, Trash2, Package, Settings2, X, GripVertical, ChevronDown, ChevronUp, ChevronRight, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, Package, Settings2, X, GripVertical, ChevronDown, ChevronUp, ChevronRight, Search, Check, Ban } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
@@ -655,6 +655,7 @@ export default function MenuPage() {
   const [prodDialog, setProdDialog] = useState<{ open: boolean; item?: Product }>({ open: false });
   const [variationsDialog, setVariationsDialog] = useState<{ open: boolean; product?: Product }>({ open: false });
   const [filterCatId, setFilterCatId] = useState<number | null>(null);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
   const [varSearch, setVarSearch] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -782,6 +783,30 @@ export default function MenuPage() {
                     </div>
                     <div className="text-primary font-bold text-sm shrink-0">€ {p.price}</div>
                     <div className="flex gap-1 shrink-0">
+                      <button
+                        title={p.available ? "Segna come esaurito" : "Segna come disponibile"}
+                        disabled={togglingId === p.id}
+                        onClick={async () => {
+                          setTogglingId(p.id);
+                          try {
+                            const res = await fetch(`${API}/products/${p.id}`, {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ available: !p.available }),
+                            });
+                            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                            queryClient.invalidateQueries({ queryKey: getListProductsQueryKey() });
+                            toast({ title: p.available ? "Prodotto segnato come esaurito" : "Prodotto disponibile" });
+                          } catch (e) {
+                            toast({ title: "Errore aggiornamento disponibilità", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+                          } finally {
+                            setTogglingId(null);
+                          }
+                        }}
+                        className={`h-8 w-8 flex items-center justify-center rounded transition-colors disabled:opacity-50 ${p.available ? "text-emerald-600 hover:bg-emerald-50" : "text-amber-600 hover:bg-amber-50"}`}
+                      >
+                        {p.available ? <Check className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
+                      </button>
                       <button
                         title="Variazioni"
                         onClick={() => setVariationsDialog({ open: true, product: p })}

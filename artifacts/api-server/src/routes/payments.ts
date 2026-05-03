@@ -26,39 +26,46 @@ router.post("/", async (req, res) => {
   const lotteria: string | undefined = req.body?.lotteria; // letto PRIMA del parse (Zod striperebbe)
   const body = CreatePaymentBody.parse(req.body);
 
-  const [payment] = await db.insert(paymentsTable).values({
-    orderId: body.orderId,
-    method: body.method,
-    amount: body.amount,
-    change: body.change ?? null,
-  }).returning();
-
   // For split payments: only mark order as paid if ALL items are being paid
   const splitItemIdsPre: number[] | undefined = Array.isArray(req.body?.itemIds) && req.body.itemIds.length > 0
     ? (req.body.itemIds as number[])
     : undefined;
 
-  // Determina se l'ordine è completamente pagato sommando TUTTI i pagamenti
-  // ricevuti finora. Questo gestisce correttamente il caso split-bill multiplo
-  // (es. 5 split successivi su 10 articoli) senza richiedere link item↔payment.
-  let isSplitWithRemainder = false;
-  if (splitItemIdsPre) {
-    const [orderRow] = await db.select({ id: ordersTable.id, total: ordersTable.total })
-      .from(ordersTable).where(eq(ordersTable.id, body.orderId)).limit(1);
-    const totaleOrdine = parseFloat(orderRow?.total ?? "0");
-    const sumRow = await db.execute<{ totale: string | null }>(sql`
-      SELECT COALESCE(SUM(amount::numeric), 0)::text AS totale
-      FROM payments WHERE order_id = ${body.orderId}
-    `);
-    const totalePagato = parseFloat(sumRow.rows[0]?.totale ?? "0");
-    // Tolleranza 1 cent per arrotondamenti
-    isSplitWithRemainder = totalePagato + 0.01 < totaleOrdine;
-  }
+  // ── Atomico: INSERT pagamento + UPDATE ordine (status=paid) in una sola
+  // transazione. Evita lo stato incoerente in cui un pagamento risulta inserito
+  // ma l'ordine non viene chiuso (o viceversa) se il processo crasha tra le due
+  // query. La chiamata di rete alla RT resta FUORI dalla transaction (lenta).
+  const { payment, order, isSplitWithRemainder } = await db.transaction(async (tx) => {
+    const [pay] = await tx.insert(paymentsTable).values({
+      orderId: body.orderId,
+      method: body.method,
+      amount: body.amount,
+      change: body.change ?? null,
+    }).returning();
 
-  // Mark order as paid only when fully paid (not a partial split)
-  const [order] = isSplitWithRemainder
-    ? await db.select().from(ordersTable).where(eq(ordersTable.id, body.orderId)).limit(1).then(r => r)
-    : await db.update(ordersTable).set({ status: "paid" }).where(eq(ordersTable.id, body.orderId)).returning();
+    // Determina se l'ordine è completamente pagato sommando TUTTI i pagamenti.
+    // Gestisce correttamente split-bill multipli senza link item↔payment.
+    let remainder = false;
+    if (splitItemIdsPre) {
+      const [orderRow] = await tx.select({ id: ordersTable.id, total: ordersTable.total })
+        .from(ordersTable).where(eq(ordersTable.id, body.orderId)).limit(1);
+      const totaleOrdine = parseFloat(orderRow?.total ?? "0");
+      const sumRow = await tx.execute<{ totale: string | null }>(sql`
+        SELECT COALESCE(SUM(amount::numeric), 0)::text AS totale
+        FROM payments WHERE order_id = ${body.orderId}
+      `);
+      const totalePagato = parseFloat(sumRow.rows[0]?.totale ?? "0");
+      // Tolleranza 1 cent per arrotondamenti
+      remainder = totalePagato + 0.01 < totaleOrdine;
+    }
+
+    // Mark order as paid only when fully paid (not a partial split)
+    const [ord] = remainder
+      ? await tx.select().from(ordersTable).where(eq(ordersTable.id, body.orderId)).limit(1)
+      : await tx.update(ordersTable).set({ status: "paid" }).where(eq(ordersTable.id, body.orderId)).returning();
+
+    return { payment: pay, order: ord, isSplitWithRemainder: remainder };
+  });
 
   // Free the table only when the order is fully paid (atomico)
   if (!isSplitWithRemainder && order?.tableId) {

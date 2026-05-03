@@ -89,6 +89,47 @@ router.get("/top-products", async (req, res) => {
   res.json(result);
 });
 
+// ── Alias per /api/fiscal/iva-report (compat: /api/dashboard/iva-report) ──
+// Stessa logica del report IVA per aliquota; espone l'endpoint sotto il
+// namespace dashboard per coerenza con altre statistiche di reporting.
+router.get("/iva-report", async (req, res) => {
+  const { from, to } = req.query as { from?: string; to?: string };
+  const today = new Date().toISOString().slice(0, 10);
+  const fromDate = from ?? today;
+  const toDate   = to   ?? today;
+
+  const result = await db.execute(sql`
+    SELECT
+      ROUND((iva::numeric * 100.0 / NULLIF((importo::numeric - iva::numeric), 0))::numeric, 0) AS aliquota,
+      COUNT(*) AS scontrini,
+      SUM((importo::numeric - iva::numeric))::text AS imponibile,
+      SUM(iva::numeric)::text AS iva,
+      SUM(importo::numeric)::text AS totale
+    FROM fiscal_receipts
+    WHERE annullato = false
+      AND data >= ${fromDate}
+      AND data <= ${toDate}
+    GROUP BY aliquota
+    ORDER BY aliquota DESC
+  `);
+
+  const byMethod = await db.execute(sql`
+    SELECT metodo_pagamento AS metodo, COUNT(*) AS n, SUM(importo::numeric)::text AS totale
+    FROM fiscal_receipts
+    WHERE annullato = false
+      AND data >= ${fromDate}
+      AND data <= ${toDate}
+    GROUP BY metodo_pagamento
+  `);
+
+  res.json({
+    from: fromDate,
+    to: toDate,
+    perAliquota: result.rows,
+    perMetodo: byMethod.rows,
+  });
+});
+
 router.get("/tables-status", async (req, res) => {
   const tables = await db
     .select({

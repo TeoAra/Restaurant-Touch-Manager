@@ -224,3 +224,15 @@ Global modifiers not bound to individual products but to **categories**:
 - Pulsanti +/- a 36–44px (touch-friendly).
 - Conferma delete su qty ≤ 0 di draft.
 - Messaggi errore italiani con descrizione utile.
+
+## Sessione 2026-05-03 — Chiusura gap residui
+
+Audit del piano T001-T011: praticamente tutto era già implementato dalle sessioni precedenti. Tre fix di chiusura applicate:
+
+1. **T001 / `payments.ts`** — POST `/api/payments`: `INSERT payments` + `UPDATE orders SET status='paid'` ora avvolti in `db.transaction`. La chiamata di rete alla RT (emettiFiscalReceipt / emettiDocumentoNonFiscale) resta FUORI dalla transazione per evitare lock prolungati su I/O di rete. `freeTableIfEmpty` resta fuori (è già SQL atomico idempotente con `NOT EXISTS`).
+
+2. **T010 / `dashboard.ts`** — Aggiunto alias `GET /api/dashboard/iva-report` (stessa logica di `/api/fiscal/iva-report`: aggregazione `fiscal_receipts` per aliquota + per metodo, filtri `from`/`to`).
+
+3. **T008 / `backoffice/menu.tsx`** — Toggle rapido "Esaurito/Disponibile" sulla riga prodotto (icona Check/Ban, PATCH `/api/products/:id` su `available`). Gestione errori con `res.ok` + `try/catch` + `disabled` durante PATCH per prevenire doppi click; toast italiano di esito.
+
+Code review architect: PASS sulle 3 fix; nessuna regressione introdotta. Errori typecheck residui solo su `mockup-sandbox/components/ui/calendar.tsx` e `spinner.tsx` (duplicate `@types/react`) — preesistenti, indipendenti da queste modifiche.
