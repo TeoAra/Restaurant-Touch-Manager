@@ -133,6 +133,7 @@ router.get("/tables-status", async (req, res) => {
       activeOrderId: activeOrder?.id ?? null,
       activeOrderTotal: activeOrder?.total ?? null,
       activeOrderCreatedAt: activeOrder?.createdAt?.toISOString() ?? null,
+      prePrintedAt: activeOrder?.prePrintedAt?.toISOString() ?? null,
     };
   });
 

@@ -21,6 +21,8 @@ export const ordersTable = pgTable("orders", {
   sospeso: boolean("sospeso").notNull().default(false),
   sospesoCustomerId: integer("sospeso_customer_id"),
   sospesoNote: text("sospeso_note"),
+  // Timestamp dell'ultima stampa preconto (usato per evidenziare tavoli "in attesa di pagamento")
+  prePrintedAt: timestamp("pre_printed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

@@ -67,7 +67,7 @@ function getElementSize(t: { elementType?: string; shape?: string }) {
 }
 
 // ─── Floor plan element renderer ─────────────────────────────────────────────
-type FETable = TableStatus & { roomName?: string; posX?: number; posY?: number; shape?: string; elementType?: string; rotation?: number; sizeScale?: number };
+type FETable = TableStatus & { roomName?: string; posX?: number; posY?: number; shape?: string; elementType?: string; rotation?: number; sizeScale?: number; prePrintedAt?: string | null };
 
 type Reservation = {
   id: number; tableId: number | null; tableIds?: string | null; date: string; time: string;
@@ -91,17 +91,41 @@ function FloorElement({ t, isSelected, onClick, reservation, assignMode, moveMod
   const status = t.status as "free" | "occupied" | "reserved";
   const isTargetable = (assignMode || moveMode) && status === "free";
 
+  // Calcolo durata occupazione (per evidenziare tavoli "fermi" da molto)
+  let durataMin: number | null = null;
+  if (t.activeOrderCreatedAt) {
+    const ms = Date.now() - new Date(t.activeOrderCreatedAt).getTime();
+    durataMin = Math.max(0, Math.floor(ms / 60000));
+  }
+  const durataLunga = durataMin !== null && durataMin >= 90; // > 1h30
+  const prePrinted = !!t.prePrintedAt;
+  // Colore tavolo occupato graduale in base al tempo (verde→giallo→arancione→rosso)
+  // Se preconto stampato → blu (cliente in attesa di pagamento)
+  let occupiedTone = "bg-orange-50 border-orange-400 hover:border-orange-500";
+  let dotTone = "bg-orange-500";
+  if (status === "occupied") {
+    if (prePrinted) {
+      occupiedTone = "bg-sky-50 border-sky-400 hover:border-sky-500";
+      dotTone = "bg-sky-500";
+    } else if (durataMin !== null) {
+      if (durataMin < 30)        { occupiedTone = "bg-emerald-50 border-emerald-400 hover:border-emerald-500"; dotTone = "bg-emerald-500"; }
+      else if (durataMin < 60)   { occupiedTone = "bg-yellow-50 border-yellow-400 hover:border-yellow-500";    dotTone = "bg-yellow-500"; }
+      else if (durataMin < 90)   { occupiedTone = "bg-orange-50 border-orange-400 hover:border-orange-500";    dotTone = "bg-orange-500"; }
+      else                       { occupiedTone = "bg-red-50 border-red-400 hover:border-red-500";              dotTone = "bg-red-500"; }
+    }
+  }
+
   const statusBg = isTargetable
     ? "bg-emerald-50 border-emerald-400 hover:border-emerald-600 hover:shadow-md animate-pulse"
     : {
         free:     "bg-white border-slate-300 hover:border-primary hover:shadow-md",
-        occupied: "bg-orange-50 border-orange-400 hover:border-orange-500",
+        occupied: occupiedTone,
         reserved: "bg-blue-50 border-blue-400 hover:border-blue-500",
       }[status] ?? "bg-white border-slate-200";
 
   const statusDot = {
     free:     "bg-emerald-500",
-    occupied: "bg-orange-500",
+    occupied: dotTone,
     reserved: "bg-blue-500",
   }[status] ?? "bg-slate-400";
 
@@ -115,18 +139,16 @@ function FloorElement({ t, isSelected, onClick, reservation, assignMode, moveMod
     : et === "muro"   ? "░░"
     : "";
 
-  // Calcolo durata occupazione (per evidenziare tavoli "fermi" da molto)
-  let durataMin: number | null = null;
-  if (t.activeOrderCreatedAt) {
-    const ms = Date.now() - new Date(t.activeOrderCreatedAt).getTime();
-    durataMin = Math.max(0, Math.floor(ms / 60000));
-  }
-  const durataLunga = durataMin !== null && durataMin >= 90; // > 1h30
-
   return (
     <button
       disabled={isDecor || ((assignMode || moveMode) && !isTargetable)}
       onClick={isDecor ? undefined : onClick}
+      title={
+        status === "occupied"
+          ? prePrinted ? "Preconto stampato — in attesa di pagamento"
+            : durataMin !== null ? `Tavolo occupato da ${durataMin} min` : "Tavolo occupato"
+          : undefined
+      }
       className={cn(
         "absolute flex items-center justify-center border-2 select-none transition-all active:scale-95 shadow-sm",
         isDecor ? decorStyle : cn(statusBg),
@@ -135,7 +157,8 @@ function FloorElement({ t, isSelected, onClick, reservation, assignMode, moveMod
         !isDecor && !assignMode && !moveMode && "cursor-pointer",
         isTargetable && "cursor-pointer",
         (assignMode || moveMode) && !isTargetable && !isDecor && "opacity-40",
-        durataLunga && status === "occupied" && "ring-2 ring-red-400",
+        durataLunga && status === "occupied" && !prePrinted && "ring-2 ring-red-400",
+        prePrinted && status === "occupied" && "ring-2 ring-sky-400 animate-pulse",
       )}
       style={{ width: w * CELL - 8, height: h * CELL - 8, transform: [t.rotation ? `rotate(${t.rotation}deg)` : "", (t.sizeScale && t.sizeScale !== 1) ? `scale(${t.sizeScale})` : ""].filter(Boolean).join(" ") || undefined }}
     >

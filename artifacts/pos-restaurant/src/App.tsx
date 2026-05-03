@@ -31,6 +31,7 @@ import AliquoteIvaPage from "@/pages/backoffice/aliquote-iva";
 import VarkazioniPage from "@/pages/backoffice/variazioni";
 import PrenotazioniPage from "@/pages/backoffice/prenotazioni";
 import FunzioniPage from "@/pages/backoffice/funzioni";
+import AuditPage from "@/pages/backoffice/audit";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -73,6 +74,7 @@ function AppRouter() {
         {isAdmin && <Route path="/backoffice/aliquote-iva" component={AliquoteIvaPage} />}
         {isAdmin && <Route path="/backoffice/variazioni" component={VarkazioniPage} />}
         {isAdmin && <Route path="/backoffice/prenotazioni" component={PrenotazioniPage} />}
+        {isAdmin && <Route path="/backoffice/audit" component={AuditPage} />}
         {isAdmin && <Route path="/backoffice/funzioni" component={FunzioniPage} />}
         <Route component={NotFound} />
       </Switch>

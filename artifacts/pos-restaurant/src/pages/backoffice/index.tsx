@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { UtensilsCrossed, LayoutGrid, BarChart3, CreditCard, ArrowRight, BookOpen, Layers, Printer, Settings, Users, Receipt, FileText, User, Tag, Zap, Bike, Package, Sun, BadgePercent, SlidersHorizontal, CalendarDays, Sparkles } from "lucide-react";
+import { UtensilsCrossed, LayoutGrid, BarChart3, CreditCard, ArrowRight, BookOpen, Layers, Printer, Settings, Users, Receipt, FileText, User, Tag, Zap, Bike, Package, Sun, BadgePercent, SlidersHorizontal, CalendarDays, Sparkles, ShieldCheck, Activity } from "lucide-react";
 import { useGetDashboardSummary } from "@workspace/api-client-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
 
@@ -38,6 +38,7 @@ const sections = [
   // Gestione
   { href: "/backoffice/users", icon: Users, label: "Utenti", description: "Accessi e PIN", color: "bg-teal-50 text-teal-600 border-teal-200" },
   { href: "/backoffice/settings", icon: Settings, label: "Impostazioni", description: "Configurazione app", color: "bg-orange-50 text-orange-600 border-orange-200" },
+  { href: "/backoffice/audit", icon: ShieldCheck, label: "Audit Log", description: "Storico azioni sensibili", color: "bg-rose-50 text-rose-600 border-rose-200" },
   { href: "/backoffice/funzioni", icon: Sparkles, label: "Funzioni", description: "Attiva funzionalità opzionali", color: "bg-fuchsia-50 text-fuchsia-600 border-fuchsia-200" },
 ];
 
@@ -46,29 +47,42 @@ const GROUPS = [
   { label: "Sconti & Promozioni", range: [4, 7] },
   { label: "Sala & Stampa", range: [7, 11] },
   { label: "Report & Cassa", range: [11, 15] },
-  { label: "Clienti & Gestione", range: [15, 20] },
+  { label: "Clienti & Gestione", range: [15, 21] },
 ];
 
 export default function BackOfficeIndex() {
-  const { data: summary } = useGetDashboardSummary();
+  // Auto-refresh ogni 30s per dashboard live
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: summary, dataUpdatedAt } = useGetDashboardSummary({ query: { refetchInterval: 30_000 } as any });
+  const lastUpdate = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
 
   return (
     <BackofficeShell title="Back Office" subtitle="Gestione ristorante" isRoot>
       <div className="p-4 md:p-6 max-w-2xl mx-auto space-y-6">
 
-        {/* KPI strip */}
+        {/* KPI strip — dashboard live */}
         {summary && (
-          <div className="grid grid-cols-3 gap-3">
-            {[
-              { label: "Incasso oggi", value: `€ ${summary.todayRevenue}`, accent: true },
-              { label: "Ordini oggi", value: String(summary.todayOrders), accent: false },
-              { label: "Tavoli occupati", value: `${summary.occupiedTables}/${summary.totalTables}`, accent: false },
-            ].map(k => (
-              <div key={k.label} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <div className="text-[11px] text-slate-400 mb-1">{k.label}</div>
-                <div className={`text-xl font-bold ${k.accent ? "text-primary" : "text-slate-800"}`}>{k.value}</div>
+          <div>
+            <div className="flex items-center justify-between mb-2 px-1">
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                <Activity className="h-3 w-3 text-emerald-500 animate-pulse" />
+                <span>Live · aggiornato alle {lastUpdate}</span>
               </div>
-            ))}
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              {[
+                { label: "Incasso oggi", value: `€ ${summary.todayRevenue}`, accent: true },
+                { label: "Ordini chiusi", value: String(summary.todayOrders), accent: false },
+                { label: "Scontrino medio", value: `€ ${summary.avgOrderValue}`, accent: false },
+                { label: "Ordini aperti", value: String(summary.openOrders), accent: false },
+                { label: "Tavoli occupati", value: `${summary.occupiedTables}/${summary.totalTables}`, accent: false },
+              ].map(k => (
+                <div key={k.label} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+                  <div className="text-[11px] text-slate-400 mb-1">{k.label}</div>
+                  <div className={`text-xl font-bold ${k.accent ? "text-primary" : "text-slate-800"}`}>{k.value}</div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

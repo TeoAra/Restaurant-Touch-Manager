@@ -584,6 +584,8 @@ router.post("/:id/preconto", async (req, res) => {
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
   if (!order) return res.status(404).json({ error: "Ordine non trovato" });
   if (order.status !== "open") return res.status(400).json({ error: "Ordine non aperto" });
+  // Marca l'ordine come "preconto stampato" così la mappa tavoli lo evidenzia
+  await db.update(ordersTable).set({ prePrintedAt: new Date() }).where(eq(ordersTable.id, id));
 
   const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id));
   const settings = await getSettings();
