@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeftRight, Ticket, Monitor, ListOrdered, Wallet, Sparkles, Award, Boxes } from "lucide-react";
+import { ArrowLeftRight, Ticket, Monitor, ListOrdered, Wallet, Sparkles, Award, Boxes, Lock, AlertTriangle } from "lucide-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { useToast } from "@/hooks/use-toast";
 
@@ -29,6 +29,20 @@ const FEATURES: Feature[] = [
     title: "Buoni pasto",
     description: "Metodo di pagamento dedicato per ticket restaurant (Edenred, Pellegrini, Sodexo). Riga separata sullo scontrino.",
     icon: Ticket,
+    status: "live",
+  },
+  {
+    key: "feat_price_lock",
+    title: "Blocco prezzi e sconti",
+    description: "Solo l'amministratore può applicare sconti o modificare i prezzi al volo. I cassieri non vedono il pulsante Sconto.",
+    icon: Lock,
+    status: "live",
+  },
+  {
+    key: "feat_alert_totale_anomalo",
+    title: "Avviso totali anomali",
+    description: "Chiede conferma prima di incassare scontrini sospetti (sotto € 1 o sopra € 500). Evita zeri di troppo o storni accidentali.",
+    icon: AlertTriangle,
     status: "live",
   },
   {

@@ -202,11 +202,21 @@ router.patch("/:id", async (req, res) => {
 // Delete (cancel) order
 router.delete("/:id", async (req, res) => {
   const { id } = DeleteOrderParams.parse({ id: Number(req.params.id) });
+  const reason = typeof (req.body as { reason?: unknown })?.reason === "string"
+    ? ((req.body as { reason: string }).reason).slice(0, 200)
+    : null;
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+  const itemCount = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id)).then(rows => rows.length);
   await db.delete(orderItemsTable).where(eq(orderItemsTable.orderId, id));
   await db.delete(ordersTable).where(eq(ordersTable.id, id));
   // Atomico: libera il tavolo solo se non ci sono altri open
   if (order?.tableId) await freeTableIfEmpty(order.tableId);
+  void logAudit({ req, action: "order.cancel", entityType: "order", entityId: id, details: {
+    tableId: order?.tableId ?? null,
+    total: order?.total ?? null,
+    items: itemCount,
+    reason,
+  } });
   res.status(204).end();
 });
 

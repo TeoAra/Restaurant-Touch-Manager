@@ -1204,6 +1204,15 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
   const posType = pdSettings["pos_type"] ?? "none";
   const [posPhase, setPosPhase] = useState<PosPhase>("idle");
   const [posError, setPosError] = useState<string | null>(null);
+  const alertAnomalousPay = pdSettings["feat_alert_totale_anomalo"] === "true";
+  const confirmAnomalousIfNeeded = (amt: number) => {
+    if (!alertAnomalousPay) return true;
+    if (amt < 1 || amt > 500) {
+      const msg = amt < 1 ? "molto basso" : "molto alto";
+      return window.confirm(`Totale ${msg}: € ${amt.toFixed(2)}\n\nConfermi l'incasso?`);
+    }
+    return true;
+  };
 
   // ── Mancia opzionale (sommata al totale e inviata sulla RT) ───────────────
   const [manciaStr, setManciaStr] = useState("");
@@ -1419,6 +1428,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
                 <div className="flex gap-2 w-full">
                   <Button variant="outline" className="flex-1 h-9 text-sm" onClick={() => setPosPhase("idle")}>Annulla</Button>
                   <Button className="flex-1 h-9 text-sm" onClick={() => {
+                    if (!confirmAnomalousIfNeeded(total)) return;
                     setPosPhase("idle");
                     onPay(method, parseFloat(given) || total, emittiFattura && selectedCustomer ? selectedCustomer.id : undefined, emittiFattura ? (selectedCustomer?.ragioneSociale ?? undefined) : undefined);
                   }}>
@@ -1446,6 +1456,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
             onClick={async () => {
               const customerId = emittiFattura && selectedCustomer ? selectedCustomer.id : undefined;
               const ragSoc = emittiFattura ? (selectedCustomer?.ragioneSociale ?? undefined) : undefined;
+              if (!confirmAnomalousIfNeeded(totalConMancia)) return;
               // Carta + terminale configurato → chiama prima il POS
               if (method === "card" && posType !== "none") {
                 setPosPhase("waiting");
@@ -2304,7 +2315,7 @@ function CategoryButton({ cat, onClick }: { cat: PosCategory; onClick: () => voi
 }
 
 // ─── Product Card ──────────────────────────────────────────────────────────────
-type PosProduct = { id: number; name: string; price: string; price2?: string; price3?: string; price4?: string; available: boolean };
+type PosProduct = { id: number; name: string; price: string; price2?: string; price3?: string; price4?: string; available: boolean; allergeni?: string | null };
 function ProductCard({ product, onAdd, activePriceList, onToggleEsaurito }: {
   product: PosProduct;
   activePriceList: number;
@@ -2348,6 +2359,12 @@ function ProductCard({ product, onAdd, activePriceList, onToggleEsaurito }: {
       {!isAvailable && (
         <span className="absolute top-1 right-1 px-1.5 py-0.5 rounded-md bg-red-700 text-white text-[9px] font-bold uppercase tracking-wide">Esaurito</span>
       )}
+      {product.allergeni && product.allergeni.trim() && (
+        <span
+          className="absolute top-1 left-1 h-4 w-4 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center shadow-md ring-1 ring-red-300"
+          title={`Allergeni: ${product.allergeni}`}
+        >!</span>
+      )}
       <div className="font-semibold text-sm text-slate-200 leading-snug group-hover:text-primary transition-colors line-clamp-3">{product.name}</div>
       <div className="text-base font-bold text-primary mt-2">€ {displayPrice.toFixed(2)}</div>
     </button>
@@ -2365,11 +2382,19 @@ function EmptyState({ label }: { label: string }) {
 
 // ─── Inline Payment Panel (TOT tab) ────────────────────────────────────────────
 const DENOMINATIONS = [200, 100, 50, 20, 10, 5, 2, 1, 0.5];
-function InlinePaymentPanel({ total, onPay, disabled }: {
+function InlinePaymentPanel({ total, onPay, disabled, alertAnomalous }: {
   total: number;
   disabled: boolean;
   onPay: (method: string, amountGiven?: number) => void;
+  alertAnomalous?: boolean;
 }) {
+  const handleConfirmedPay = (method: string, amount?: number) => {
+    if (alertAnomalous && (total < 1 || total > 500)) {
+      const reason = total < 1 ? "molto basso" : "molto alto";
+      if (!window.confirm(`Totale ${reason}: € ${total.toFixed(2)}\n\nConfermi l'incasso?`)) return;
+    }
+    onPay(method, amount);
+  };
   const [method, setMethod] = useState<"cash" | "card" | "ticket" | "other">("cash");
   const [given, setGiven] = useState("");
   const givenNum = parseFloat(given) || 0;
@@ -2428,7 +2453,7 @@ function InlinePaymentPanel({ total, onPay, disabled }: {
       {/* Confirm */}
       <button
         disabled={!canPay}
-        onClick={() => onPay(method, method === "cash" ? givenNum : undefined)}
+        onClick={() => handleConfirmedPay(method, method === "cash" ? givenNum : undefined)}
         className={cn(
           "w-full py-3 rounded-xl text-base font-bold transition-all active:scale-95 mt-auto shrink-0",
           canPay ? "bg-primary text-white shadow-lg hover:bg-primary/90" : "bg-slate-200 text-slate-400 cursor-not-allowed"
@@ -2444,6 +2469,9 @@ export default function FrontOffice() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const { data: settings = {} } = useSettings();
+  const { user: foUser } = useAuth();
+  const foIsAdmin = foUser?.role === "admin";
+  const priceLocked = settings["feat_price_lock"] === "true" && !foIsAdmin;
 
   const coverPrice = parseFloat(settings["cover_price"] || "0");
 
@@ -2504,6 +2532,7 @@ export default function FrontOffice() {
   const [pendingTableId, setPendingTableId] = useState<number | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ itemId: number; name: string } | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
   const [showDiscount, setShowDiscount] = useState(false);
   const [showSospeso, setShowSospeso] = useState(false);
   const [showTableActions, setShowTableActions] = useState(false);
@@ -2519,7 +2548,9 @@ export default function FrontOffice() {
 
   const { data: tablesStatus = [] } = useGetTablesStatus();
   const { data: categories = [] } = useListCategories();
-  const { data: products = [] } = useListProducts({ categoryId: selectedCategoryId ?? undefined });
+  const { data: products = [] } = useListProducts();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [comandaBanner, setComandaBanner] = useState<string | null>(null);
 
   type FEModifier = { id: number; label: string; type: string; priceExtra: string };
   const { data: categoryModifiers = [] } = useQuery<FEModifier[]>({
@@ -2844,13 +2875,19 @@ export default function FrontOffice() {
 
   async function handleCancelOrder() {
     if (!activeOrderId) return;
+    const reason = cancelReason.trim();
     try {
-      await fetch(`${API}/orders/${activeOrderId}`, { method: "DELETE" });
-      toast({ title: "Ordine annullato", description: "Il tavolo è stato liberato" });
+      await fetch(`${API}/orders/${activeOrderId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reason || null }),
+      });
+      toast({ title: "Ordine annullato", description: reason ? `Motivo: ${reason}` : "Il tavolo è stato liberato" });
     } catch {
       toast({ title: "Errore durante l'annullamento", variant: "destructive" });
     }
     setShowCancelConfirm(false);
+    setCancelReason("");
     handleExitOrder();
   }
 
@@ -3051,6 +3088,8 @@ export default function FrontOffice() {
         : `${data.sentItems} articoli`;
       addLog("info", `Comanda inviata — ${orderLabel} — ${phaseDesc}`);
       toast({ title: "Comanda inviata ai reparti", description: phaseDesc });
+      setComandaBanner(`Comanda inviata · ${orderLabel} · ${phaseDesc}`);
+      setTimeout(() => setComandaBanner(null), 2200);
       setSelectedTableId(null);
       setSelectedCategoryId(null);
       setSelectedItemId(null);
@@ -3222,9 +3261,32 @@ export default function FrontOffice() {
     toast({ title: "Pagamento registrato", description: `€ ${payAmount.toFixed(2)} — ${method}` });
   }
 
-  const visibleProducts = (productSearch
-    ? products.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()))
-    : products).filter(p => p.available !== false);
+  const searchQ = productSearch.trim().toLowerCase();
+  const visibleProducts = (searchQ
+    ? products.filter(p => p.name.toLowerCase().includes(searchQ))
+    : (selectedCategoryId != null
+        ? products.filter(p => (p as unknown as { categoryId?: number }).categoryId === selectedCategoryId)
+        : products)
+  ).filter(p => p.available !== false);
+
+  // ── Keyboard shortcut: "/" focuses product search, Esc clears it ─────────────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName;
+      const editable = tag === "INPUT" || tag === "TEXTAREA" || (t?.isContentEditable ?? false);
+      if (e.key === "/" && !editable && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        setRightTab("art");
+        setTimeout(() => searchInputRef.current?.focus(), 0);
+      } else if (e.key === "Escape" && t === searchInputRef.current) {
+        setProductSearch("");
+        searchInputRef.current?.blur();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // ── Price list labels ────────────────────────────────────────────────────────
   const phaseLabels = ["F1", "F2", "F3", "F4"];
@@ -3234,7 +3296,12 @@ export default function FrontOffice() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-screen overflow-hidden bg-[#151922]">
+    <div className="flex h-screen overflow-hidden bg-[#151922] relative">
+      {comandaBanner && (
+        <div className="absolute top-0 left-0 right-0 z-50 bg-emerald-600 text-white text-center font-bold py-2.5 shadow-lg animate-in slide-in-from-top duration-200">
+          ✓ {comandaBanner}
+        </div>
+      )}
 
       {/* ══ LEFT PANEL ════════════════════════════════════════════════════════ */}
       <div className={cn(
@@ -3577,14 +3644,16 @@ export default function FrontOffice() {
           <div className="grid grid-cols-2 gap-1 w-[116px] shrink-0">
             {/* Riga 1 */}
             <button
-              disabled={!activeOrderId || items.length === 0}
+              disabled={!activeOrderId || items.length === 0 || priceLocked}
               onClick={() => setShowDiscount(true)}
+              title={priceLocked ? "Sconto bloccato — solo amministratore" : "Applica uno sconto al totale del conto (% o € fissi)"}
               className="h-10 rounded-lg flex items-center justify-center bg-amber-700 text-amber-100 hover:bg-amber-600 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              Sconto
+              {priceLocked ? "🔒 Sconto" : "Sconto"}
             </button>
             <button
               disabled={items.length === 0 && !activeOrderId}
               onClick={() => { setLotteriaInput(lotteriaCodice); setShowLotteria(true); }}
+              title="Inserisci il codice Lotteria degli Scontrini del cliente"
               className={cn(
                 "h-10 rounded-lg flex items-center justify-center text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed relative leading-tight",
                 lotteriaCodice
@@ -3601,12 +3670,14 @@ export default function FrontOffice() {
             <button
               disabled={items.length === 0}
               onClick={() => setShowPreconto(true)}
+              title="Stampa il preconto (ricevuta non fiscale) per il cliente"
               className="h-10 rounded-lg flex items-center justify-center bg-[#252840] text-slate-300 hover:bg-[#2d3044] text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
               Preconto
             </button>
             <button
               disabled={items.length < 2}
               onClick={() => setShowSplitBill(true)}
+              title="Conto separato: scegli quali articoli pagare in scontrini distinti"
               className="h-10 rounded-lg flex items-center justify-center bg-purple-800 text-purple-200 hover:bg-purple-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
               Conto Sep.
             </button>
@@ -3615,12 +3686,14 @@ export default function FrontOffice() {
             <button
               disabled={items.length === 0}
               onClick={() => setShowRomana(true)}
+              title="Pagamento alla romana: dividi il totale in N quote uguali"
               className="h-10 rounded-lg flex items-center justify-center bg-green-800 text-green-200 hover:bg-green-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
               Romana
             </button>
             <button
               disabled={!selectedItemId || !selectedItem || selectedItem.quantity <= 1}
               onClick={handleSplitItem}
+              title="Separa una quantità dell'articolo selezionato in una nuova riga (es. 3 caffè → 1 + 2)"
               className="h-10 rounded-lg flex items-center justify-center bg-indigo-800 text-indigo-200 hover:bg-indigo-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
               Sep. Prod.
             </button>
@@ -3629,18 +3702,21 @@ export default function FrontOffice() {
             <button
               disabled={!selectedItemId}
               onClick={handleDeleteSelected}
+              title="Cancella l'articolo selezionato dall'ordine"
               className="h-10 rounded-lg flex items-center justify-center bg-red-900/80 text-red-300 hover:bg-red-800 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
               Cancella
             </button>
             {activeOrderId ? (
               <button
                 onClick={() => setShowCancelConfirm(true)}
+                title="Annulla l'intero ordine (registrato in audit log)"
                 className="h-10 rounded-lg flex items-center justify-center bg-red-950 text-red-400 hover:bg-red-900 text-[10px] font-bold transition-all active:scale-95 leading-tight border border-red-900">
                 Annulla Ord.
               </button>
             ) : (
               <button
                 onClick={() => handleQuickMode("rapida")}
+                title="Cassa rapida: vendita banco senza tavolo (per asporto, caffè veloce, ecc.)"
                 className="h-10 rounded-lg flex items-center justify-center bg-orange-800 text-orange-200 hover:bg-orange-700 text-[10px] font-bold transition-all active:scale-95 leading-tight">
                 Rapida
               </button>
@@ -3650,6 +3726,7 @@ export default function FrontOffice() {
             <button
               disabled={!activeOrderId || items.length === 0}
               onClick={() => setShowSospeso(true)}
+              title="Conto sospeso: il cliente paga in un secondo momento (visibile in backoffice)"
               className="h-10 rounded-lg flex items-center justify-center bg-yellow-800 text-yellow-100 hover:bg-yellow-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
               Sospeso
             </button>
@@ -3668,6 +3745,7 @@ export default function FrontOffice() {
                   toast({ title: "Errore comunicazione RT", description: "Verifica la connessione alla stampante fiscale", variant: "destructive" });
                 }
               }}
+              title="Apri il cassetto della cassa (comando alla stampante fiscale)"
               className="h-10 rounded-lg flex items-center justify-center bg-slate-700 text-slate-200 hover:bg-slate-600 text-[10px] font-bold transition-all active:scale-95 leading-tight">
               Cassetto
             </button>
@@ -3677,6 +3755,7 @@ export default function FrontOffice() {
               <button
                 disabled={!activeOrderId}
                 onClick={() => setShowTableActions(true)}
+                title="Sposta tavolo, unisci con un altro tavolo o sposta singoli articoli"
                 className="col-span-2 h-10 rounded-lg flex items-center justify-center gap-1.5 bg-indigo-800 text-indigo-100 hover:bg-indigo-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
                 <ArrowLeftRight className="h-3.5 w-3.5" />
                 Tavolo
@@ -3796,9 +3875,15 @@ export default function FrontOffice() {
               )}
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-600" />
-                <input value={productSearch} onChange={e => setProductSearch(e.target.value)}
-                  placeholder="Cerca prodotto…"
-                  className="w-full pl-8 pr-3 py-2 bg-[#1a1d2a] border border-[#2d3044] rounded-lg text-sm outline-none focus:border-primary text-slate-200 placeholder:text-slate-600" />
+                <input ref={searchInputRef} value={productSearch} onChange={e => setProductSearch(e.target.value)}
+                  placeholder="Cerca prodotto in tutto il menu… (premi /)"
+                  className="w-full pl-8 pr-16 py-2 bg-[#1a1d2a] border border-[#2d3044] rounded-lg text-sm outline-none focus:border-primary text-slate-200 placeholder:text-slate-600" />
+                {productSearch && (
+                  <button onClick={() => setProductSearch("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-500 hover:text-slate-300 px-1.5 py-0.5 rounded border border-slate-700">
+                    ESC
+                  </button>
+                )}
               </div>
               {numBuffer && !selectedItemId && (
                 <div className="px-3 py-1.5 rounded-xl bg-primary text-white font-bold text-sm shrink-0 animate-pulse flex items-center gap-0.5">
@@ -4246,6 +4331,7 @@ export default function FrontOffice() {
             <InlinePaymentPanel
               total={total}
               disabled={items.length === 0}
+              alertAnomalous={settings["feat_alert_totale_anomalo"] === "true"}
               onPay={(method, amountGiven) => handlePay(method, amountGiven, invoiceCustomer?.id, invoiceCustomer?.ragioneSociale ?? undefined)}
             />
           </div>
@@ -4683,8 +4769,19 @@ export default function FrontOffice() {
                 : "Il tavolo verrà liberato. L'azione non è reversibile."}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="px-1">
+            <Label className="text-xs text-slate-600">Motivo (opzionale, registrato in audit log)</Label>
+            <textarea
+              value={cancelReason}
+              onChange={e => setCancelReason(e.target.value)}
+              placeholder="Es. errore cucina, cliente cambia idea, doppio ordine…"
+              className="mt-1 w-full text-sm border border-slate-300 rounded-lg px-2.5 py-2 outline-none focus:border-primary resize-none"
+              rows={2}
+              maxLength={200}
+            />
+          </div>
           <AlertDialogFooter>
-            <AlertDialogCancel>Annulla</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setCancelReason("")}>Annulla</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleCancelOrder}
               className="bg-red-600 hover:bg-red-700 text-white"
