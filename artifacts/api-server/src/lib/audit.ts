@@ -11,6 +11,7 @@ export type AuditAction =
   | "order.cancel"
   | "order.merge"
   | "order.move_table"
+  | "order.move_items"
   | "fiscal.receipt_void"
   | "fiscal.drawer_open"
   | "fiscal.z_report"

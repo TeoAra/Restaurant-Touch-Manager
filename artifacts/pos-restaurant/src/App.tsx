@@ -1,9 +1,11 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import LoginPage from "@/pages/login";
+import OnboardingPage from "@/pages/onboarding";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/Layout";
 import FrontOffice from "@/pages/front-office";
@@ -33,6 +35,8 @@ import PrenotazioniPage from "@/pages/backoffice/prenotazioni";
 import FunzioniPage from "@/pages/backoffice/funzioni";
 import AuditPage from "@/pages/backoffice/audit";
 
+const API_BASE = `${import.meta.env.BASE_URL?.replace(/\/$/, "") || ""}/api`;
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -44,8 +48,26 @@ const queryClient = new QueryClient({
 
 function AppRouter() {
   const { user, isAdmin } = useAuth();
+  const { data: settings = {} } = useQuery<Record<string, string>>({
+    queryKey: ["settings"],
+    queryFn: () => fetch(`${API_BASE}/settings`).then(r => r.json()),
+    enabled: !!user,
+    staleTime: 30000,
+  });
+  const [location, setLocation] = useLocation();
+  const onboardingDone = settings["onboarding_completed"] === "true";
+
+  // Auto-redirect admin a /onboarding al primo accesso
+  useEffect(() => {
+    if (user && isAdmin && !onboardingDone && location !== "/onboarding") {
+      setLocation("/onboarding");
+    }
+  }, [user, isAdmin, onboardingDone, location, setLocation]);
 
   if (!user) return <LoginPage />;
+
+  // Onboarding fuori dal Layout (full-screen)
+  if (location === "/onboarding") return <OnboardingPage />;
 
   return (
     <Layout>

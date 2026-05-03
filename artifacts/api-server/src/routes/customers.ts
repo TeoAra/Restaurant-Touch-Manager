@@ -18,14 +18,14 @@ router.get("/", async (req, res) => {
     return res.json(customers);
   }
   const customers = await query;
-  res.json(customers);
+  return res.json(customers);
 });
 
 router.get("/:id", async (req, res) => {
   const id = Number(req.params.id);
   const [customer] = await db.select().from(customersTable).where(eq(customersTable.id, id));
   if (!customer) return res.status(404).json({ error: "Cliente non trovato" });
-  res.json(customer);
+  return res.json(customer);
 });
 
 router.post("/", async (req, res) => {
@@ -59,7 +59,7 @@ router.patch("/:id", async (req, res) => {
     .where(eq(customersTable.id, id))
     .returning();
   if (!customer) return res.status(404).json({ error: "Cliente non trovato" });
-  res.json(customer);
+  return res.json(customer);
 });
 
 router.delete("/:id", async (req, res) => {

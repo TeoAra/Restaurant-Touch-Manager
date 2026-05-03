@@ -161,11 +161,22 @@ export interface OrderWithItems {
   items: OrderItem[];
 }
 
+export type CreateOrderBodyModalita =
+  (typeof CreateOrderBodyModalita)[keyof typeof CreateOrderBodyModalita];
+
+export const CreateOrderBodyModalita = {
+  tavolo: "tavolo",
+  asporto: "asporto",
+  delivery: "delivery",
+  rapida: "rapida",
+} as const;
+
 export interface CreateOrderBody {
   /** @nullable */
   tableId?: number | null;
   /** @nullable */
   notes?: string | null;
+  modalita?: CreateOrderBodyModalita;
 }
 
 export type UpdateOrderBodyStatus =
@@ -177,12 +188,28 @@ export const UpdateOrderBodyStatus = {
   cancelled: "cancelled",
 } as const;
 
+/**
+ * @nullable
+ */
+export type UpdateOrderBodyModalita =
+  | (typeof UpdateOrderBodyModalita)[keyof typeof UpdateOrderBodyModalita]
+  | null;
+
+export const UpdateOrderBodyModalita = {
+  tavolo: "tavolo",
+  asporto: "asporto",
+  delivery: "delivery",
+  rapida: "rapida",
+} as const;
+
 export interface UpdateOrderBody {
   status?: UpdateOrderBodyStatus;
   /** @nullable */
   notes?: string | null;
   /** @nullable */
   tableId?: number | null;
+  /** @nullable */
+  modalita?: UpdateOrderBodyModalita;
 }
 
 export interface AddOrderItemBody {
@@ -190,12 +217,16 @@ export interface AddOrderItemBody {
   quantity: number;
   /** @nullable */
   notes?: string | null;
+  unitPrice?: string;
+  phase?: number;
 }
 
 export interface UpdateOrderItemBody {
   quantity?: number;
   /** @nullable */
   notes?: string | null;
+  unitPrice?: string;
+  phase?: number;
 }
 
 export type PaymentMethod = (typeof PaymentMethod)[keyof typeof PaymentMethod];

@@ -61,7 +61,7 @@ router.patch("/:id", async (req, res) => {
 
   const [row] = await db.update(reservationsTable).set(updates).where(eq(reservationsTable.id, id)).returning();
   if (!row) return res.status(404).json({ error: "Prenotazione non trovata" });
-  res.json(row);
+  return res.json(row);
 });
 
 // DELETE /api/reservations/:id

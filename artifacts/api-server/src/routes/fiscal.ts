@@ -13,6 +13,7 @@ import {
   parseStatusQ,
 } from "../lib/fiscal-printer";
 import { getSettings } from "../lib/settings";
+import { requireAdminHeader } from "../lib/auth-guard";
 
 const router = Router();
 
@@ -116,7 +117,7 @@ router.post("/receipts/:id/void", async (req, res) => {
     printerResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
   }
 
-  res.json({ receipt, printer: printerResult });
+  return res.json({ receipt, printer: printerResult });
 });
 
 // ── Lotteria degli Scontrini ─────────────────────────────────────────────────
@@ -163,7 +164,7 @@ router.post("/lotteria", async (req, res) => {
     rtCheck = { ok: sq.ok, error: sq.error };
   }
 
-  res.json({
+  return res.json({
     ok: true,
     codice: codicePulito,
     rtConnessa: printer ? rtCheck.ok : null,
@@ -295,7 +296,7 @@ router.get("/printer-status", async (req, res) => {
   const rtPort = printer.port ?? 1126;
   const stato2X = await getStatus2X(printer.ip, rtPort);
   const statoQ  = await getStatusQ(printer.ip, rtPort);
-  res.json({
+  return res.json({
     found: true,
     printer: { name: printer.name, ip: printer.ip, port: rtPort, matricola: printer.matricola },
     stato2X,
@@ -431,7 +432,7 @@ router.get("/test-receipt", async (req, res) => {
 
 // ── Apertura cassetto manuale ────────────────────────────────────────────────
 // Comando RT XonXoff: "1g" o "5G" — apre il cassetto del cassiere
-router.post("/open-drawer", async (req, res) => {
+router.post("/open-drawer", requireAdminHeader, async (req, res) => {
   const printer = await getFiscalPrinter();
   if (!printer) {
     return res.status(400).json({ ok: false, error: "Nessuna stampante fiscale configurata" });
@@ -444,7 +445,7 @@ router.post("/open-drawer", async (req, res) => {
     action: "fiscal.drawer_open",
     details: { ok: result.ok, printer: printer.name },
   });
-  res.json({ ok: result.ok, printer: printer.name, error: result.error });
+  return res.json({ ok: result.ok, printer: printer.name, error: result.error });
 });
 
 // ── Report IVA per aliquota (per data range) ─────────────────────────────────
@@ -629,7 +630,7 @@ router.post("/romana", async (req, res) => {
     }
   }
 
-  res.json({
+  return res.json({
     ok: true,
     receiptId,
     rtOk,

@@ -26,7 +26,7 @@ router.get("/by-category/:categoryId", async (req, res) => {
 
   const mods = await db.select().from(modifiersTable)
     .where(inArray(modifiersTable.id, links.map(l => l.modifierId)));
-  res.json(mods);
+  return res.json(mods);
 });
 
 // POST /api/modifiers — crea modificatore
@@ -72,7 +72,7 @@ router.patch("/:id", async (req, res) => {
   }
 
   const links = await db.select().from(categoryModifiersTable).where(eq(categoryModifiersTable.modifierId, id));
-  res.json({ ...mod, categoryIds: links.map(l => l.categoryId) });
+  return res.json({ ...mod, categoryIds: links.map(l => l.categoryId) });
 });
 
 // DELETE /api/modifiers/:id

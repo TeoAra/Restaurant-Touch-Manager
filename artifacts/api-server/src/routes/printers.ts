@@ -15,7 +15,7 @@ router.post("/", async (req, res) => {
   const parsed = insertPrinterSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const [row] = await db.insert(printersTable).values(parsed.data).returning();
-  res.status(201).json(row);
+  return res.status(201).json(row);
 });
 
 router.patch("/:id", async (req, res) => {
@@ -24,14 +24,14 @@ router.patch("/:id", async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const [row] = await db.update(printersTable).set(parsed.data).where(eq(printersTable.id, id)).returning();
   if (!row) return res.status(404).json({ error: "Not found" });
-  res.json(row);
+  return res.json(row);
 });
 
 router.delete("/:id", async (req, res) => {
   const id = parseInt(req.params.id);
   const [row] = await db.delete(printersTable).where(eq(printersTable.id, id)).returning();
   if (!row) return res.status(404).json({ error: "Not found" });
-  res.json({ success: true });
+  return res.json({ success: true });
 });
 
 // Test TCP connectivity for a single printer
@@ -53,24 +53,21 @@ function testTcp(ip: string, port: number, timeoutMs = 4000): Promise<{ ok: bool
   });
 }
 
-// Test a specific IP:port without needing it in the DB
 router.post("/test-ip", async (req, res) => {
   const { ip, port = 9100 } = req.body as { ip?: string; port?: number };
   if (!ip) return res.status(400).json({ error: "ip mancante" });
   const result = await testTcp(String(ip), Number(port), 4000);
-  res.json({ ip, port, ...result });
+  return res.json({ ip, port, ...result });
 });
 
-// Test a single printer by ID
 router.get("/:id/test", async (req, res) => {
   const id = parseInt(req.params.id);
   const [p] = await db.select().from(printersTable).where(eq(printersTable.id, id));
   if (!p) return res.status(404).json({ error: "Stampante non trovata" });
   const result = await testTcp(p.ip, p.port, 4000);
-  res.json({ id: p.id, name: p.name, ip: p.ip, port: p.port, ...result });
+  return res.json({ id: p.id, name: p.name, ip: p.ip, port: p.port, ...result });
 });
 
-// Test all active printers
 router.get("/test-all", async (_req, res) => {
   const printers = await db.select().from(printersTable).where(eq(printersTable.active, true));
   const results = await Promise.all(

@@ -3756,8 +3756,19 @@ export default function FrontOffice() {
             </button>
             <button
               onClick={async () => {
+                if (foUser?.role !== "admin") {
+                  toast({ title: "Operazione riservata", description: "Solo gli amministratori possono aprire il cassetto", variant: "destructive" });
+                  return;
+                }
                 try {
-                  const r = await fetch(`${API}/fiscal/open-drawer`, { method: "POST" });
+                  const r = await fetch(`${API}/fiscal/open-drawer`, {
+                    method: "POST",
+                    headers: {
+                      "x-user-role": "admin",
+                      "x-user-id": String(foUser.id ?? ""),
+                      "x-user-name": foUser.name ?? "",
+                    },
+                  });
                   const data = await r.json();
                   if (data.ok) {
                     addLog("info", "Cassetto aperto");

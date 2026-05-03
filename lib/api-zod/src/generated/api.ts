@@ -268,6 +268,7 @@ export const ListOrdersResponse = zod.array(ListOrdersResponseItem);
 export const CreateOrderBody = zod.object({
   tableId: zod.number().nullish(),
   notes: zod.string().nullish(),
+  modalita: zod.enum(["tavolo", "asporto", "delivery", "rapida"]).optional(),
 });
 
 /**
@@ -313,6 +314,15 @@ export const UpdateOrderBody = zod.object({
   status: zod.enum(["open", "paid", "cancelled"]).optional(),
   notes: zod.string().nullish(),
   tableId: zod.number().nullish(),
+  modalita: zod
+    .union([
+      zod.literal("tavolo"),
+      zod.literal("asporto"),
+      zod.literal("delivery"),
+      zod.literal("rapida"),
+      zod.literal(null),
+    ])
+    .nullish(),
 });
 
 export const UpdateOrderResponse = zod.object({
@@ -365,6 +375,8 @@ export const AddOrderItemBody = zod.object({
   productId: zod.number(),
   quantity: zod.number(),
   notes: zod.string().nullish(),
+  unitPrice: zod.string().optional(),
+  phase: zod.number().optional(),
 });
 
 /**
@@ -378,6 +390,8 @@ export const UpdateOrderItemParams = zod.object({
 export const UpdateOrderItemBody = zod.object({
   quantity: zod.number().optional(),
   notes: zod.string().nullish(),
+  unitPrice: zod.string().optional(),
+  phase: zod.number().optional(),
 });
 
 export const UpdateOrderItemResponse = zod.object({

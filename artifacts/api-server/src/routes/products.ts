@@ -15,20 +15,20 @@ router.get("/", async (req, res) => {
     return res.json(filtered);
   }
   const products = await query;
-  res.json(products);
+  return res.json(products);
 });
 
 router.post("/", async (req, res) => {
   const body = CreateProductBody.parse(req.body);
   const [product] = await db.insert(productsTable).values(body).returning();
-  res.status(201).json(product);
+  return res.status(201).json(product);
 });
 
 router.get("/:id", async (req, res) => {
   const { id } = GetProductParams.parse({ id: Number(req.params.id) });
   const [product] = await db.select().from(productsTable).where(eq(productsTable.id, id));
   if (!product) return res.status(404).json({ error: "Product not found" });
-  res.json(product);
+  return res.json(product);
 });
 
 router.patch("/:id", async (req, res) => {
@@ -42,7 +42,7 @@ router.patch("/:id", async (req, res) => {
   }
   const [product] = await db.update(productsTable).set(updateData).where(eq(productsTable.id, id)).returning();
   if (!product) return res.status(404).json({ error: "Product not found" });
-  res.json(product);
+  return res.json(product);
 });
 
 router.delete("/:id", async (req, res) => {
@@ -91,7 +91,7 @@ router.patch("/:productId/variations/:varId", async (req, res) => {
   const [row] = await db.update(productVariationsTable).set(updates as never)
     .where(eq(productVariationsTable.id, varId)).returning();
   if (!row) return res.status(404).json({ error: "Not found" });
-  res.json(row);
+  return res.json(row);
 });
 
 router.delete("/:productId/variations/:varId", async (req, res) => {

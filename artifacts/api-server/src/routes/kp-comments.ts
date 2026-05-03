@@ -19,7 +19,7 @@ router.patch("/:id", async (req, res) => {
   const id = Number(req.params.id);
   const [row] = await db.update(kpCommentsTable).set(req.body as never).where(eq(kpCommentsTable.id, id)).returning();
   if (!row) return res.status(404).json({ error: "Not found" });
-  res.json(row);
+  return res.json(row);
 });
 
 router.delete("/:id", async (req, res) => {

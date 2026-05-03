@@ -20,7 +20,7 @@ router.get("/:id", async (req, res) => {
   const { id } = GetCategoryParams.parse({ id: Number(req.params.id) });
   const [category] = await db.select().from(categoriesTable).where(eq(categoriesTable.id, id));
   if (!category) return res.status(404).json({ error: "Category not found" });
-  res.json(category);
+  return res.json(category);
 });
 
 router.patch("/:id", async (req, res) => {
@@ -28,7 +28,7 @@ router.patch("/:id", async (req, res) => {
   const body = UpdateCategoryBody.parse(req.body);
   const [category] = await db.update(categoriesTable).set(body).where(eq(categoriesTable.id, id)).returning();
   if (!category) return res.status(404).json({ error: "Category not found" });
-  res.json(category);
+  return res.json(category);
 });
 
 router.delete("/:id", async (req, res) => {

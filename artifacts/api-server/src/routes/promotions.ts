@@ -34,7 +34,7 @@ router.patch("/:id", async (req, res) => {
   const body = req.body as Record<string, unknown>;
   const [row] = await db.update(promotionsTable).set(body as never).where(eq(promotionsTable.id, id)).returning();
   if (!row) return res.status(404).json({ error: "Not found" });
-  res.json(row);
+  return res.json(row);
 });
 
 router.delete("/:id", async (req, res) => {

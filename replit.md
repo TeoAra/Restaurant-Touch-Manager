@@ -35,6 +35,16 @@ Full-stack POS (Point of Sale) system for restaurants, pubs, and breweries. Buil
 - API: `POST /api/auth/login` (validate PIN → user object), `GET/POST/PATCH/DELETE /api/auth/users`
 - Frontend: `AuthContext`, `LoginPage`, route protection in `App.tsx`
 
+## Codegen Caveat (Orval Zod)
+
+Il target `zod` di Orval (modalità `split`) non genera `api.schemas.ts` ma rigenera
+sempre `lib/api-zod/src/index.ts` con `export * from "./generated/api.schemas"`.
+Per evitare che il build si rompa ad ogni codegen, in `lib/api-spec/orval.config.ts`
+è registrato un hook `afterAllFilesWrite` sul target `zod` che ricrea
+automaticamente `lib/api-zod/src/generated/api.schemas.ts` come stub vuoto
+(`export {};`) ad ogni codegen. Non serve manutenzione manuale; non rimuovere
+l'hook senza prima sistemare l'export in `lib/api-zod/src/index.ts`.
+
 ## Application Structure
 
 ### Frontend Pages (`artifacts/pos-restaurant/src/pages/`)

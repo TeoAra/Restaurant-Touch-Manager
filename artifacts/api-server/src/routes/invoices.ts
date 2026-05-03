@@ -45,7 +45,7 @@ router.get("/:id", async (req, res) => {
   const id = Number(req.params.id);
   const [inv] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
   if (!inv) return res.status(404).json({ error: "Fattura non trovata" });
-  res.json(inv);
+  return res.json(inv);
 });
 
 router.get("/:id/xml", async (req, res) => {
@@ -62,7 +62,7 @@ router.get("/:id/xml", async (req, res) => {
   const fileName = `IT${(await getSettings()).partita_iva ?? "00000000000"}_${String(inv.anno).slice(-2)}${String(inv.numero).padStart(5, "0")}_001.xml`;
   res.setHeader("Content-Type", "application/xml");
   res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
-  res.send(xml);
+  return res.send(xml);
 });
 
 router.post("/", async (req, res) => {
@@ -80,6 +80,7 @@ router.post("/", async (req, res) => {
   } else {
     numero = await getNextInvoiceNumber(anno);
   }
+  // fall through
   const data = body.data ?? new Date().toISOString().slice(0, 10);
   const righe = JSON.stringify(body.righe ?? []);
 
@@ -99,7 +100,7 @@ router.post("/", async (req, res) => {
     note: body.note,
   }).returning();
 
-  res.status(201).json(inv);
+  return res.status(201).json(inv);
 });
 
 router.patch("/:id", async (req, res) => {
@@ -109,7 +110,7 @@ router.patch("/:id", async (req, res) => {
   if (body.righe && typeof body.righe !== "string") updateData.righe = JSON.stringify(body.righe);
   const [inv] = await db.update(invoicesTable).set(updateData as never).where(eq(invoicesTable.id, id)).returning();
   if (!inv) return res.status(404).json({ error: "Fattura non trovata" });
-  res.json(inv);
+  return res.json(inv);
 });
 
 router.post("/:id/emit", async (req, res) => {
@@ -121,7 +122,7 @@ router.post("/:id/emit", async (req, res) => {
     .set({ xmlContent: xml, stato: "emessa" })
     .where(eq(invoicesTable.id, id))
     .returning();
-  res.json({ ...updated, xml });
+  return res.json({ ...updated, xml });
 });
 
 router.delete("/:id", async (req, res) => {

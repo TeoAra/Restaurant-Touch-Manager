@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeftRight, Ticket, Monitor, ListOrdered, Wallet, Sparkles, Award, Boxes, Lock, AlertTriangle } from "lucide-react";
+import { useLocation } from "wouter";
+import { ArrowLeftRight, Ticket, Monitor, ListOrdered, Wallet, Sparkles, Award, Boxes, Lock, AlertTriangle, Wand2 } from "lucide-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
@@ -91,6 +93,17 @@ const STATUS_BADGE: Record<Feature["status"], { label: string; cls: string }> = 
 export default function FunzioniPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
+
+  async function reopenWizard() {
+    await fetch(`${API}/settings`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "onboarding_completed", value: "false" }),
+    });
+    qc.invalidateQueries({ queryKey: ["settings"] });
+    setLocation("/onboarding");
+  }
+
   const { data: settings = {} } = useQuery<Settings>({
     queryKey: ["settings"],
     queryFn: () => fetch(`${API}/settings`).then(r => r.json()),
@@ -121,6 +134,17 @@ export default function FunzioniPage() {
             mantenere l'interfaccia del POS pulita. Le funzioni "In arrivo" sono in
             sviluppo e vanno attivate solo per provarle in anteprima.
           </div>
+        </div>
+
+        <div className="bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 rounded-xl p-4 flex items-center justify-between gap-3">
+          <div className="flex items-start gap-3 flex-1 min-w-0">
+            <Wand2 className="h-5 w-5 text-orange-600 shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <div className="font-semibold text-orange-900">Configurazione guidata</div>
+              <div className="text-xs text-orange-700 mt-0.5">Ripeti il wizard di configurazione iniziale (dati attività, sale, menu, personale).</div>
+            </div>
+          </div>
+          <Button size="sm" onClick={reopenWizard} className="bg-orange-500 hover:bg-orange-600 shrink-0">Riapri wizard</Button>
         </div>
 
         <div className="space-y-2">

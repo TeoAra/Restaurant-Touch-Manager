@@ -28,7 +28,7 @@ router.patch("/:id", async (req, res) => {
   if (active !== undefined) updates.active = active;
   const [row] = await db.update(couriersTable).set(updates as never).where(eq(couriersTable.id, id)).returning();
   if (!row) return res.status(404).json({ error: "Not found" });
-  res.json(row);
+  return res.json(row);
 });
 
 router.delete("/:id", async (req, res) => {

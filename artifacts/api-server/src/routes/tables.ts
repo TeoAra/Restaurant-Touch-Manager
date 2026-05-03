@@ -22,14 +22,14 @@ router.post("/reorder", async (req, res) => {
 router.post("/", async (req, res) => {
   const body = CreateTableBody.parse(req.body);
   const [table] = await db.insert(tablesTable).values(body).returning();
-  res.status(201).json(table);
+  return res.status(201).json(table);
 });
 
 router.get("/:id", async (req, res) => {
   const { id } = GetTableParams.parse({ id: Number(req.params.id) });
   const [table] = await db.select().from(tablesTable).where(eq(tablesTable.id, id));
   if (!table) return res.status(404).json({ error: "Table not found" });
-  res.json(table);
+  return res.json(table);
 });
 
 router.patch("/:id", async (req, res) => {
@@ -37,7 +37,7 @@ router.patch("/:id", async (req, res) => {
   const body = UpdateTableBody.parse(req.body);
   const [table] = await db.update(tablesTable).set(body).where(eq(tablesTable.id, id)).returning();
   if (!table) return res.status(404).json({ error: "Table not found" });
-  res.json(table);
+  return res.json(table);
 });
 
 router.delete("/:id", async (req, res) => {

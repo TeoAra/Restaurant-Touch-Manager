@@ -837,6 +837,9 @@ components:
           type: ["integer", "null"]
         notes:
           type: ["string", "null"]
+        modalita:
+          type: string
+          enum: ["tavolo", "asporto", "delivery", "rapida"]
       required: []
 
     UpdateOrderBody:
@@ -849,6 +852,9 @@ components:
           type: ["string", "null"]
         tableId:
           type: ["integer", "null"]
+        modalita:
+          type: ["string", "null"]
+          enum: ["tavolo", "asporto", "delivery", "rapida", null]
 
     OrderItem:
       type: object
@@ -893,6 +899,10 @@ components:
           type: integer
         notes:
           type: ["string", "null"]
+        unitPrice:
+          type: string
+        phase:
+          type: integer
       required:
         - productId
         - quantity
@@ -904,6 +914,10 @@ components:
           type: integer
         notes:
           type: ["string", "null"]
+        unitPrice:
+          type: string
+        phase:
+          type: integer
 
     Payment:
       type: object

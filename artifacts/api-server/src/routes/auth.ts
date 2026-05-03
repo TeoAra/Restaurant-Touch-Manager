@@ -15,7 +15,7 @@ router.post("/login", async (req, res) => {
     .where(eq(usersTable.pin, pin));
 
   if (!user) return res.status(401).json({ error: "PIN non valido" });
-  res.json(user);
+  return res.json(user);
 });
 
 // GET /api/auth/users — list users (admin only, enforced in frontend)
@@ -50,7 +50,7 @@ router.patch("/users/:id", async (req, res) => {
   const [user] = await db.update(usersTable).set({ ...(name && { name }), ...(pin && { pin }), ...(role && { role }) })
     .where(eq(usersTable.id, id)).returning({ id: usersTable.id, name: usersTable.name, role: usersTable.role });
   if (!user) return res.status(404).json({ error: "Utente non trovato" });
-  res.json(user);
+  return res.json(user);
 });
 
 export default router;

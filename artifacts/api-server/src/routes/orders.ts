@@ -111,7 +111,7 @@ router.get("/:id", async (req, res) => {
 
   const tables = await db.select().from(tablesTable);
   const tableMap = new Map(tables.map(t => [t.id, t.name]));
-  res.json({ ...order, tableName: order.tableId ? (tableMap.get(order.tableId) ?? null) : null, items });
+  return res.json({ ...order, tableName: order.tableId ? (tableMap.get(order.tableId) ?? null) : null, items });
 });
 
 // Update order
@@ -196,7 +196,7 @@ router.patch("/:id", async (req, res) => {
 
   const tables = await db.select().from(tablesTable);
   const tableMap = new Map(tables.map(t => [t.id, t.name]));
-  res.json({ ...order, tableName: order.tableId ? (tableMap.get(order.tableId) ?? null) : null });
+  return res.json({ ...order, tableName: order.tableId ? (tableMap.get(order.tableId) ?? null) : null });
 });
 
 // Delete (cancel) order
@@ -255,7 +255,7 @@ router.post("/:orderId/items", async (req, res) => {
   }).returning();
 
   await recalcOrderTotal(orderId);
-  res.status(201).json(item);
+  return res.status(201).json(item);
 });
 
 // Update order item
@@ -281,6 +281,7 @@ router.patch("/:orderId/items/:itemId", async (req, res) => {
     updateData.subtotal = (parseFloat(effectiveUnitPrice) * existing.quantity).toFixed(2);
   }
   if (body.notes !== undefined) updateData.notes = body.notes;
+  if (body.phase !== undefined) updateData.phase = body.phase;
   // modifiers is not in the Zod schema but can be passed directly
   const rawModifiers = (req.body as { modifiers?: string }).modifiers;
   if (rawModifiers !== undefined) updateData.modifiers = rawModifiers;
@@ -290,7 +291,7 @@ router.patch("/:orderId/items/:itemId", async (req, res) => {
     .returning();
 
   await recalcOrderTotal(orderId);
-  res.json(item);
+  return res.json(item);
 });
 
 // Delete order item
@@ -540,7 +541,7 @@ router.post("/:id/send-comanda", async (req, res) => {
   }
 
   const allPhases = [...new Set([...byPrinter.values()].flatMap(pg => [...pg.phases.keys()]))].sort().join(", ");
-  res.json({ success: true, sentItems: sentItems.length, phases: allPhases, printers: printResults });
+  return res.json({ success: true, sentItems: sentItems.length, phases: allPhases, printers: printResults });
 });
 
 // Update covers (0 allowed)
@@ -550,7 +551,7 @@ router.patch("/:id/covers", async (req, res) => {
   if (covers === undefined || covers < 0) return res.status(400).json({ error: "Invalid covers" });
   const [order] = await db.update(ordersTable).set({ covers }).where(eq(ordersTable.id, id)).returning();
   if (!order) return res.status(404).json({ error: "Order not found" });
-  res.json(order);
+  return res.json(order);
 });
 
 // ── Merge order into another (unificazione conto) ────────────────────────────
@@ -575,7 +576,7 @@ router.post("/:id/merge-into/:targetId", async (req, res) => {
   await db.update(ordersTable).set({ status: "paid" }).where(eq(ordersTable.id, sourceId));
   if (source.tableId) await freeTableIfEmpty(source.tableId);
 
-  res.json({ success: true, targetOrderId: targetId, newTotal });
+  return res.json({ success: true, targetOrderId: targetId, newTotal });
 });
 
 // ── Stampa preconto sulla RT (ordine rimane aperto) ─────────────────────────
@@ -620,7 +621,7 @@ router.post("/:id/preconto", async (req, res) => {
   const rt = await emettiPreconto({ tavolo: tableName, coperti: covers > 0 ? covers : undefined, righe, totale, ragioneSociale });
   req.log.info({ orderId: id, rt: rt.ok }, "[PRECONTO] stampa");
 
-  res.json({ ok: rt.ok, error: rt.error ?? null, totale });
+  return res.json({ ok: rt.ok, error: rt.error ?? null, totale });
 });
 
 // ── Sposta ordine su altro tavolo ──────────────────────────────────────────
@@ -656,7 +657,7 @@ router.post("/:id/move-table", async (req, res) => {
   if (oldTableId && oldTableId !== tableId) await freeTableIfEmpty(oldTableId);
 
   void logAudit({ req, action: "order.move_table", entityType: "order", entityId: id, details: { from: oldTableId, to: tableId } });
-  res.json({ ok: true, order: updated });
+  return res.json({ ok: true, order: updated });
 });
 
 // ── Unisci due ordini (merge) ──────────────────────────────────────────────
@@ -701,7 +702,7 @@ router.post("/:id/merge", async (req, res) => {
   if (source.tableId) await freeTableIfEmpty(source.tableId);
 
   void logAudit({ req, action: "order.merge", entityType: "order", entityId: id, details: { from: sourceOrderId, mergedTotal: result.newTotal } });
-  res.json({ ok: true, mergedItems: true, newTotal: result.newTotal });
+  return res.json({ ok: true, mergedItems: true, newTotal: result.newTotal });
 });
 
 // ── Sposta articoli tra ordini ─────────────────────────────────────────────
@@ -744,7 +745,7 @@ router.post("/:fromId/items/move", async (req, res) => {
   });
 
   void logAudit({ req, action: "order.move_items", entityType: "order", entityId: fromId, details: { to: toOrderId, count: valid.length, amount: moved.toFixed(2) } });
-  res.json({ ok: true, movedCount: valid.length, movedAmount: moved.toFixed(2) });
+  return res.json({ ok: true, movedCount: valid.length, movedAmount: moved.toFixed(2) });
 });
 
 // Void item: mark as deleted and optionally notify department (future: trigger print)
@@ -757,7 +758,7 @@ router.post("/:orderId/items/:itemId/void", async (req, res) => {
   if (!item) return res.status(404).json({ error: "Item not found" });
   // TODO: trigger void print to department printer
   console.log(`[VOID] Articolo annullato: ${item.productName} (qty: ${item.quantity}) — ordine ${orderId}`);
-  res.json({ success: true, voidedItem: item });
+  return res.json({ success: true, voidedItem: item });
 });
 
 export default router;

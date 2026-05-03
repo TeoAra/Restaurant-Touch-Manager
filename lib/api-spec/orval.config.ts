@@ -47,6 +47,12 @@ export default defineConfig({
         transformer: titleTransformer,
       },
     },
+    hooks: {
+      // Orval zod-only target non genera api.schemas.ts ma il file index.ts
+      // rigenerato lo importa: ricreiamo uno stub vuoto per evitare TS2307.
+      // Vedi replit.md → "Codegen Caveat (Orval Zod)".
+      afterAllFilesWrite: `node -e "require('fs').writeFileSync(require('path').resolve('${apiZodSrc.replace(/\\/g, "\\\\")}', 'generated', 'api.schemas.ts'), 'export {};\\n')"`,
+    },
     output: {
       workspace: apiZodSrc,
       client: "zod",

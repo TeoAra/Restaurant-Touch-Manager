@@ -7,11 +7,12 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   Receipt, AlertTriangle, BarChart3, CheckCircle2, XCircle, Printer,
-  RefreshCw, Search, Activity, FileText, Settings2, Ticket, X,
+  RefreshCw, Search, Activity, FileText, Settings2, Ticket, X, Banknote,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/contexts/AuthContext";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
@@ -87,6 +88,7 @@ export default function FiscalePage() {
   const [repartiEdit, setRepartiEdit] = useState<Record<string, string>>({});
   const [repartiOpen, setRepartiOpen] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [drawerLoading, setDrawerLoading] = useState(false);
 
   // Lotteria
   const [lotteriaInput, setLotteriaInput] = useState("");
@@ -95,6 +97,7 @@ export default function FiscalePage() {
 
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { user: currentUser } = useAuth();
   const { data: receipts = [] } = useReceipts(searchParams);
   const { data: printerStatus, refetch: refetchPrinter } = usePrinterStatus();
   const { data: lotteriaData, refetch: refetchLotteria } = useLotteria();
@@ -199,6 +202,28 @@ export default function FiscalePage() {
     } catch {
       toast({ title: "Errore comunicazione RT", variant: "destructive" });
     } finally { setCancelLoading(false); }
+  }
+
+  async function handleOpenDrawer() {
+    setDrawerLoading(true);
+    try {
+      const resp = await fetch(`${API}/fiscal/open-drawer`, {
+        method: "POST",
+        headers: {
+          "x-user-role": "admin",
+          "x-user-id": String(currentUser?.id ?? ""),
+          "x-user-name": currentUser?.name ?? "",
+        },
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        toast({ title: "Cassetto aperto", description: data.printer ? `Comando inviato a ${data.printer}` : undefined });
+      } else {
+        toast({ title: "Cassetto non aperto", description: data.error ?? "Stampante fiscale non raggiungibile", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Errore comunicazione RT", variant: "destructive" });
+    } finally { setDrawerLoading(false); }
   }
 
   async function handleSalvaLotteria() {
@@ -492,6 +517,16 @@ export default function FiscalePage() {
                 {zLoading ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Printer className="h-5 w-5" />}
                 {zLoading ? "Elaborazione…" : "Esegui Chiusura Z"}
               </Button>
+
+              {/* Apri cassetto cassa */}
+              <div className="pt-3 border-t border-slate-200">
+                <Button size="lg" variant="outline" onClick={handleOpenDrawer} disabled={drawerLoading}
+                  className="w-full gap-2 text-base">
+                  {drawerLoading ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Banknote className="h-5 w-5" />}
+                  {drawerLoading ? "Apertura…" : "Apri cassetto cassa"}
+                </Button>
+                <p className="text-xs text-slate-400 mt-2 text-center">Invia il comando di apertura cassetto alla stampante fiscale (l'azione viene registrata nell'audit log).</p>
+              </div>
             </div>
             <ReportResultCard result={reportResult} />
           </div>

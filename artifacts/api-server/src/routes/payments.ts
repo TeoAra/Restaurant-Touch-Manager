@@ -165,7 +165,7 @@ router.get("/:id", async (req, res) => {
   const { id } = GetPaymentParams.parse({ id: Number(req.params.id) });
   const [payment] = await db.select().from(paymentsTable).where(eq(paymentsTable.id, id));
   if (!payment) return res.status(404).json({ error: "Payment not found" });
-  res.json(payment);
+  return res.json(payment);
 });
 
 export default router;
