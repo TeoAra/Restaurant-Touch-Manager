@@ -1,11 +1,21 @@
 import { Router } from "express";
-import { db, paymentsTable, ordersTable, tablesTable, orderItemsTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { db, paymentsTable, ordersTable, orderItemsTable } from "@workspace/db";
+import { eq, sql } from "drizzle-orm";
 import { CreatePaymentBody, GetPaymentParams } from "@workspace/api-zod";
 import { getFiscalPrinter, emettiFiscalReceipt, emettiDocumentoNonFiscale } from "../lib/fiscal-printer";
 import { getSettings } from "../lib/settings";
+import { logAudit } from "../lib/audit";
 
 const router = Router();
+
+// ── Helper: libera tavolo se non ci sono altri ordini aperti (ATOMICO) ──────
+async function freeTableIfEmpty(tableId: number) {
+  await db.execute(sql`
+    UPDATE tables SET status = 'free'
+    WHERE id = ${tableId}
+      AND NOT EXISTS (SELECT 1 FROM orders WHERE table_id = ${tableId} AND status = 'open')
+  `);
+}
 
 router.get("/", async (req, res) => {
   const payments = await db.select().from(paymentsTable).orderBy(paymentsTable.createdAt);
@@ -28,11 +38,21 @@ router.post("/", async (req, res) => {
     ? (req.body.itemIds as number[])
     : undefined;
 
+  // Determina se l'ordine è completamente pagato sommando TUTTI i pagamenti
+  // ricevuti finora. Questo gestisce correttamente il caso split-bill multiplo
+  // (es. 5 split successivi su 10 articoli) senza richiedere link item↔payment.
   let isSplitWithRemainder = false;
   if (splitItemIdsPre) {
-    const allItemsPre = await db.select({ id: orderItemsTable.id }).from(orderItemsTable).where(eq(orderItemsTable.orderId, body.orderId));
-    const remainingCount = allItemsPre.filter(i => !splitItemIdsPre.includes(i.id)).length;
-    isSplitWithRemainder = remainingCount > 0;
+    const [orderRow] = await db.select({ id: ordersTable.id, total: ordersTable.total })
+      .from(ordersTable).where(eq(ordersTable.id, body.orderId)).limit(1);
+    const totaleOrdine = parseFloat(orderRow?.total ?? "0");
+    const sumRow = await db.execute<{ totale: string | null }>(sql`
+      SELECT COALESCE(SUM(amount::numeric), 0)::text AS totale
+      FROM payments WHERE order_id = ${body.orderId}
+    `);
+    const totalePagato = parseFloat(sumRow.rows[0]?.totale ?? "0");
+    // Tolleranza 1 cent per arrotondamenti
+    isSplitWithRemainder = totalePagato + 0.01 < totaleOrdine;
   }
 
   // Mark order as paid only when fully paid (not a partial split)
@@ -40,14 +60,19 @@ router.post("/", async (req, res) => {
     ? await db.select().from(ordersTable).where(eq(ordersTable.id, body.orderId)).limit(1).then(r => r)
     : await db.update(ordersTable).set({ status: "paid" }).where(eq(ordersTable.id, body.orderId)).returning();
 
-  // Free the table only when the order is fully paid
+  // Free the table only when the order is fully paid (atomico)
   if (!isSplitWithRemainder && order?.tableId) {
-    const openOrders = await db.select().from(ordersTable)
-      .where(and(eq(ordersTable.tableId, order.tableId), eq(ordersTable.status, "open")));
-    if (openOrders.length === 0) {
-      await db.update(tablesTable).set({ status: "free" }).where(eq(tablesTable.id, order.tableId));
-    }
+    await freeTableIfEmpty(order.tableId);
   }
+
+  // Audit
+  void logAudit({
+    req,
+    action: "payment.create",
+    entityType: "order",
+    entityId: body.orderId,
+    details: { amount: body.amount, method: body.method, isSplit: !!splitItemIds, isSplitWithRemainder },
+  });
 
   // ── Emetti documento sulla RT (fiscale o non-fiscale) ────────────────────
   const nonFiscale = req.body?.nonFiscale === true; // documento gestionale → scontrino non fiscale

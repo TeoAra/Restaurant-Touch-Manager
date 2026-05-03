@@ -34,7 +34,13 @@ router.get("/:id", async (req, res) => {
 router.patch("/:id", async (req, res) => {
   const { id } = UpdateProductParams.parse({ id: Number(req.params.id) });
   const body = UpdateProductBody.parse(req.body);
-  const [product] = await db.update(productsTable).set(body).where(eq(productsTable.id, id)).returning();
+  const updateData: Record<string, unknown> = { ...body };
+  // Campo allergeni non in zod schema (passthrough)
+  const raw = req.body as Record<string, unknown>;
+  if (raw.allergeni !== undefined) {
+    updateData.allergeni = raw.allergeni === null ? null : String(raw.allergeni);
+  }
+  const [product] = await db.update(productsTable).set(updateData).where(eq(productsTable.id, id)).returning();
   if (!product) return res.status(404).json({ error: "Product not found" });
   res.json(product);
 });

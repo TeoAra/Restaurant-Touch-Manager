@@ -132,7 +132,7 @@ type ProductExt = Product & { sku?: string; barcode?: string; price2?: string; p
 function ProductForm({ initial, categories, onSave, onClose }: {
   initial?: Product;
   categories: Category[];
-  onSave: (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; available: boolean; sortOrder: number; sku: string | null; barcode: string | null }) => void;
+  onSave: (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; available: boolean; sortOrder: number; sku: string | null; barcode: string | null; allergeni: string | null }) => void;
   onClose: () => void
 }) {
   const ext = initial as ProductExt | undefined;
@@ -147,6 +147,7 @@ function ProductForm({ initial, categories, onSave, onClose }: {
   const [sortOrder, setSortOrder] = useState(ext?.sortOrder ?? 0);
   const [sku, setSku] = useState(ext?.sku ?? "");
   const [barcode, setBarcode] = useState(ext?.barcode ?? "");
+  const [allergeni, setAllergeni] = useState((ext as unknown as { allergeni?: string | null })?.allergeni ?? "");
 
   return (
     <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
@@ -203,13 +204,24 @@ function ProductForm({ initial, categories, onSave, onClose }: {
         </div>
       </div>
 
+      <div>
+        <Label>Allergeni</Label>
+        <Input
+          value={allergeni}
+          onChange={e => setAllergeni(e.target.value)}
+          placeholder="Es. glutine, latticini, frutta a guscio"
+          className="mt-1"
+        />
+        <p className="text-[11px] text-muted-foreground mt-1">Separati da virgola — verranno stampati in cucina</p>
+      </div>
+
       <div className="flex items-center gap-2">
         <Switch checked={available} onCheckedChange={setAvailable} id="available" />
         <Label htmlFor="available">Disponibile</Label>
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Annulla</Button>
-        <Button onClick={() => onSave({ name, price, price2, price3, price4, categoryId, description: description || null, available, sortOrder, sku: sku || null, barcode: barcode || null })} disabled={!name || !price}>Salva</Button>
+        <Button onClick={() => onSave({ name, price, price2, price3, price4, categoryId, description: description || null, available, sortOrder, sku: sku || null, barcode: barcode || null, allergeni: allergeni.trim() || null })} disabled={!name || !price}>Salva</Button>
       </DialogFooter>
     </div>
   );
@@ -674,7 +686,7 @@ export default function MenuPage() {
     }
   };
 
-  const handleSaveProduct = (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; available: boolean; sortOrder: number; sku: string | null; barcode: string | null }) => {
+  const handleSaveProduct = (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; available: boolean; sortOrder: number; sku: string | null; barcode: string | null; allergeni: string | null }) => {
     const opts = {
       onSuccess: () => {
         toast({ title: "Prodotto salvato" });

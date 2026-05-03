@@ -23,9 +23,31 @@ const router = Router();
 
 async function recalcOrderTotal(orderId: number) {
   const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
-  const total = items.reduce((sum, item) => sum + parseFloat(item.subtotal), 0);
-  await db.update(ordersTable).set({ total: total.toFixed(2) }).where(eq(ordersTable.id, orderId));
-  return total.toFixed(2);
+  // ── Calcolo in CENTESIMI per evitare errori floating-point ────────────────
+  // Il totale è la somma esatta dei subtotal in centesimi. Questo allinea
+  // perfettamente con il calcolo che la RT fa internamente sui prezzi unitari.
+  const totalCents = items.reduce((sum, item) => {
+    const unit = Math.round(parseFloat(item.unitPrice) * 100);
+    return sum + unit * item.quantity;
+  }, 0);
+  const total = (totalCents / 100).toFixed(2);
+  await db.update(ordersTable).set({ total }).where(eq(ordersTable.id, orderId));
+  return total;
+}
+
+// ── Helper: libera tavolo se non ci sono altri ordini aperti (ATOMICO) ──────
+// Usa SQL puro per evitare race conditions tra check e update.
+async function freeTableIfEmpty(tableId: number, excludeOrderId?: number) {
+  await db.execute(sql`
+    UPDATE tables SET status = 'free'
+    WHERE id = ${tableId}
+      AND NOT EXISTS (
+        SELECT 1 FROM orders
+        WHERE table_id = ${tableId}
+          AND status = 'open'
+          ${excludeOrderId ? sql`AND id != ${excludeOrderId}` : sql``}
+      )
+  `);
 }
 
 // List orders
@@ -106,34 +128,69 @@ router.patch("/:id", async (req, res) => {
   if (body.tableId !== undefined) updateData.tableId = body.tableId;
   if (body.modalita !== undefined) updateData.modalita = body.modalita;
 
+  // Campi extra non in zod schema (sconto, sospeso, mancia, coperti)
+  // Validati ad-hoc per evitare di aggiornare colonne non previste
+  const raw = req.body as Record<string, unknown>;
+
+  // Helper: parsa valore decimale → "0.00" formato; ritorna null se invalido
+  const parseDecimal = (v: unknown, max = 999999): string | null => {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0 || n > max) return null;
+    return n.toFixed(2);
+  };
+
+  if (raw.discountType !== undefined) {
+    if (raw.discountType !== null && raw.discountType !== "percent" && raw.discountType !== "amount") {
+      return res.status(400).json({ error: "discountType deve essere 'percent', 'amount' o null" });
+    }
+    updateData.discountType = raw.discountType;
+  }
+  if (raw.discountValue !== undefined) {
+    const isPercent = raw.discountType === "percent" || (raw.discountType === undefined && currentOrder.discountType === "percent");
+    const dec = parseDecimal(raw.discountValue, isPercent ? 100 : 999999);
+    if (dec === null) return res.status(400).json({ error: "discountValue non valido" });
+    updateData.discountValue = dec;
+  }
+  if (raw.discountReason !== undefined) {
+    updateData.discountReason = raw.discountReason === null ? null : String(raw.discountReason).slice(0, 200);
+  }
+  if (raw.mancia !== undefined) {
+    const dec = parseDecimal(raw.mancia, 9999);
+    if (dec === null) return res.status(400).json({ error: "mancia non valida" });
+    updateData.mancia = dec;
+  }
+  if (raw.sospeso !== undefined)        updateData.sospeso        = !!raw.sospeso;
+  if (raw.sospesoNote !== undefined)    updateData.sospesoNote    = raw.sospesoNote === null ? null : String(raw.sospesoNote).slice(0, 500);
+  if (raw.sospesoCustomerId !== undefined) {
+    if (raw.sospesoCustomerId === null) updateData.sospesoCustomerId = null;
+    else {
+      const n = Number(raw.sospesoCustomerId);
+      if (!Number.isInteger(n) || n <= 0) return res.status(400).json({ error: "sospesoCustomerId non valido" });
+      updateData.sospesoCustomerId = n;
+    }
+  }
+  if (raw.covers !== undefined) {
+    const n = Number(raw.covers);
+    if (!Number.isFinite(n) || n < 0 || n > 999) return res.status(400).json({ error: "covers non valido" });
+    updateData.covers = Math.floor(n);
+  }
+
   const [order] = await db.update(ordersTable).set(updateData).where(eq(ordersTable.id, id)).returning();
   if (!order) return res.status(404).json({ error: "Order not found" });
 
-  // Handle table reassignment: free old table, occupy new table
+  // Handle table reassignment: free old table, occupy new table (ATOMICO)
   if (body.tableId !== undefined && body.tableId !== currentOrder.tableId) {
-    // Free old table if no other open orders use it
     if (currentOrder.tableId) {
-      const oldOpenOrders = await db.select().from(ordersTable)
-        .where(and(eq(ordersTable.tableId, currentOrder.tableId), eq(ordersTable.status, "open")));
-      if (oldOpenOrders.length === 0) {
-        await db.update(tablesTable).set({ status: "free" }).where(eq(tablesTable.id, currentOrder.tableId));
-      }
+      await freeTableIfEmpty(currentOrder.tableId);
     }
-    // Mark new table as occupied
     if (body.tableId) {
       await db.update(tablesTable).set({ status: "occupied" }).where(eq(tablesTable.id, body.tableId));
     }
   }
 
-  // When paid/cancelled, free the table if no other open orders
-  if (body.status === "paid" || body.status === "cancelled") {
-    if (order.tableId) {
-      const openOrders = await db.select().from(ordersTable)
-        .where(and(eq(ordersTable.tableId, order.tableId), eq(ordersTable.status, "open")));
-      if (openOrders.length === 0) {
-        await db.update(tablesTable).set({ status: "free" }).where(eq(tablesTable.id, order.tableId));
-      }
-    }
+  // When paid/cancelled, free the table atomically if no other open orders
+  if ((body.status === "paid" || body.status === "cancelled") && order.tableId) {
+    await freeTableIfEmpty(order.tableId);
   }
 
   const tables = await db.select().from(tablesTable);
@@ -145,15 +202,10 @@ router.patch("/:id", async (req, res) => {
 router.delete("/:id", async (req, res) => {
   const { id } = DeleteOrderParams.parse({ id: Number(req.params.id) });
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
-  if (order?.tableId) {
-    const openOrders = await db.select().from(ordersTable)
-      .where(and(eq(ordersTable.tableId, order.tableId), eq(ordersTable.status, "open")));
-    if (openOrders.length <= 1) {
-      await db.update(tablesTable).set({ status: "free" }).where(eq(tablesTable.id, order.tableId));
-    }
-  }
   await db.delete(orderItemsTable).where(eq(orderItemsTable.orderId, id));
   await db.delete(ordersTable).where(eq(ordersTable.id, id));
+  // Atomico: libera il tavolo solo se non ci sono altri open
+  if (order?.tableId) await freeTableIfEmpty(order.tableId);
   res.status(204).end();
 });
 
@@ -508,14 +560,9 @@ router.post("/:id/merge-into/:targetId", async (req, res) => {
   const newTotal = items.reduce((s, i) => s + parseFloat(i.subtotal ?? "0"), 0).toFixed(2);
   await db.update(ordersTable).set({ total: newTotal }).where(eq(ordersTable.id, targetId));
 
-  // Close source order and free its table
+  // Close source order and free its table (atomico)
   await db.update(ordersTable).set({ status: "paid" }).where(eq(ordersTable.id, sourceId));
-  if (source.tableId) {
-    const others = await db.select().from(ordersTable)
-      .where(and(eq(ordersTable.tableId, source.tableId), eq(ordersTable.status, "open")));
-    if (others.length === 0)
-      await db.update(tablesTable).set({ status: "free" }).where(eq(tablesTable.id, source.tableId));
-  }
+  if (source.tableId) await freeTableIfEmpty(source.tableId);
 
   res.json({ success: true, targetOrderId: targetId, newTotal });
 });

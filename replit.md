@@ -158,3 +158,40 @@ Global modifiers not bound to individual products but to **categories**:
 | `enable_asporto` | `"true"` / `"false"` | `"false"` |
 | `enable_delivery` | `"true"` / `"false"` | `"false"` |
 | `cover_price` | decimal string e.g. `"2.50"` | `"0.00"` |
+
+## v2 Changes (T001–T010)
+
+### Backend
+- **Atomic transactions** — `orders.ts` (close order + free table), `payments.ts` (payment + free), `fiscal.ts` (`paid_romana` SQL increment). All via `db.transaction()` o SQL atomico per evitare race conditions.
+- `recalcOrderTotal` calcola in centesimi (no float drift).
+- New PATCH passthrough fields su `orders`: `discountType`, `discountValue`, `discountReason`, `mancia`, `sospeso`, `sospesoNote`, `sospesoCustomerId`, `covers`.
+- New PATCH passthrough field su `products`: `allergeni`.
+
+### New endpoints
+- `POST /api/fiscal/open-drawer` — apre cassetto via comando RT (`1g`).
+- `GET /api/fiscal/iva-report?from=&to=` — riepilogo IVA per aliquota nel periodo.
+- `GET /api/fiscal/sospesi` — lista conti sospesi non pagati.
+- `GET /api/audit?from=&to=&action=&entityType=&limit=` — visualizzazione audit log.
+- Lib `src/lib/audit.ts` (`logAudit`) usata da operazioni critiche (sconto, sospeso, cassetto, storno, delete item).
+
+### Schema DB (push-force già fatto)
+- `orders`: `discountType`, `discountValue`, `discountReason`, `mancia`, `sospeso`, `sospesoCustomerId`, `sospesoNote`.
+- `products`: `allergeni` (text).
+- New table `audit_logs` (id, userId, action, entityType, entityId, details JSON, createdAt).
+
+### Frontend (front-office)
+- Action grid 2×5: aggiunti **Sospeso** e **Cassetto**.
+- **Sconto** → DiscountDialog (% o € fisso, motivo opzionale, anteprima nuovo totale, rimuovi sconto).
+- **Sospeso** → SospesoDialog (note cliente, libera tavolo, importo memorizzato).
+- **Cassetto** → POST /fiscal/open-drawer + toast.
+- **Mancia** in PaymentDialog (input + quick-buttons €1/€2/€5, sommata al totale, salvata su order).
+- **Esaurito quick toggle** su ProductCard (long-press 600ms o tasto destro → PATCH /products/:id, badge rosso "Esaurito").
+
+### Frontend (back-office)
+- `menu.tsx`: campo **Allergeni** in ProductForm (es. "glutine, latticini").
+- `reports.tsx`: nuove sezioni **Report IVA per aliquota** (filtri data, tabella imponibile/IVA/totale) e **Conti Sospesi** (lista + totale da incassare).
+
+### UX
+- Pulsanti +/- a 36–44px (touch-friendly).
+- Conferma delete su qty ≤ 0 di draft.
+- Messaggi errore italiani con descrizione utile.

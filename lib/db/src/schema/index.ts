@@ -21,3 +21,4 @@ export * from "./couriers";
 export * from "./combos";
 export * from "./happy_hour";
 export * from "./kp_comments";
+export * from "./audit_logs";

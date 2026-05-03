@@ -4,9 +4,147 @@ import {
   useGetTopProducts,
 } from "@workspace/api-client-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { TrendingUp, ShoppingCart, TableProperties, Euro } from "lucide-react";
+import { TrendingUp, ShoppingCart, TableProperties, Euro, Receipt, Clock } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { BackofficeShell } from "@/components/BackofficeShell";
+import { useEffect, useState } from "react";
+
+const API = (import.meta.env.BASE_URL || "/") + "api";
+
+type IvaRow = { aliquota: string; imponibile: string; iva: string; totale: string; orders: number };
+type SospesoRow = { id: number; tableName: string | null; total: string; sospesoNote: string | null; createdAt: string };
+
+function IvaReportSection() {
+  const today = new Date().toISOString().slice(0, 10);
+  const monthStart = today.slice(0, 8) + "01";
+  const [from, setFrom] = useState(monthStart);
+  const [to, setTo] = useState(today);
+  const [rows, setRows] = useState<IvaRow[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`${API}/fiscal/iva-report?from=${from}&to=${to}`)
+      .then(r => r.json())
+      .then(d => setRows(Array.isArray(d) ? d : []))
+      .finally(() => setLoading(false));
+  }, [from, to]);
+
+  const totImponibile = rows.reduce((s, r) => s + parseFloat(r.imponibile || "0"), 0);
+  const totIva = rows.reduce((s, r) => s + parseFloat(r.iva || "0"), 0);
+  const totTotale = rows.reduce((s, r) => s + parseFloat(r.totale || "0"), 0);
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <h3 className="font-bold text-foreground flex items-center gap-2">
+          <Receipt className="h-4 w-4 text-primary" /> Report IVA per aliquota
+        </h3>
+        <div className="flex items-center gap-2 text-sm">
+          <label className="text-muted-foreground">Dal</label>
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+            className="bg-background border border-border rounded-md px-2 py-1 text-sm" />
+          <label className="text-muted-foreground">al</label>
+          <input type="date" value={to} onChange={e => setTo(e.target.value)}
+            className="bg-background border border-border rounded-md px-2 py-1 text-sm" />
+        </div>
+      </div>
+      {loading ? (
+        <div className="text-center text-muted-foreground py-6 text-sm">Caricamento…</div>
+      ) : rows.length === 0 ? (
+        <div className="text-center text-muted-foreground py-6 text-sm">Nessun incasso nel periodo selezionato</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground border-b border-border">
+                <th className="py-2">Aliquota</th>
+                <th className="py-2 text-right">Imponibile</th>
+                <th className="py-2 text-right">IVA</th>
+                <th className="py-2 text-right">Totale</th>
+                <th className="py-2 text-right">Scontrini</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.aliquota} className="border-b border-border/50">
+                  <td className="py-2 font-mono">{r.aliquota}%</td>
+                  <td className="py-2 text-right">€ {parseFloat(r.imponibile).toFixed(2)}</td>
+                  <td className="py-2 text-right text-amber-600">€ {parseFloat(r.iva).toFixed(2)}</td>
+                  <td className="py-2 text-right font-semibold">€ {parseFloat(r.totale).toFixed(2)}</td>
+                  <td className="py-2 text-right text-muted-foreground">{r.orders}</td>
+                </tr>
+              ))}
+              <tr className="font-bold bg-muted/30">
+                <td className="py-2">TOTALE</td>
+                <td className="py-2 text-right">€ {totImponibile.toFixed(2)}</td>
+                <td className="py-2 text-right text-amber-700">€ {totIva.toFixed(2)}</td>
+                <td className="py-2 text-right text-primary">€ {totTotale.toFixed(2)}</td>
+                <td className="py-2 text-right">—</td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="text-[11px] text-muted-foreground mt-3">
+            Calcolo basato sull'aliquota IVA configurata per ogni prodotto. Utile per liquidazione mensile/trimestrale.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SospesiSection() {
+  const [rows, setRows] = useState<SospesoRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = () => {
+    setLoading(true);
+    fetch(`${API}/fiscal/sospesi`)
+      .then(r => r.json())
+      .then(d => setRows(Array.isArray(d) ? d : []))
+      .finally(() => setLoading(false));
+  };
+  useEffect(refresh, []);
+
+  const totale = rows.reduce((s, r) => s + parseFloat(r.total || "0"), 0);
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-bold text-foreground flex items-center gap-2">
+          <Clock className="h-4 w-4 text-yellow-500" /> Conti Sospesi
+        </h3>
+        <div className="text-sm text-muted-foreground">
+          {rows.length} conti — <span className="text-foreground font-semibold">€ {totale.toFixed(2)}</span> da incassare
+        </div>
+      </div>
+      {loading ? (
+        <div className="text-center text-muted-foreground py-6 text-sm">Caricamento…</div>
+      ) : rows.length === 0 ? (
+        <div className="text-center text-muted-foreground py-6 text-sm">Nessun conto sospeso</div>
+      ) : (
+        <div className="space-y-2">
+          {rows.map(r => (
+            <div key={r.id} className="flex items-center gap-3 p-3 rounded-lg border border-yellow-200 bg-yellow-50">
+              <div className="flex-1">
+                <div className="font-semibold text-sm text-slate-800">
+                  {r.sospesoNote || `Ordine #${r.id}`}
+                  {r.tableName && <span className="ml-2 text-xs text-slate-500">— Tav. {r.tableName}</span>}
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  {new Date(r.createdAt).toLocaleString("it-IT")}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="font-bold text-yellow-800">€ {parseFloat(r.total).toFixed(2)}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function StatCard({ label, value, icon: Icon, sub }: { label: string; value: string; icon: React.ElementType; sub?: string }) {
   return (
@@ -69,6 +207,12 @@ export default function ReportsPage() {
               </ResponsiveContainer>
             </div>
           </div>
+
+          {/* Report IVA */}
+          <IvaReportSection />
+
+          {/* Conti sospesi */}
+          <SospesiSection />
 
           {/* Top products */}
           <div className="bg-card border border-border rounded-xl p-5">

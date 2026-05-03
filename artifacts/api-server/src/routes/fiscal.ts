@@ -1,6 +1,7 @@
 import { Router } from "express";
-import { db, fiscalReceiptsTable, ordersTable, paymentsTable, tablesTable } from "@workspace/db";
+import { db, fiscalReceiptsTable, ordersTable, paymentsTable } from "@workspace/db";
 import { eq, desc, and, sql } from "drizzle-orm";
+import { logAudit } from "../lib/audit";
 import {
   getFiscalPrinter,
   emettiFiscalReceipt,
@@ -428,6 +429,80 @@ router.get("/test-receipt", async (req, res) => {
   });
 });
 
+// ── Apertura cassetto manuale ────────────────────────────────────────────────
+// Comando RT XonXoff: "1g" o "5G" — apre il cassetto del cassiere
+router.post("/open-drawer", async (req, res) => {
+  const printer = await getFiscalPrinter();
+  if (!printer) {
+    return res.status(400).json({ ok: false, error: "Nessuna stampante fiscale configurata" });
+  }
+  const rtPort = printer.port ?? 1126;
+  // Per RT italiane più diffuse, "1g" = apertura cassetto (anche "5G" su alcuni modelli)
+  const result = await sendXonXoffCommand(printer.ip, rtPort, "1g", 3000);
+  void logAudit({
+    req,
+    action: "fiscal.drawer_open",
+    details: { ok: result.ok, printer: printer.name },
+  });
+  res.json({ ok: result.ok, printer: printer.name, error: result.error });
+});
+
+// ── Report IVA per aliquota (per data range) ─────────────────────────────────
+// GET /api/fiscal/iva-report?from=YYYY-MM-DD&to=YYYY-MM-DD
+router.get("/iva-report", async (req, res) => {
+  const { from, to } = req.query as { from?: string; to?: string };
+  const today = new Date().toISOString().slice(0, 10);
+  const fromDate = from ?? today;
+  const toDate   = to   ?? today;
+
+  // Aggrega scontrini fiscali raggruppati per aliquota IVA approssimata.
+  // L'aliquota viene calcolata da: iva_amount / (importo - iva_amount) * 100
+  const result = await db.execute(sql`
+    SELECT
+      ROUND((iva::numeric * 100.0 / NULLIF((importo::numeric - iva::numeric), 0))::numeric, 0) AS aliquota,
+      COUNT(*) AS scontrini,
+      SUM((importo::numeric - iva::numeric))::text AS imponibile,
+      SUM(iva::numeric)::text AS iva,
+      SUM(importo::numeric)::text AS totale
+    FROM fiscal_receipts
+    WHERE annullato = false
+      AND data >= ${fromDate}
+      AND data <= ${toDate}
+    GROUP BY aliquota
+    ORDER BY aliquota DESC
+  `);
+
+  // Totali per metodo pagamento
+  const byMethod = await db.execute(sql`
+    SELECT metodo_pagamento AS metodo, COUNT(*) AS n, SUM(importo::numeric)::text AS totale
+    FROM fiscal_receipts
+    WHERE annullato = false
+      AND data >= ${fromDate}
+      AND data <= ${toDate}
+    GROUP BY metodo_pagamento
+  `);
+
+  res.json({
+    from: fromDate,
+    to: toDate,
+    perAliquota: result.rows,
+    perMetodo: byMethod.rows,
+  });
+});
+
+// ── Lista conti sospesi (paga dopo) ──────────────────────────────────────────
+router.get("/sospesi", async (_req, res) => {
+  const sospesi = await db.execute(sql`
+    SELECT o.id, o.total, o.sospeso_note, o.sospeso_customer_id, o.created_at,
+           c.ragione_sociale AS customer_name
+    FROM orders o
+    LEFT JOIN customers c ON c.id = o.sospeso_customer_id
+    WHERE o.sospeso = true AND o.status = 'open'
+    ORDER BY o.created_at DESC
+  `);
+  res.json(sospesi.rows);
+});
+
 // ── Pagamento alla Romana ─────────────────────────────────────────────────────
 // POST /api/fiscal/romana
 // Emette un singolo scontrino fiscale per una quota "alla romana".
@@ -496,20 +571,33 @@ router.post("/romana", async (req, res) => {
     console.error(`[ROMANA] Eccezione quota ${quotaNum}:`, rtError);
   }
 
-  // ── Aggiorna paid_romana sull'ordine per ogni quota pagata ─────────────────
+  // ── Aggiorna paid_romana sull'ordine per ogni quota pagata (ATOMICO) ─────
+  // Usa SQL puro (cast text→numeric→text) per evitare race conditions tra
+  // più camerieri che incassano quote contemporaneamente.
   let orderClosed = false;
   try {
-    const [currentOrder] = await db.select().from(ordersTable).where(eq(ordersTable.id, orderId));
-    const nuovoPagato = (parseFloat(currentOrder?.paidRomana ?? "0") + parseFloat(importo)).toFixed(2);
-    await db.update(ordersTable)
-      .set({ paidRomana: nuovoPagato })
-      .where(eq(ordersTable.id, orderId));
+    await db.execute(sql`
+      UPDATE orders
+      SET paid_romana = ((paid_romana::numeric) + ${importo}::numeric)::text
+      WHERE id = ${orderId}
+    `);
   } catch (e) {
     console.error("[ROMANA] Errore aggiornamento paid_romana:", e);
   }
 
   // Se è l'ultima quota: chiudi l'ordine nel gestionale
   if (isUltima) {
+    // Verifica anti-frode: somma quote romane deve coprire il totale
+    const [orderCheck] = await db.select({ total: ordersTable.total, paidRomana: ordersTable.paidRomana })
+      .from(ordersTable).where(eq(ordersTable.id, orderId)).limit(1);
+    const totaleOrdine = parseFloat(orderCheck?.total ?? "0");
+    const totalePagato = parseFloat(orderCheck?.paidRomana ?? "0");
+    if (totalePagato + 0.01 < totaleOrdine) {
+      return res.status(400).json({
+        ok: false,
+        error: `Pagamento incompleto: incassato € ${totalePagato.toFixed(2)} su € ${totaleOrdine.toFixed(2)}. Manca € ${(totaleOrdine - totalePagato).toFixed(2)}.`,
+      });
+    }
     try {
       // Inserisci record di pagamento riepilogativo
       const [payment] = await db.insert(paymentsTable).values({
@@ -525,13 +613,13 @@ router.post("/romana", async (req, res) => {
         .where(eq(ordersTable.id, orderId))
         .returning();
 
-      // Libera tavolo se non ci sono altri ordini aperti
+      // Libera tavolo se non ci sono altri ordini aperti (ATOMICO)
       if (updatedOrder?.tableId) {
-        const openOrders = await db.select().from(ordersTable)
-          .where(and(eq(ordersTable.tableId, updatedOrder.tableId), eq(ordersTable.status, "open")));
-        if (openOrders.length === 0) {
-          await db.update(tablesTable).set({ status: "free" }).where(eq(tablesTable.id, updatedOrder.tableId));
-        }
+        await db.execute(sql`
+          UPDATE tables SET status = 'free'
+          WHERE id = ${updatedOrder.tableId}
+            AND NOT EXISTS (SELECT 1 FROM orders WHERE table_id = ${updatedOrder.tableId} AND status = 'open')
+        `);
       }
 
       orderClosed = true;

@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -11,6 +11,16 @@ export const ordersTable = pgTable("orders", {
   notes: text("notes"),
   total: text("total").notNull().default("0.00"),
   paidRomana: text("paid_romana").notNull().default("0.00"),
+  // Sconto applicato sul totale: tipo "percent"|"amount", valore numerico, motivo libero
+  discountType: text("discount_type"),
+  discountValue: text("discount_value").notNull().default("0.00"),
+  discountReason: text("discount_reason"),
+  // Mancia (informativa, sommata al totale RT solo se presente)
+  mancia: text("mancia").notNull().default("0.00"),
+  // Conto sospeso: cliente che paga in seguito
+  sospeso: boolean("sospeso").notNull().default(false),
+  sospesoCustomerId: integer("sospeso_customer_id"),
+  sospesoNote: text("sospeso_note"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

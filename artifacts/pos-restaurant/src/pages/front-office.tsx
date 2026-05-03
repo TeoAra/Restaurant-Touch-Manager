@@ -827,6 +827,99 @@ function NewCustomerForm({ onCreated, onCancel }: {
 
 type PosPhase = "idle" | "waiting" | "manual_confirm" | "approved" | "declined";
 
+// ─── Discount form (used in DiscountDialog) ─────────────────────────────────
+function DiscountForm({ currentTotal, currentDiscount, currentType, currentReason, onApply, onRemove, onClose }: {
+  currentTotal: number;
+  currentDiscount: string;
+  currentType: string | null;
+  currentReason: string;
+  onApply: (type: "percent" | "amount", value: string, reason: string) => void | Promise<void>;
+  onRemove: () => void | Promise<void>;
+  onClose: () => void;
+}) {
+  const [type, setType] = useState<"percent" | "amount">((currentType as "percent" | "amount") ?? "percent");
+  const [value, setValue] = useState(currentDiscount && parseFloat(currentDiscount) > 0 ? currentDiscount : "");
+  const [reason, setReason] = useState(currentReason ?? "");
+  const numValue = parseFloat(value) || 0;
+  const newTotal = type === "percent"
+    ? Math.max(0, currentTotal * (1 - numValue / 100))
+    : Math.max(0, currentTotal - numValue);
+  const hasExisting = parseFloat(currentDiscount) > 0;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        {(["percent", "amount"] as const).map(t => (
+          <button key={t} onClick={() => setType(t)}
+            className={cn(
+              "flex-1 py-2 rounded-lg border-2 text-sm font-semibold transition-all",
+              type === t ? "border-amber-500 bg-amber-50 text-amber-700" : "border-slate-200 text-slate-500 hover:border-slate-300"
+            )}>
+            {t === "percent" ? "% Percentuale" : "€ Importo fisso"}
+          </button>
+        ))}
+      </div>
+      <div>
+        <Label>{type === "percent" ? "Sconto (%)" : "Sconto (€)"}</Label>
+        <Input type="number" step={type === "percent" ? "1" : "0.01"} min="0"
+          max={type === "percent" ? "100" : currentTotal}
+          value={value} onChange={e => setValue(e.target.value)}
+          placeholder="0" className="text-xl text-center h-12" autoFocus />
+      </div>
+      <div>
+        <Label>Motivo (facoltativo)</Label>
+        <Input value={reason} onChange={e => setReason(e.target.value)} placeholder="Es. cliente abituale, omaggio…" />
+      </div>
+      <div className="bg-slate-50 rounded-lg p-3 space-y-1 text-sm">
+        <div className="flex justify-between text-slate-500"><span>Totale attuale</span><span>€ {currentTotal.toFixed(2)}</span></div>
+        <div className="flex justify-between text-amber-700 font-semibold"><span>Sconto</span><span>− € {(currentTotal - newTotal).toFixed(2)}</span></div>
+        <div className="flex justify-between font-bold text-base border-t border-slate-200 pt-1 mt-1"><span>Nuovo totale</span><span>€ {newTotal.toFixed(2)}</span></div>
+      </div>
+      <DialogFooter className="gap-2">
+        {hasExisting && (
+          <Button variant="outline" className="text-red-600 hover:bg-red-50" onClick={() => onRemove()}>Rimuovi</Button>
+        )}
+        <Button variant="outline" onClick={onClose}>Annulla</Button>
+        <Button disabled={!numValue || numValue <= 0} onClick={() => onApply(type, value, reason.trim())}>
+          Applica sconto
+        </Button>
+      </DialogFooter>
+    </div>
+  );
+}
+
+// ─── Sospeso form (used in SospesoDialog) ───────────────────────────────────
+function SospesoForm({ total, onConfirm, onClose }: {
+  total: number;
+  onConfirm: (note: string) => void | Promise<void>;
+  onClose: () => void;
+}) {
+  const [note, setNote] = useState("");
+  return (
+    <div className="space-y-3">
+      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+        Il conto verrà sospeso e il tavolo liberato.
+        Il cliente potrà pagare in seguito dalla sezione <b>Sospesi</b> in cassa.
+      </div>
+      <div className="text-center py-3 bg-slate-50 rounded-xl">
+        <p className="text-sm text-slate-500 mb-1">Importo da incassare</p>
+        <p className="text-3xl font-bold text-slate-900">€ {total.toFixed(2)}</p>
+      </div>
+      <div>
+        <Label>Nome cliente / nota (consigliato)</Label>
+        <Input value={note} onChange={e => setNote(e.target.value)}
+          placeholder="Es. Mario Rossi — torna domani" autoFocus />
+      </div>
+      <DialogFooter className="gap-2">
+        <Button variant="outline" onClick={onClose}>Annulla</Button>
+        <Button onClick={() => onConfirm(note.trim())} className="bg-yellow-600 hover:bg-yellow-700">
+          Sospendi conto
+        </Button>
+      </DialogFooter>
+    </div>
+  );
+}
+
 function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
   open: boolean; onClose: () => void; total: number; orderId?: number;
   orderItems?: Array<{ productName: string; quantity: number; unitPrice: string; subtotal: string }>;
@@ -847,13 +940,19 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
   const [posPhase, setPosPhase] = useState<PosPhase>("idle");
   const [posError, setPosError] = useState<string | null>(null);
 
-  const change = method === "cash" && given ? Math.max(0, parseFloat(given) - total) : 0;
+  // ── Mancia opzionale (sommata al totale e inviata sulla RT) ───────────────
+  const [manciaStr, setManciaStr] = useState("");
+  const mancia = parseFloat(manciaStr) || 0;
+  const totalConMancia = total + mancia;
+
+  const change = method === "cash" && given ? Math.max(0, parseFloat(given) - totalConMancia) : 0;
 
   useEffect(() => {
     if (!open) {
       setGiven(""); setEmittiFattura(false); setSelectedCustomer(null);
       setCustomerSearch(""); setShowNewCustomer(false);
       setPosPhase("idle"); setPosError(null);
+      setManciaStr("");
     }
   }, [open]);
 
@@ -868,7 +967,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
     }).finally(() => setLoadingCustomers(false));
   }, [emittiFattura, customerSearch]);
 
-  const canPay = method !== "cash" || parseFloat(given) >= total;
+  const canPay = method !== "cash" || parseFloat(given) >= totalConMancia;
   const canConfirm = canPay && (!emittiFattura || selectedCustomer !== null);
 
   const methods = [
@@ -884,7 +983,28 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
         <div className="space-y-3 py-1 max-h-[85vh] overflow-y-auto">
           <div className="text-center py-3 bg-slate-50 rounded-xl">
             <p className="text-sm text-slate-500 mb-1">Totale da pagare</p>
-            <p className="text-4xl font-bold text-slate-900">€ {total.toFixed(2)}</p>
+            <p className="text-4xl font-bold text-slate-900">€ {totalConMancia.toFixed(2)}</p>
+            {mancia > 0 && (
+              <p className="text-[11px] text-emerald-600 mt-0.5">Conto € {total.toFixed(2)} + Mancia € {mancia.toFixed(2)}</p>
+            )}
+          </div>
+
+          {/* ── Campo Mancia (opzionale) ───────────────────────────────── */}
+          <div className="flex items-center gap-2 px-1">
+            <Label className="text-xs text-slate-500 shrink-0">Mancia €</Label>
+            <Input
+              type="number" step="0.50" min="0"
+              placeholder="0.00"
+              value={manciaStr}
+              onChange={e => setManciaStr(e.target.value)}
+              className="h-8 text-sm flex-1"
+            />
+            {[1, 2, 5].map(v => (
+              <button key={v} type="button" onClick={() => setManciaStr(String(v))}
+                className="px-2 h-8 rounded-md bg-emerald-50 hover:bg-emerald-100 text-xs font-bold text-emerald-700">
+                €{v}
+              </button>
+            ))}
           </div>
 
           <div className="grid grid-cols-4 gap-1.5">
@@ -913,7 +1033,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
                   </button>
                 ))}
               </div>
-              {parseFloat(given) >= total && (
+              {parseFloat(given) >= totalConMancia && (
                 <div className="flex justify-between items-center p-3 bg-emerald-50 rounded-lg">
                   <span className="text-sm font-medium text-emerald-700">Resto</span>
                   <span className="text-xl font-bold text-emerald-700">€ {change.toFixed(2)}</span>
@@ -1067,7 +1187,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
                   const resp = await fetch(`${API}/pos/sale`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ amountCents: Math.round(total * 100), orderId }),
+                    body: JSON.stringify({ amountCents: Math.round(totalConMancia * 100), orderId }),
                   });
                   const result = await resp.json();
                   if (result.manualConfirmRequired) {
@@ -1076,18 +1196,32 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
                   }
                   if (result.approved) {
                     setPosPhase("idle");
-                    onPay(method, parseFloat(given) || total, customerId, ragSoc);
+                    onPay(method, parseFloat(given) || totalConMancia, customerId, ragSoc);
                   } else {
                     setPosPhase("declined");
                     setPosError(result.error ?? result.responseMessage ?? "Transazione rifiutata");
                   }
                 } catch (e) {
                   setPosPhase("declined");
-                  setPosError(String(e));
+                  // Messaggio user-friendly: non mostrare lo stack del JS al cassiere
+                  const msg = e instanceof Error ? e.message : "";
+                  setPosError(
+                    msg.includes("fetch") || msg.includes("Failed")
+                      ? "Impossibile contattare il terminale POS. Verifica la connessione di rete."
+                      : (msg || "Errore comunicazione terminale POS")
+                  );
                 }
                 return;
               }
-              onPay(method, parseFloat(given) || total, customerId, ragSoc);
+              // Se c'è una mancia, salvala sull'ordine prima di pagare
+              if (mancia > 0 && orderId) {
+                fetch(`${API}/orders/${orderId}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ mancia: mancia.toFixed(2) }),
+                }).catch(() => {});
+              }
+              onPay(method, parseFloat(given) || totalConMancia, customerId, ragSoc);
             }}
             disabled={!canConfirm || posPhase === "waiting"}
             className="flex-1"
@@ -1096,7 +1230,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
               ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Terminale…</>
               : method === "card" && posType !== "none"
                 ? <><CreditCard className="h-4 w-4 mr-2" />Avvia terminale</>
-                : emittiFattura ? "Incassa + Fattura" : `Incassa € ${total.toFixed(2)}`
+                : emittiFattura ? "Incassa + Fattura" : `Incassa € ${totalConMancia.toFixed(2)}`
             }
           </Button>
         </DialogFooter>
@@ -1902,19 +2036,49 @@ function CategoryButton({ cat, onClick }: { cat: PosCategory; onClick: () => voi
 
 // ─── Product Card ──────────────────────────────────────────────────────────────
 type PosProduct = { id: number; name: string; price: string; price2?: string; price3?: string; price4?: string; available: boolean };
-function ProductCard({ product, onAdd, activePriceList }: {
+function ProductCard({ product, onAdd, activePriceList, onToggleEsaurito }: {
   product: PosProduct;
   activePriceList: number;
   onAdd: (id: number, unitPrice: string) => void;
+  onToggleEsaurito?: (id: number, available: boolean) => void;
 }) {
   const priceFields = ["price", "price2", "price3", "price4"] as const;
   const fieldVal = product[priceFields[activePriceList]];
-  // Fall back to base price if phase price is unset or zero
   const rawPrice = (fieldVal && parseFloat(fieldVal) > 0) ? fieldVal : product.price;
   const displayPrice = parseFloat(rawPrice || "0");
+  const isAvailable = (product as unknown as { available?: boolean }).available !== false;
+
+  // Long-press per toggle Esaurito
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressed = useRef(false);
+  const startPress = () => {
+    longPressed.current = false;
+    if (!onToggleEsaurito) return;
+    pressTimer.current = setTimeout(() => {
+      longPressed.current = true;
+      onToggleEsaurito(product.id, !isAvailable);
+    }, 600);
+  };
+  const cancelPress = () => {
+    if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
+  };
+
   return (
-    <button onClick={() => onAdd(product.id, rawPrice)}
-      className="bg-[#22263a] rounded-xl border-2 border-[#2d3044] p-3 text-left hover:border-primary hover:shadow-lg hover:shadow-primary/10 active:scale-95 transition-all group min-h-[88px] flex flex-col justify-between">
+    <button
+      onClick={() => { if (!longPressed.current && isAvailable) onAdd(product.id, rawPrice); }}
+      onPointerDown={startPress}
+      onPointerUp={cancelPress}
+      onPointerLeave={cancelPress}
+      onContextMenu={(e) => { e.preventDefault(); onToggleEsaurito?.(product.id, !isAvailable); }}
+      className={cn(
+        "relative bg-[#22263a] rounded-xl border-2 p-3 text-left hover:shadow-lg hover:shadow-primary/10 active:scale-95 transition-all group min-h-[88px] flex flex-col justify-between",
+        isAvailable ? "border-[#2d3044] hover:border-primary" : "border-red-900 opacity-60 grayscale"
+      )}
+      title={isAvailable ? "Tocca a lungo per segnare come Esaurito" : "Esaurito — tocca a lungo per ripristinare"}
+    >
+      {!isAvailable && (
+        <span className="absolute top-1 right-1 px-1.5 py-0.5 rounded-md bg-red-700 text-white text-[9px] font-bold uppercase tracking-wide">Esaurito</span>
+      )}
       <div className="font-semibold text-sm text-slate-200 leading-snug group-hover:text-primary transition-colors line-clamp-3">{product.name}</div>
       <div className="text-base font-bold text-primary mt-2">€ {displayPrice.toFixed(2)}</div>
     </button>
@@ -2071,6 +2235,8 @@ export default function FrontOffice() {
   const [pendingTableId, setPendingTableId] = useState<number | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ itemId: number; name: string } | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showDiscount, setShowDiscount] = useState(false);
+  const [showSospeso, setShowSospeso] = useState(false);
   const [editingItem, setEditingItem] = useState<EditableItem | null>(null);
   const [kpComment, setKpComment] = useState("");
   const [kpSaving, setKpSaving] = useState(false);
@@ -2505,12 +2671,9 @@ export default function FrontOffice() {
     const item = items.find(i => i.id === itemId);
     const wasSent = item && (item as never as { status: string }).status === "sent";
     if (qty <= 0) {
-      if (wasSent) {
-        setDeleteConfirm({ itemId, name: item!.productName });
-        return;
-      }
-      addLog("info", `Articolo rimosso: ${item?.productName}`);
-      await deleteItem.mutateAsync({ orderId: activeOrderId, itemId });
+      // Conferma sempre la cancellazione (sia draft che sent) per evitare tap accidentali
+      setDeleteConfirm({ itemId, name: item?.productName ?? "Articolo" });
+      return;
     } else {
       addLog("info", `Qtà modificata: ${item?.productName} → ${qty}`);
       await updateItem.mutateAsync({ orderId: activeOrderId, itemId, data: { quantity: qty } });
@@ -2521,10 +2684,13 @@ export default function FrontOffice() {
 
   async function confirmDelete(notify: boolean) {
     if (!deleteConfirm || !activeOrderId) return;
-    if (notify) {
+    const item = items.find(i => i.id === deleteConfirm.itemId);
+    const wasSent = item && (item as never as { status: string }).status === "sent";
+    if (notify && wasSent) {
       await fetch(`${API}/orders/${activeOrderId}/items/${deleteConfirm.itemId}/void`, { method: "POST" }).catch(() => {});
       toast({ title: "Avviso inviato al reparto", description: "Comanda di annullamento generata" });
     }
+    addLog("info", `Articolo rimosso: ${deleteConfirm.name}`);
     await deleteItem.mutateAsync({ orderId: activeOrderId, itemId: deleteConfirm.itemId });
     refresh();
     setDeleteConfirm(null);
@@ -3002,20 +3168,20 @@ export default function FrontOffice() {
                       <button
                         onClick={e => { e.stopPropagation(); setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus }); }}
                         className={cn(
-                        "h-6 w-6 rounded-md flex items-center justify-center transition-colors shrink-0",
+                        "h-9 w-9 rounded-md flex items-center justify-center transition-colors shrink-0",
                           isSelected ? "hover:bg-primary/30 active:bg-primary/40" : "hover:bg-[#3a3f58] active:bg-[#444a6a]"
                         )}>
-                        <Pencil className={cn("h-3 w-3", isSelected ? "text-primary" : "text-slate-400")} />
+                        <Pencil className={cn("h-4 w-4", isSelected ? "text-primary" : "text-slate-400")} />
                       </button>
-                      <div className="flex items-center gap-0.5 shrink-0">
+                      <div className="flex items-center gap-1 shrink-0">
                         <button onClick={e => { e.stopPropagation(); handleQty(item.id, item.quantity - 1); }}
-                          className="h-6 w-6 rounded-md flex items-center justify-center hover:bg-red-900/40 active:bg-red-900/60 transition-colors">
-                          <Minus className="h-3 w-3 text-red-400" />
+                          className="h-9 w-9 rounded-md flex items-center justify-center hover:bg-red-900/40 active:bg-red-900/60 transition-colors">
+                          <Minus className="h-4 w-4 text-red-400" />
                         </button>
-                        <span className="w-4 text-center text-[11px] font-bold text-slate-200">{item.quantity}</span>
+                        <span className="w-6 text-center text-sm font-bold text-slate-200 tabular-nums">{item.quantity}</span>
                         <button onClick={e => { e.stopPropagation(); handleQty(item.id, item.quantity + 1); }}
-                          className="h-6 w-6 rounded-md flex items-center justify-center hover:bg-emerald-900/40 active:bg-emerald-900/60 transition-colors">
-                          <Plus className="h-3 w-3 text-emerald-400" />
+                          className="h-9 w-9 rounded-md flex items-center justify-center hover:bg-emerald-900/40 active:bg-emerald-900/60 transition-colors">
+                          <Plus className="h-4 w-4 text-emerald-400" />
                         </button>
                       </div>
                     </div>
@@ -3141,15 +3307,8 @@ export default function FrontOffice() {
           <div className="grid grid-cols-2 gap-1 w-[116px] shrink-0">
             {/* Riga 1 */}
             <button
-              disabled={!selectedItemId}
-              onClick={() => selectedItem && setEditingItem({
-                id: selectedItem.id,
-                productName: selectedItem.productName,
-                quantity: selectedItem.quantity,
-                unitPrice: selectedItem.unitPrice,
-                notes: (selectedItem as never as { notes?: string | null }).notes,
-                status: (selectedItem as never as { status: string }).status,
-              })}
+              disabled={!activeOrderId || items.length === 0}
+              onClick={() => setShowDiscount(true)}
               className="h-10 rounded-lg flex items-center justify-center bg-amber-700 text-amber-100 hover:bg-amber-600 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
               Sconto
             </button>
@@ -3216,6 +3375,32 @@ export default function FrontOffice() {
                 Rapida
               </button>
             )}
+
+            {/* Riga 5 — Sospeso e Cassetto */}
+            <button
+              disabled={!activeOrderId || items.length === 0}
+              onClick={() => setShowSospeso(true)}
+              className="h-10 rounded-lg flex items-center justify-center bg-yellow-800 text-yellow-100 hover:bg-yellow-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              Sospeso
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  const r = await fetch(`${API}/fiscal/open-drawer`, { method: "POST" });
+                  const data = await r.json();
+                  if (data.ok) {
+                    addLog("info", "Cassetto aperto");
+                    toast({ title: "Cassetto aperto" });
+                  } else {
+                    toast({ title: "Cassetto non aperto", description: data.error ?? "Stampante fiscale non disponibile", variant: "destructive" });
+                  }
+                } catch {
+                  toast({ title: "Errore comunicazione RT", description: "Verifica la connessione alla stampante fiscale", variant: "destructive" });
+                }
+              }}
+              className="h-10 rounded-lg flex items-center justify-center bg-slate-700 text-slate-200 hover:bg-slate-600 text-[10px] font-bold transition-all active:scale-95 leading-tight">
+              Cassetto
+            </button>
           </div>
         </div>
 
@@ -3343,7 +3528,26 @@ export default function FrontOffice() {
             <ScrollArea className="flex-1">
               <div className="p-3 grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))" }}>
                 {visibleProducts.map(p => (
-                  <ProductCard key={p.id} product={p as PosProduct} activePriceList={activePriceList} onAdd={handleAddProduct} />
+                  <ProductCard
+                    key={p.id}
+                    product={p as PosProduct}
+                    activePriceList={activePriceList}
+                    onAdd={handleAddProduct}
+                    onToggleEsaurito={async (id, available) => {
+                      try {
+                        await fetch(`${API}/products/${id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ available }),
+                        });
+                        addLog("info", `${available ? "Disponibile" : "Esaurito"}: ${p.name}`);
+                        toast({ title: available ? "Prodotto disponibile" : "Prodotto segnato Esaurito" });
+                        await refresh();
+                      } catch {
+                        toast({ title: "Errore aggiornamento prodotto", variant: "destructive" });
+                      }
+                    }}
+                  />
                 ))}
                 {visibleProducts.length === 0 && (
                   <div className="col-span-full text-center py-16 text-slate-600">
@@ -3922,6 +4126,74 @@ export default function FrontOffice() {
         orderItems={items as never}
         onPay={handlePay}
       />
+
+      {/* ── Dialog Sconto al volo ───────────────────────────────────────── */}
+      <Dialog open={showDiscount} onOpenChange={o => !o && setShowDiscount(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Sconto sul totale</DialogTitle></DialogHeader>
+          <DiscountForm
+            currentTotal={total}
+            currentDiscount={(activeOrder as unknown as { discountValue?: string })?.discountValue ?? "0.00"}
+            currentType={(activeOrder as unknown as { discountType?: string | null })?.discountType ?? null}
+            currentReason={(activeOrder as unknown as { discountReason?: string | null })?.discountReason ?? ""}
+            onApply={async (type, value, reason) => {
+              if (!activeOrderId) return;
+              try {
+                await fetch(`${API}/orders/${activeOrderId}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ discountType: type, discountValue: value, discountReason: reason }),
+                });
+                addLog("info", `Sconto applicato: ${type === "percent" ? value + "%" : "€" + value}${reason ? " — " + reason : ""}`);
+                toast({ title: "Sconto applicato" });
+                setShowDiscount(false);
+                refresh();
+              } catch {
+                toast({ title: "Errore applicazione sconto", variant: "destructive" });
+              }
+            }}
+            onRemove={async () => {
+              if (!activeOrderId) return;
+              await fetch(`${API}/orders/${activeOrderId}`, {
+                method: "PATCH", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ discountType: null, discountValue: "0.00", discountReason: null }),
+              });
+              addLog("info", "Sconto rimosso");
+              toast({ title: "Sconto rimosso" });
+              setShowDiscount(false);
+              refresh();
+            }}
+            onClose={() => setShowDiscount(false)}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog Conto Sospeso ────────────────────────────────────────── */}
+      <Dialog open={showSospeso} onOpenChange={o => !o && setShowSospeso(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Conto Sospeso</DialogTitle></DialogHeader>
+          <SospesoForm
+            total={total}
+            onConfirm={async (note) => {
+              if (!activeOrderId) return;
+              try {
+                await fetch(`${API}/orders/${activeOrderId}`, {
+                  method: "PATCH", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ sospeso: true, sospesoNote: note || null }),
+                });
+                addLog("info", `Conto sospeso — €${total.toFixed(2)}${note ? " — " + note : ""}`);
+                toast({ title: "Conto sospeso", description: `Tavolo liberato. Importo €${total.toFixed(2)} da incassare.` });
+                setShowSospeso(false);
+                handleExitOrder();
+                refresh();
+              } catch {
+                toast({ title: "Errore sospensione conto", variant: "destructive" });
+              }
+            }}
+            onClose={() => setShowSospeso(false)}
+          />
+        </DialogContent>
+      </Dialog>
 
       <RomanaDialog
         open={showRomana}
