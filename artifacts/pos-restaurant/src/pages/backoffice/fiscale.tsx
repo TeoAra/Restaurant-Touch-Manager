@@ -155,6 +155,7 @@ export default function FiscalePage() {
           ? "Annullo registrato (RT non raggiunta)"
           : "Annullo registrato (nessuna RT configurata)",
     });
+    return;
   }
 
   async function handleXReport() {

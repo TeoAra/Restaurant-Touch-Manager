@@ -826,7 +826,8 @@ export default function MenuPage() {
           <ScrollArea className="flex-1">
             <div className="px-4 sm:px-6 pb-6 space-y-2">
               {categories.map((c) => {
-                const assignedPrinter = c.printerId ? printers.find(p => p.id === c.printerId) : null;
+                const printerId = (c as unknown as { printerId?: number | null }).printerId;
+                const assignedPrinter = printerId ? printers.find(p => p.id === printerId) : null;
                 return (
                 <div key={c.id} className="flex items-center gap-3 p-3 rounded-lg bg-card border border-border">
                   <div className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: c.color }} />

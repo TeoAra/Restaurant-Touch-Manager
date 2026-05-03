@@ -128,6 +128,7 @@ export default function FatturePage() {
     qc.invalidateQueries({ queryKey: ["invoices"] });
     setDialog({ open: false });
     toast({ title: "Fattura creata" });
+    return;
   }
 
   async function handleEmit(id: number) {
@@ -140,6 +141,7 @@ export default function FatturePage() {
     setXmlDialog({ open: true, xml: data.xml, filename });
     qc.invalidateQueries({ queryKey: ["invoices"] });
     toast({ title: "Fattura emessa — XML pronto per Passepartout" });
+    return;
   }
 
   async function downloadXml(id: number, numero: number, anno: number) {
@@ -154,6 +156,7 @@ export default function FatturePage() {
     a.click();
     URL.revokeObjectURL(url);
     qc.invalidateQueries({ queryKey: ["invoices"] });
+    return;
   }
 
   async function handleDelete(id: number) {

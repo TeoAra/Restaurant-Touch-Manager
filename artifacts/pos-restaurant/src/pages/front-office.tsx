@@ -1021,6 +1021,7 @@ function NewCustomerForm({ onCreated, onCancel }: {
         }
       }
     } catch { setViesStatus("error"); setViesMsg("Errore di rete"); }
+    return;
   }
 
   async function save() {
@@ -2956,9 +2957,9 @@ export default function FrontOffice() {
       (i as never as { status: string }).status === "draft"
     ) : null;
     if (existing && orderId === activeOrderId && qty === 1) {
-      await updateItem.mutateAsync({ orderId, itemId: existing.id, data: { quantity: existing.quantity + 1 } });
+      await updateItem.mutateAsync({ orderId: orderId!, itemId: existing.id, data: { quantity: existing.quantity + 1 } });
     } else {
-      await addItem.mutateAsync({ orderId, data: { productId, quantity: qty, unitPrice: finalPrice, phase: activePriceList, modifiers: modJson, notes: kpNote ?? null } as never });
+      await addItem.mutateAsync({ orderId: orderId!, data: { productId, quantity: qty, unitPrice: finalPrice, phase: activePriceList, modifiers: modJson, notes: kpNote ?? null } as never });
     }
     refresh();
   }
@@ -4034,7 +4035,7 @@ export default function FrontOffice() {
                         })();
 
                         async function applyMod(direction: string, remove: boolean) {
-                          if (!activeOrderId) return;
+                          if (!activeOrderId || !selectedItem) return;
                           let next: typeof currentMods;
                           if (remove) {
                             next = currentMods.filter(m => !(m.id === mod.id && m.type === direction));

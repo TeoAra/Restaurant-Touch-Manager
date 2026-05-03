@@ -114,6 +114,7 @@ export default function ClientiPage() {
       setViesStatus("error");
       setViesMsg("Impossibile contattare il servizio VIES");
     }
+    return;
   }
 
   async function handleSave() {
@@ -124,6 +125,7 @@ export default function ClientiPage() {
     qc.invalidateQueries({ queryKey: ["customers"] });
     setDialog({ open: false });
     toast({ title: dialog.item ? "Cliente aggiornato" : "Cliente creato" });
+    return;
   }
 
   async function handleDelete(id: number) {
