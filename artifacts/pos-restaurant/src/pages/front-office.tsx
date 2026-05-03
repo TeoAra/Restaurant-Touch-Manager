@@ -39,9 +39,12 @@ const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
 
 // Grid constants matching back-office planimetria
-const CELL = 80;
+const CELL = 96;
 const COLS = 12;
 const ROWS = 8;
+// Front-office: dimensione minima desiderata in px di una cella tavolo
+// dopo lo scale, per garantire leggibilità (numero tavolo + stato + totale).
+const MIN_RENDERED_CELL = 130;
 
 // ─── Settings hook ────────────────────────────────────────────────────────────
 function useSettings() {
@@ -112,50 +115,75 @@ function FloorElement({ t, isSelected, onClick, reservation, assignMode, moveMod
     : et === "muro"   ? "░░"
     : "";
 
+  // Calcolo durata occupazione (per evidenziare tavoli "fermi" da molto)
+  let durataMin: number | null = null;
+  if (t.activeOrderCreatedAt) {
+    const ms = Date.now() - new Date(t.activeOrderCreatedAt).getTime();
+    durataMin = Math.max(0, Math.floor(ms / 60000));
+  }
+  const durataLunga = durataMin !== null && durataMin >= 90; // > 1h30
+
   return (
     <button
       disabled={isDecor || ((assignMode || moveMode) && !isTargetable)}
       onClick={isDecor ? undefined : onClick}
       className={cn(
-        "absolute flex items-center justify-center border-2 select-none transition-all active:scale-95",
+        "absolute flex items-center justify-center border-2 select-none transition-all active:scale-95 shadow-sm",
         isDecor ? decorStyle : cn(statusBg),
-        isRound ? "rounded-full" : "rounded-xl",
-        isSelected && !isDecor ? "ring-4 ring-primary ring-offset-2 shadow-xl scale-105" : "",
+        isRound ? "rounded-full" : "rounded-2xl",
+        isSelected && !isDecor ? "ring-4 ring-primary ring-offset-2 shadow-xl scale-105 z-10" : "",
         !isDecor && !assignMode && !moveMode && "cursor-pointer",
         isTargetable && "cursor-pointer",
         (assignMode || moveMode) && !isTargetable && !isDecor && "opacity-40",
+        durataLunga && status === "occupied" && "ring-2 ring-red-400",
       )}
-      style={{ width: w * CELL - 6, height: h * CELL - 6, transform: [t.rotation ? `rotate(${t.rotation}deg)` : "", (t.sizeScale && t.sizeScale !== 1) ? `scale(${t.sizeScale})` : ""].filter(Boolean).join(" ") || undefined }}
+      style={{ width: w * CELL - 8, height: h * CELL - 8, transform: [t.rotation ? `rotate(${t.rotation}deg)` : "", (t.sizeScale && t.sizeScale !== 1) ? `scale(${t.sizeScale})` : ""].filter(Boolean).join(" ") || undefined }}
     >
       {isDecor ? (
-        <span className={cn("text-xs font-bold tracking-widest", et === "pianta" && "text-xl")}>{decorLabel}</span>
+        <span className={cn("text-sm font-bold tracking-widest", et === "pianta" && "text-2xl")}>{decorLabel}</span>
       ) : (
-        <div className="flex flex-col items-center justify-center w-full h-full px-1 overflow-hidden">
-          <div className={cn("h-2 w-2 rounded-full mb-0.5 shrink-0", statusDot)} />
-          <span className="text-[11px] font-bold text-slate-800 text-center leading-tight truncate w-full px-1">{t.name}</span>
-          {reservation && !t.activeOrderTotal && (
-            <>
-              <span className="text-[9px] font-bold text-blue-600 truncate w-full text-center px-0.5 leading-tight mt-0.5">
-                {reservation.guestName.length > 8 ? reservation.guestName.slice(0, 7) + "…" : reservation.guestName}
-              </span>
-              <span className="text-[9px] text-blue-500 flex items-center gap-0.5 leading-tight">
-                <CalendarClock className="h-2 w-2" />{reservation.time.slice(0, 5)}
-              </span>
-            </>
-          )}
-          {!isRound && !reservation && (
-            <span className="text-[9px] text-slate-400 mt-0.5 flex items-center gap-0.5">
-              <Users className="h-2 w-2 inline" />{t.seats}
+        <div className="flex flex-col items-center justify-between w-full h-full p-1.5 overflow-hidden">
+          {/* Top: status badge + numero coperti */}
+          <div className="flex items-center justify-between w-full px-0.5">
+            <div className={cn("h-2.5 w-2.5 rounded-full shrink-0 ring-2 ring-white", statusDot)} />
+            <span className="text-[10px] text-slate-400 flex items-center gap-0.5 font-medium">
+              <Users className="h-2.5 w-2.5" />{t.seats}
             </span>
-          )}
-          {t.activeOrderTotal && (
-            <span className="text-[10px] font-bold text-primary mt-0.5">€{t.activeOrderTotal}</span>
-          )}
-          {t.activeOrderCreatedAt && (
-            <span className="text-[9px] text-slate-400 flex items-center gap-0.5">
-              <Clock className="h-2.5 w-2.5" />
-              {new Date(t.activeOrderCreatedAt).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}
-            </span>
+          </div>
+
+          {/* Centro: nome tavolo grande */}
+          <div className="flex-1 flex items-center justify-center w-full min-h-0">
+            <span className={cn(
+              "font-extrabold text-slate-800 text-center leading-none truncate w-full px-0.5",
+              t.name && t.name.length <= 3 ? "text-2xl" : t.name && t.name.length <= 5 ? "text-lg" : "text-sm",
+            )}>{t.name}</span>
+          </div>
+
+          {/* Bottom: stato dinamico — totale ordine, prenotazione, o vuoto */}
+          {t.activeOrderTotal ? (
+            <div className="w-full flex flex-col items-center gap-0.5">
+              <span className="text-[13px] font-extrabold text-primary leading-none">€{t.activeOrderTotal}</span>
+              {durataMin !== null && (
+                <span className={cn(
+                  "text-[10px] flex items-center gap-0.5 leading-none font-semibold",
+                  durataLunga ? "text-red-500" : "text-slate-500",
+                )}>
+                  <Clock className="h-2.5 w-2.5" />
+                  {durataMin < 60 ? `${durataMin}'` : `${Math.floor(durataMin / 60)}h${(durataMin % 60).toString().padStart(2, "0")}`}
+                </span>
+              )}
+            </div>
+          ) : reservation ? (
+            <div className="w-full flex flex-col items-center gap-0.5 px-0.5">
+              <span className="text-[10px] font-bold text-blue-700 truncate w-full text-center leading-none">
+                {reservation.guestName.length > 10 ? reservation.guestName.slice(0, 9) + "…" : reservation.guestName}
+              </span>
+              <span className="text-[10px] text-blue-500 flex items-center gap-0.5 leading-none font-semibold">
+                <CalendarClock className="h-2.5 w-2.5" />{reservation.time.slice(0, 5)}
+              </span>
+            </div>
+          ) : (
+            <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Libero</span>
           )}
         </div>
       )}
@@ -264,7 +292,11 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
         : 5;
       const canvasW = Math.max(maxX, 4) * CELL;
       const canvasH = Math.max(maxY, 3) * CELL;
-      setScale(Math.min(w / canvasW, h / canvasH, 1.5));
+      // Scala in modo che la mappa riempia il container, ma garantisci una
+      // dimensione minima leggibile per le celle (MIN_RENDERED_CELL).
+      const fitScale = Math.min(w / canvasW, h / canvasH);
+      const minScale = MIN_RENDERED_CELL / CELL;
+      setScale(Math.min(Math.max(fitScale, minScale), 2));
     }
     updateScale();
     const ro = new ResizeObserver(updateScale);
@@ -398,7 +430,7 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
       )}
 
       {/* Floor plan */}
-      <div ref={containerRef} className="flex-1 overflow-hidden bg-[#f4f6fa] relative">
+      <div ref={containerRef} className="flex-1 overflow-auto bg-[#f4f6fa] relative">
         {(() => {
           const allEl = filtered;
           const minX = allEl.length ? Math.min(...allEl.map(t => t.posX ?? 0)) : 0;
