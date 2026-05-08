@@ -1606,10 +1606,10 @@ type RomanaQuota = {
   receiptId?: number;
 };
 
-function RomanaDialog({ open, onClose, total, paidRomana = 0, orderId, tableName, onOrderClosed }: {
-  open: boolean; onClose: () => void;
+function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, onCancel }: {
   total: number; paidRomana?: number; orderId?: number; tableName?: string;
   onOrderClosed?: () => void;
+  onCancel: () => void;
 }) {
   const { data: rdSettings = {} } = useSettings();
   const rdPosType = rdSettings["pos_type"] ?? "none";
@@ -1619,21 +1619,8 @@ function RomanaDialog({ open, onClose, total, paidRomana = 0, orderId, tableName
   const hasPagatiPrecedenti = paidRomana > 0.005;
 
   const [phase, setPhase] = useState<"setup" | "pagamento">("setup");
-  const [numSplits, setNumSplits] = useState(1);
+  const [numSplits, setNumSplits] = useState(hasPagatiPrecedenti ? 1 : 2);
   const [quote, setQuote] = useState<RomanaQuota[]>([]);
-
-  useEffect(() => {
-    if (!open) {
-      setPhase("setup");
-      setNumSplits(hasPagatiPrecedenti ? 1 : 2);
-      setQuote([]);
-    }
-  }, [open]);
-
-  // Inizializza numSplits corretto all'apertura
-  useEffect(() => {
-    if (open) setNumSplits(hasPagatiPrecedenti ? 1 : 2);
-  }, [open, hasPagatiPrecedenti]);
 
   function calcolaQuote(n: number): RomanaQuota[] {
     const baseCent = Math.floor((restante * 100) / n);
@@ -1770,14 +1757,7 @@ function RomanaDialog({ open, onClose, total, paidRomana = 0, orderId, tableName
   const minSplits = hasPagatiPrecedenti ? 1 : 2;
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Divide className="h-4 w-4 text-primary" /> Pagamento alla Romana
-          </DialogTitle>
-        </DialogHeader>
-
+    <>
         {phase === "setup" && (
           <>
             <div className="py-3 text-center space-y-4">
@@ -1848,7 +1828,7 @@ function RomanaDialog({ open, onClose, total, paidRomana = 0, orderId, tableName
             </div>
 
             <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={onClose} className="flex-1">
+              <Button variant="outline" onClick={onCancel} className="flex-1">
                 {hasPagatiPrecedenti ? "Chiudi / aggiungi merce" : "Annulla"}
               </Button>
               <Button onClick={avviaRomana} className="flex-1" disabled={!orderId || restante <= 0}>
@@ -1980,17 +1960,45 @@ function RomanaDialog({ open, onClose, total, paidRomana = 0, orderId, tableName
 
             <DialogFooter className="gap-2">
               {tuttePagate ? (
-                <Button className="w-full" onClick={onClose}>
+                <Button className="w-full" onClick={onCancel}>
                   <CheckCircle2 className="h-4 w-4 mr-2" /> Chiudi
                 </Button>
               ) : (
                 <>
                   <Button variant="outline" onClick={() => setPhase("setup")}>← Modifica</Button>
-                  <Button variant="outline" onClick={onClose} className="flex-1 text-slate-600">Chiudi senza pagare</Button>
+                  <Button variant="outline" onClick={onCancel} className="flex-1 text-slate-600">Chiudi senza pagare</Button>
                 </>
               )}
             </DialogFooter>
           </>
+        )}
+    </>
+  );
+}
+
+// ─── Romana Dialog (thin wrapper attorno a RomanaBody) ────────────────────────
+function RomanaDialog({ open, onClose, total, paidRomana = 0, orderId, tableName, onOrderClosed }: {
+  open: boolean; onClose: () => void;
+  total: number; paidRomana?: number; orderId?: number; tableName?: string;
+  onOrderClosed?: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Divide className="h-4 w-4 text-primary" /> Pagamento alla Romana
+          </DialogTitle>
+        </DialogHeader>
+        {open && (
+          <RomanaBody
+            total={total}
+            paidRomana={paidRomana}
+            orderId={orderId}
+            tableName={tableName}
+            onOrderClosed={onOrderClosed}
+            onCancel={onClose}
+          />
         )}
       </DialogContent>
     </Dialog>
@@ -2085,11 +2093,11 @@ function PrecontoDialog({ open, onClose, order, items, orderId, coverPrice, cove
   );
 }
 
-// ─── Split Bill Dialog ────────────────────────────────────────────────────────
-function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }: {
-  open: boolean; onClose: () => void;
+// ─── Split Bill: body riusabile (dialog + tab "tot" inline) ───────────────────
+function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount }: {
   items: Array<{ id: number; productName: string; quantity: number; unitPrice: string; subtotal: string }>;
   onPay: (method: string, amount: number, itemIds: number[], coversToDeduct: number) => void;
+  onCancel: () => void;
   coverPrice: number; coverCount: number;
 }) {
   const coverRows = coverPrice > 0 && coverCount > 0
@@ -2109,10 +2117,6 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
   const { data: sbSettings = {} } = useSettings();
   const sbBuoniPastoOn = sbSettings["feat_buoni_pasto"] === "true";
 
-  useEffect(() => {
-    if (open) { setQty({}); setMethod("cash"); }
-  }, [open]);
-
   function setRowQty(id: number, val: number, max: number) {
     setQty(q => ({ ...q, [id]: Math.min(max, Math.max(0, val)) }));
   }
@@ -2128,17 +2132,15 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
   const hasSelection = allRows.some(r => (qty[r.id] ?? 0) > 0);
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader><DialogTitle className="flex items-center gap-2"><Divide className="h-4 w-4" /> Conto Separato</DialogTitle></DialogHeader>
-        <div className="space-y-3 py-1">
-          <div className="flex justify-between items-center text-xs text-slate-500">
-            <span>Seleziona le voci da pagare</span>
-            <div className="flex gap-2">
-              <button onClick={selectAll} className="text-primary hover:underline">Tutte</button>
-              <button onClick={selectNone} className="text-slate-400 hover:underline">Nessuna</button>
-            </div>
+    <>
+      <div className="space-y-3 py-1">
+        <div className="flex justify-between items-center text-xs text-slate-500">
+          <span>Seleziona le voci da pagare</span>
+          <div className="flex gap-2">
+            <button onClick={selectAll} className="text-primary hover:underline">Tutte</button>
+            <button onClick={selectNone} className="text-slate-400 hover:underline">Nessuna</button>
           </div>
+        </div>
           <div className="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
             {allRows.map(row => {
               const selected = qty[row.id] ?? 0;
@@ -2226,21 +2228,44 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
               </div>
             </div>
           )}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Annulla</Button>
-          <Button
-            onClick={() => {
-              const ids = allRows.filter(r => (qty[r.id] ?? 0) > 0 && !r.isCover).map(r => r.id);
-              const coversToDeduct = coverRows.filter(r => (qty[r.id] ?? 0) > 0).length;
-              onPay(method, splitTotal, ids, coversToDeduct);
-              onClose();
-            }}
-            disabled={!hasSelection}
-          >
-            Incassa € {splitTotal.toFixed(2)}
-          </Button>
-        </DialogFooter>
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={onCancel}>Annulla</Button>
+        <Button
+          onClick={() => {
+            const ids = allRows.filter(r => (qty[r.id] ?? 0) > 0 && !r.isCover).map(r => r.id);
+            const coversToDeduct = coverRows.filter(r => (qty[r.id] ?? 0) > 0).length;
+            onPay(method, splitTotal, ids, coversToDeduct);
+          }}
+          disabled={!hasSelection}
+        >
+          Incassa € {splitTotal.toFixed(2)}
+        </Button>
+      </DialogFooter>
+    </>
+  );
+}
+
+// ─── Split Bill Dialog (thin wrapper attorno a SplitBillBody) ─────────────────
+function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }: {
+  open: boolean; onClose: () => void;
+  items: Array<{ id: number; productName: string; quantity: number; unitPrice: string; subtotal: string }>;
+  onPay: (method: string, amount: number, itemIds: number[], coversToDeduct: number) => void;
+  coverPrice: number; coverCount: number;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader><DialogTitle className="flex items-center gap-2"><Divide className="h-4 w-4" /> Conto Separato</DialogTitle></DialogHeader>
+        {open && (
+          <SplitBillBody
+            items={items}
+            coverPrice={coverPrice}
+            coverCount={coverCount}
+            onPay={(m, a, ids, c) => { onPay(m, a, ids, c); onClose(); }}
+            onCancel={onClose}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -2547,6 +2572,8 @@ export default function FrontOffice() {
   const [showRomana, setShowRomana] = useState(false);
   const [showPreconto, setShowPreconto] = useState(false);
   const [showSplitBill, setShowSplitBill] = useState(false);
+  // Modalità pagamento mostrata nella tab "tot": full = pagamento intero, split = conto separato inline, romana = romana inline
+  const [paymentMode, setPaymentMode] = useState<"full" | "split" | "romana">("full");
   const [showLotteria, setShowLotteria] = useState(false);
   const [lotteriaCodice, setLotteriaCodice] = useState(""); // codice confermato per l'ordine attivo
   const [lotteriaInput, setLotteriaInput] = useState("");   // input nel dialog
@@ -2664,6 +2691,8 @@ export default function FrontOffice() {
       setSelectedItemCategoryId(null);
       setKpComment("");
       setNumBuffer("");
+      // Reset modalità pagamento quando si lascia il tavolo, così la prossima apertura parte sempre su "Totale"
+      setPaymentMode("full");
     }
   }, [selectedTableId, isQuickMode]);
 
@@ -3052,39 +3081,51 @@ export default function FrontOffice() {
     }
   }
 
-  async function handleSplitItem() {
-    if (!selectedItem || !activeOrderId) return;
-    const qty = selectedItem.quantity;
-    if (qty <= 1) {
-      toast({ title: "Qtà già 1", description: "Il prodotto ha già quantità 1" });
+  /**
+   * Esplodi tutto: itera su TUTTI gli articoli del tavolo con qty>1 e li
+   * separa in righe singole da 1. Utile come step preparatorio prima di un
+   * conto separato o di una romana, così ogni voce diventa selezionabile.
+   */
+  async function handleExplodeAll() {
+    if (!activeOrderId) return;
+    const explodable = items.filter(i => i.quantity > 1);
+    if (explodable.length === 0) {
+      toast({ title: "Niente da esplodere", description: "Tutti gli articoli hanno già quantità 1" });
       return;
     }
     try {
-      await fetch(`${API}/orders/${activeOrderId}/items/${selectedItem.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ quantity: 1 }),
-      });
-      for (let i = 1; i < qty; i++) {
-        await fetch(`${API}/orders/${activeOrderId}/items`, {
-          method: "POST",
+      let totalNewRows = 0;
+      for (const it of explodable) {
+        const qty = it.quantity;
+        await fetch(`${API}/orders/${activeOrderId}/items/${it.id}`, {
+          method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            productId: selectedItem.productId,
-            quantity: 1,
-            unitPrice: selectedItem.unitPrice,
-            phase: (selectedItem as never as { phase?: string }).phase ?? "F1",
-            notes: (selectedItem as never as { notes?: string | null }).notes ?? null,
-            modifiers: (selectedItem as never as { modifiers?: string }).modifiers ?? "[]",
-          }),
+          body: JSON.stringify({ quantity: 1 }),
         });
+        for (let i = 1; i < qty; i++) {
+          await fetch(`${API}/orders/${activeOrderId}/items`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              productId: it.productId,
+              quantity: 1,
+              unitPrice: it.unitPrice,
+              phase: (it as never as { phase?: string }).phase ?? "F1",
+              notes: (it as never as { notes?: string | null }).notes ?? null,
+              modifiers: (it as never as { modifiers?: string }).modifiers ?? "[]",
+            }),
+          });
+          totalNewRows++;
+        }
       }
       setSelectedItemId(null);
       setNumBuffer("");
       refresh();
-      addLog("info", `Separato: ${selectedItem.productName} × ${qty} → ${qty} righe`);
+      addLog("info", `Esplosi ${explodable.length} articoli in ${explodable.length + totalNewRows} righe singole`);
+      toast({ title: "Articoli esplosi", description: `${explodable.length + totalNewRows} righe da 1 pronte per conto separato` });
     } catch {
-      addLog("error", "Errore nella separazione prodotto");
+      addLog("error", "Errore durante l'esplosione articoli");
+      toast({ title: "Errore esplosione", variant: "destructive" });
     }
   }
 
@@ -3704,8 +3745,8 @@ export default function FrontOffice() {
             </button>
             <button
               disabled={items.length < 2}
-              onClick={() => setShowSplitBill(true)}
-              title="Conto separato: scegli quali articoli pagare in scontrini distinti"
+              onClick={() => { setPaymentMode("split"); setRightTab("tot"); setMobilePanel("right"); }}
+              title="Conto separato: apre nella tab Tot, scegli quali articoli pagare in scontrini distinti"
               className="h-10 rounded-lg flex items-center justify-center bg-purple-800 text-purple-200 hover:bg-purple-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
               Conto Sep.
             </button>
@@ -3713,17 +3754,17 @@ export default function FrontOffice() {
             {/* Riga 3 */}
             <button
               disabled={items.length === 0}
-              onClick={() => setShowRomana(true)}
-              title="Pagamento alla romana: dividi il totale in N quote uguali"
+              onClick={() => { setPaymentMode("romana"); setRightTab("tot"); setMobilePanel("right"); }}
+              title="Pagamento alla romana: apre nella tab Tot, dividi il totale in N quote uguali"
               className="h-10 rounded-lg flex items-center justify-center bg-green-800 text-green-200 hover:bg-green-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
               Romana
             </button>
             <button
-              disabled={!selectedItemId || !selectedItem || selectedItem.quantity <= 1}
-              onClick={handleSplitItem}
-              title="Separa una quantità dell'articolo selezionato in una nuova riga (es. 3 caffè → 1 + 2)"
+              disabled={!items.some(i => i.quantity > 1)}
+              onClick={handleExplodeAll}
+              title="Esplodi tutti: ogni articolo del tavolo con qty>1 viene separato in righe da 1 (utile per conto separato/romana)"
               className="h-10 rounded-lg flex items-center justify-center bg-indigo-800 text-indigo-200 hover:bg-indigo-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              Sep. Prod.
+              Esplodi
             </button>
 
             {/* Riga 4 */}
@@ -4350,7 +4391,7 @@ export default function FrontOffice() {
           </div>
         )}
 
-        {/* ── TOT: inline payment */}
+        {/* ── TOT: payment hub (Totale | Separato | Romana) ─────────────────── */}
         {rightTab === "tot" && (
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Invoice customer indicator */}
@@ -4367,12 +4408,91 @@ export default function FrontOffice() {
                 </button>
               </div>
             )}
-            <InlinePaymentPanel
-              total={total}
-              disabled={items.length === 0}
-              alertAnomalous={settings["feat_alert_totale_anomalo"] === "true"}
-              onPay={(method, amountGiven) => handlePay(method, amountGiven, invoiceCustomer?.id, invoiceCustomer?.ragioneSociale ?? undefined)}
-            />
+
+            {/* Selettore modalità pagamento */}
+            <div className="mx-3 mt-2 grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl shrink-0">
+              {([
+                { id: "full",   label: "Totale",   icon: <Wallet className="h-3.5 w-3.5" /> },
+                { id: "split",  label: "Separato", icon: <Divide className="h-3.5 w-3.5" /> },
+                { id: "romana", label: "Romana",   icon: <Users className="h-3.5 w-3.5" /> },
+              ] as const).map(m => (
+                <button key={m.id} onClick={() => setPaymentMode(m.id)}
+                  className={cn(
+                    "flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] font-bold transition-all active:scale-95",
+                    paymentMode === m.id
+                      ? "bg-white text-primary shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  )}>
+                  {m.icon} {m.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Modalità: pagamento intero */}
+            {paymentMode === "full" && (
+              <InlinePaymentPanel
+                total={total}
+                disabled={items.length === 0}
+                alertAnomalous={settings["feat_alert_totale_anomalo"] === "true"}
+                onPay={(method, amountGiven) => handlePay(method, amountGiven, invoiceCustomer?.id, invoiceCustomer?.ragioneSociale ?? undefined)}
+              />
+            )}
+
+            {/* Modalità: conto separato inline */}
+            {paymentMode === "split" && (
+              <div className="flex-1 overflow-y-auto p-3 bg-[#f4f6fa]">
+                {items.length < 2 ? (
+                  <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center text-slate-500 text-sm">
+                    Servono almeno 2 articoli per il conto separato.
+                    <div className="mt-2 text-xs text-slate-400">
+                      Suggerimento: usa <strong>Esplodi</strong> per separare gli articoli con quantità maggiore di 1.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-2xl border border-slate-200 p-3">
+                    <SplitBillBody
+                      key={`split-${activeOrderId}`}
+                      items={items as never}
+                      coverPrice={coverPrice}
+                      coverCount={coverCount}
+                      onPay={(method, amount, ids, coversToDeduct) => {
+                        handlePay(method, amount, undefined, undefined, ids, coversToDeduct);
+                      }}
+                      onCancel={() => setPaymentMode("full")}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Modalità: romana inline */}
+            {paymentMode === "romana" && (
+              <div className="flex-1 overflow-y-auto p-3 bg-[#f4f6fa]">
+                {items.length === 0 ? (
+                  <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center text-slate-500 text-sm">
+                    Nessun ordine attivo.
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-2xl border border-slate-200 p-3">
+                    <RomanaBody
+                      key={`romana-${activeOrderId}`}
+                      total={total}
+                      paidRomana={parseFloat((activeOrder as unknown as { paidRomana?: string })?.paidRomana ?? "0")}
+                      orderId={activeOrderId}
+                      tableName={orderLabel}
+                      onOrderClosed={() => {
+                        setPaymentMode("full");
+                        setSelectedTableId(null);
+                        setIsQuickMode(null);
+                        setQuickOrderId(null);
+                        refresh();
+                      }}
+                      onCancel={() => setPaymentMode("full")}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

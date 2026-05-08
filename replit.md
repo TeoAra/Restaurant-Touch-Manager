@@ -253,3 +253,16 @@ Code review architect: PASS sulle 3 fix; nessuna regressione introdotta. Errori 
 - **`front-office.tsx handlePay`**: invia `itemIds`, `coversCount`, `partial: isSplitPay` al POST `/api/payments`.
 
 Code review architect (2 iterazioni): PASS finale su tutti gli scenari (items-only, soli coperti, mix, full payment, edge case ordine vuoto). Typecheck OK su api-server.
+
+### UX redesign — "Esplodi tutti" + tab Tot come hub di pagamento
+
+**Problema utente**: 1) "Sep. Prod." era poco utile perché agiva su un singolo articolo selezionato; 2) Conto Separato e Romana aprivano dialog modali che coprivano la cassa.
+
+**Fix**:
+- **`handleExplodeAll`** (sostituisce `handleSplitItem`): un click esplode TUTTI gli articoli del tavolo con `qty>1` in righe da 1 (es. 2 birre + 3 caffè → 5 righe). Bottone rinominato **"Esplodi"**, disabled se nessun articolo è esplodibile. Toast con conteggio righe risultanti.
+- **Refactor `SplitBillDialog` → `SplitBillBody` + thin wrapper**: estratto il body senza wrapping `Dialog` per riusarlo inline. `SplitBillDialog` ora è un thin wrapper attorno a `SplitBillBody` (compat retroattiva). Stato interno fresh ad ogni open via `{open && <SplitBillBody />}`.
+- **Refactor `RomanaDialog` → `RomanaBody` + thin wrapper**: stessa pattern. Rimosso `useEffect` reset on `open` (gestito dal mount/unmount via `key`). Tutti gli `onClose` interni → `onCancel`.
+- **Tab "tot" hub di pagamento**: nuovo selettore segmentato a 3 vie **Totale | Separato | Romana**. Stato `paymentMode: "full"|"split"|"romana"` (default "full", reset a "full" quando si lascia il tavolo via `useEffect` su `selectedTableId`). Render condizionale: `InlinePaymentPanel` (full), `<SplitBillBody key={`split-${activeOrderId}`} />` (split, con guard "servono almeno 2 articoli"), `<RomanaBody key={`romana-${activeOrderId}`} />` (romana, con guard ordine vuoto). Il `key` per activeOrderId garantisce remount/state-reset al cambio ordine.
+- **Bottoni griglia "Conto Sep." e "Romana"**: invece di aprire dialog ora fanno `setPaymentMode(...) + setRightTab("tot") + setMobilePanel("right")` — l'utente vede il pannello pagamento direttamente nella tab Tot a destra.
+
+Code review architect: PASS — nessuna regressione, `PrecontoDialog` e `PaymentDialog` intatti, `handlePay` correttamente riceve `itemIds`+`coversToDeduct` dall'inline e skippa `handleExitOrder` su split parziale. Stati `showSplitBill`/`showRomana` lasciati come dead-code-safe fallback (mai aperti da UI). Typecheck FE: solo errori preesistenti su mockup-sandbox.
