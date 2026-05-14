@@ -1,0 +1,107 @@
+Showing the last 50 lines. Click this button to load the full log
+▸ Linking CapacitorGeolocation
+▸ Generating 'CapacitorPushNotifications.framework.dSYM'
+▸ Touching CapacitorPushNotifications.framework (in target 'CapacitorPushNotifications' from project 'Pods')
+▸ Generating 'CapacitorGeolocation.framework.dSYM'
+▸ Touching CapacitorGeolocation.framework (in target 'CapacitorGeolocation' from project 'Pods')
+▸ Compiling CapacitorCamera_vers.c
+▸ Compiling Pods_App_vers.c
+▸ Compiling CapacitorCamera-dummy.m
+▸ Linking CapacitorCamera
+▸ Generating 'CapacitorCamera.framework.dSYM'
+▸ Touching CapacitorCamera.framework (in target 'CapacitorCamera' from project 'Pods')
+▸ Processing Pods-App-Info.plist
+▸ Compiling Pods-App-dummy.m
+▸ Touching Pods_App.framework (in target 'Pods-App' from project 'Pods')
+▸ Running script '[CP] Check Pods Manifest.lock'
+▸ Copying /Users/builder/Library/Developer/Xcode/DerivedData/App-dfqlwfgrvlmjunbkfzimjqcghcbo/Build/Intermediates.noindex/ArchiveIntermediates/App/InstallationBuildProductsLocation/Applications/App.app/config.xml
+▸ Copying /Users/builder/Library/Developer/Xcode/DerivedData/App-dfqlwfgrvlmjunbkfzimjqcghcbo/Build/Intermediates.noindex/ArchiveIntermediates/App/InstallationBuildProductsLocation/Applications/App.app/public
+▸ Copying /Users/builder/Library/Developer/Xcode/DerivedData/App-dfqlwfgrvlmjunbkfzimjqcghcbo/Build/Intermediates.noindex/ArchiveIntermediates/App/InstallationBuildProductsLocation/Applications/App.app/capacitor.config.json
+▸ Compiling Main.storyboard
+▸ Compiling LaunchScreen.storyboard
+
+❌  /Users/builder/clone/ios/App/App/AppDelegate.swift:2:8: unable to resolve module dependency: 'GoogleCast'
+
+import GoogleCast
+                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~
+
+
+
+❌  /Users/builder/clone/ios/App/App/AppDelegate.swift:2:8: Unable to resolve module dependency: 'GoogleCast'
+
+import GoogleCast
+       ^
+
+
+    Run script build phase '[CP] Copy XCFrameworks' will be run during every build because it does not specify any outputs. To address this issue, either add output dependencies to the script phase, or configure it to run in every build by unchecking "Based on dependency analysis" in the script phase. (in target 'IONGeolocationLib' from project 'Pods')
+    Run script build phase '[CP] Embed Pods Frameworks' will be run during every build because it does not specify any outputs. To address this issue, either add output dependencies to the script phase, or configure it to run in every build by unchecking "Based on dependency analysis" in the script phase. (in target 'App' from project 'App')
+Failed to archive ios/App/App.xcworkspace. The following build commands failed:
+
+SwiftDriver App normal arm64 com.apple.xcode.tools.swift.compiler (in target 'App' from project 'App')
+	...
+	^ (in target 'App' from project 'App')
+	/Users/builder/clone/ios/App/App/NativeCast.swift:3:8: note: Also imported here
+	import GoogleCast
+	^ (in target 'App' from project 'App')
+	warning: Run script build phase '[CP] Copy XCFrameworks' will be run during every build because it does not specify any outputs. To address this issue, either add output dependencies to the script phase, or configure it to run in every build by unchecking "Based on dependency analysis" in the script phase. (in target 'IONGeolocationLib' from project 'Pods')
+	warning: Run script build phase '[CP] Embed Pods Frameworks' will be run during every build because it does not specify any outputs. To address this issue, either add output dependencies to the script phase, or configure it to run in every build by unchecking "Based on dependency analysis" in the script phase. (in target 'App' from project 'App')
+
+
+Build failed :|
+Step 15 script `Build IPA firmato` exited with status code 65
+F
+Personal Account
+F
+Applications
+Builds
+OTA Updates
+NEW
+App Preview
+Settings
+Billing
+
+
+fermentato
+fermentato
+github.com/TeoAra/fermentato
+
+
+Start new build
+Build overview
+Artifacts
+Click on the build steps for details.
+Preparing build machine
+31s
+Fetching app sources
+1m 17s
+Restoring cache
+21s
+Install Node dependencies
+12s
+Build web assets
+2s
+Add iOS platform + fix deployment target + pod install
+4s
+Copia web assets e plugin Swift nel progetto iOS
+1s
+Genera icone app iOS
+1s
+Aggiungi purpose strings al Info.plist
+< 1s
+Imposta versione e build number
+< 1s
+Inizializza keychain
+< 1s
+Prepara chiave privata per certificato
+< 1s
+Scarica certificati e profili (credenziali da integrazione UI)
+3s
+Aggiungi certificati al keychain
+< 1s
+Applica profili al progetto Xcode
+1s
+Publishing
+1s
+Cleaning up
+< 1s
+Step 15 script `Build IPA firmato` exited with
