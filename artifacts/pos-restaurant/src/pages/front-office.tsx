@@ -2893,33 +2893,16 @@ export default function FrontOffice() {
 
   async function handleLotteria() {
     const codice = lotteriaInput.toUpperCase().trim();
-    if (codice.length !== 8) return;
+    if (!/^[A-Z0-9]{8}$/.test(codice)) return;
     setLotteriaLoading(true);
     try {
-      const res = await fetch(`${API}/fiscal/lotteria`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ codice }),
-      });
-      const data = await res.json();
-      if (res.ok && data.ok) {
-        setLotteriaCodice(codice);
-        setShowLotteria(false);
-        toast({ title: "Codice lotteria inviato", description: `Codice ${codice} trasmesso alla RT` });
-      } else {
-        // Errore RT ma salviamo comunque il codice localmente
-        setLotteriaCodice(codice);
-        setShowLotteria(false);
-        toast({
-          title: "Codice salvato — RT non risponde",
-          description: data.error ?? "La stampante fiscale non è raggiungibile",
-          variant: "destructive",
-        });
-      }
-    } catch {
+      // Codice puramente locale, viaggia col PROSSIMO pagamento via body.lotteria
+      // e poi viene cancellato (one-shot). Niente persistenza globale lato server:
+      // altrimenti la RT riceverebbe lo stesso codice sugli scontrini successivi
+      // (errore 137 "codice lotteria già usato").
       setLotteriaCodice(codice);
       setShowLotteria(false);
-      toast({ title: "Codice salvato offline", description: `${codice} — nessuna RT raggiungibile`, variant: "destructive" });
+      toast({ title: "Codice lotteria pronto", description: `${codice} sarà incluso nel prossimo scontrino` });
     } finally {
       setLotteriaLoading(false);
     }

@@ -601,8 +601,12 @@ export async function emettiFiscalReceipt(opts: {
     const opNum  = settings["rt_operatore"]     ?? "";
     const opPin  = settings["rt_operatore_pin"] ?? "";
 
-    // Codice lotteria: da parametro (da POS, se cliente l'ha fornito) oppure da settings
-    const lotteriaCode = lotteria || settings["lotteria_codice"] || undefined;
+    // Codice lotteria: SOLO da parametro per-pagamento (one-shot dal POS).
+    // NB: niente più fallback su settings["lotteria_codice"], altrimenti il codice
+    // si riapplicherebbe agli scontrini successivi → RT errore 137 "codice già usato".
+    // La pagina di test in backoffice/fiscale può sempre inviare manualmente via
+    // /fiscal/lotteria; quello rimane separato e non influenza più i pagamenti.
+    const lotteriaCode = lotteria || undefined;
 
     // Costruisci comando XonXoff
     const cmd = buildXonXoffReceipt({
