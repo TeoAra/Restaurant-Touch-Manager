@@ -3203,6 +3203,10 @@ export default function FrontOffice() {
     // Usa la route /fiscal/romana come ultima quota per emettere lo scontrino
     // corretto (solo il restante) e chiudere l'ordine.
     if (paidRomana > 0 && !isSplitPay && !isGestionale) {
+      // Snapshot one-shot del codice lotteria: viene incluso in QUESTO pagamento
+      // e poi cancellato così non si propaga ad altri ordini/scontrini.
+      const lotteriaOneShot = lotteriaCodice || undefined;
+      if (lotteriaOneShot) { setLotteriaCodice(""); setLotteriaInput(""); }
       try {
         const resp = await fetch(`${API}/fiscal/romana`, {
           method: "POST",
@@ -3215,6 +3219,7 @@ export default function FrontOffice() {
             quoteTotali: 1,
             tableName: orderLabel ?? "",
             isUltima: true,
+            lotteria: lotteriaOneShot,
           }),
         });
         const data = await resp.json();
@@ -3235,13 +3240,18 @@ export default function FrontOffice() {
     }
 
     // ── Pagamento normale (nessuna romana parziale precedente) ───────────────
+    // Snapshot one-shot del codice lotteria: viene incluso in QUESTO pagamento
+    // e poi cancellato così non si propaga ai successivi (anche su conto separato,
+    // dove non passa per handleExitOrder).
+    const lotteriaOneShot = lotteriaCodice || undefined;
+    if (lotteriaOneShot) { setLotteriaCodice(""); setLotteriaInput(""); }
     const paymentRes = await createPayment.mutateAsync({
       data: {
         orderId: activeOrderId,
         method,
         amount: payAmount.toFixed(2),
         change: method === "cash" && amountGiven !== undefined && amountGiven > effectiveTotal ? (amountGiven - effectiveTotal).toFixed(2) : undefined,
-        lotteria: lotteriaCodice || undefined,
+        lotteria: lotteriaOneShot,
         nonFiscale: isGestionale || undefined,
         ragioneSocialeCliente: ragioneSocialeCliente || undefined,
         // ── Conto separato: passa esplicitamente articoli + coperti pagati
