@@ -2172,11 +2172,13 @@ ${covers > 0 ? `<p>${covers} coperti${coverPrice > 0 ? ` × €${coverPrice.toFi
     if (w) { w.document.write(html); w.document.close(); w.focus(); w.print(); }
   }
 
+  const safeGrandTotal = isNaN(grandTotal) ? coverTotal : grandTotal;
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="w-[min(22rem,calc(100vw-1.5rem))] max-w-none p-5">
         <DialogHeader><DialogTitle className="flex items-center gap-2"><FileText className="h-4 w-4" /> Preconto</DialogTitle></DialogHeader>
-        <div className="py-1 space-y-3 font-mono text-sm">
+        <div className="space-y-3 font-mono text-sm">
           <div className="text-center border-b border-dashed border-slate-200 pb-3">
             <div className="font-bold text-base">{order.tableName || "Scontrino Rapido"}</div>
             <div className="text-xs text-slate-400">{new Date(order.createdAt).toLocaleString("it-IT")}</div>
@@ -2186,41 +2188,48 @@ ${covers > 0 ? `<p>${covers} coperti${coverPrice > 0 ? ` × €${coverPrice.toFi
               </div>
             )}
           </div>
-          <div className="space-y-1 max-h-48 overflow-y-auto">
-            {items.map((item, i) => (
-              <div key={i} className="flex justify-between">
-                <span>{item.quantity}x {item.productName}</span>
-                <span>€ {parseFloat(item.subtotal).toFixed(2)}</span>
-              </div>
-            ))}
+          <div className="space-y-1 max-h-44 overflow-y-auto">
+            {items.map((item, i) => {
+              const sub = parseFloat(item.subtotal);
+              return (
+                <div key={i} className="flex justify-between gap-2">
+                  <span className="truncate">{item.quantity}x {item.productName}</span>
+                  <span className="shrink-0">€ {isNaN(sub) ? "—" : sub.toFixed(2)}</span>
+                </div>
+              );
+            })}
             {coverTotal > 0 && (
-              <div className="flex justify-between text-slate-500">
+              <div className="flex justify-between gap-2 text-slate-500">
                 <span>{covers}x Coperto</span>
-                <span>€ {coverTotal.toFixed(2)}</span>
+                <span className="shrink-0">€ {coverTotal.toFixed(2)}</span>
               </div>
             )}
           </div>
-          <div className="border-t-2 border-slate-300 pt-2 flex justify-between text-base font-bold">
+          <div className="border-t-2 border-slate-300 pt-2 flex justify-between gap-2 text-base font-bold">
             <span>TOTALE</span>
-            <span>€ {grandTotal.toFixed(2)}</span>
+            <span className="shrink-0">€ {safeGrandTotal.toFixed(2)}</span>
           </div>
           {printResult && (
             <div className={cn("text-center text-xs font-semibold px-3 py-2 rounded-lg", printResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
-              {printResult.ok ? "✓ Gestionale stampato sulla RT" : `RT: ${printResult.error ?? "non disponibile"} — usa Stampa Browser`}
+              {printResult.ok ? "✓ Preconto stampato sulla RT" : `RT: ${printResult.error ?? "non disponibile"} — usa Stampa Browser`}
             </div>
           )}
         </div>
-        <DialogFooter className="gap-2 flex-col sm:flex-row">
-          <Button variant="outline" onClick={onClose} className="flex-1">Chiudi</Button>
-          <Button variant="outline" onClick={handleBrowserPrint} className="flex-1 gap-1.5">
-            <Printer className="h-3.5 w-3.5" /> Stampa browser
-          </Button>
-          {orderId && (
-            <Button onClick={handleStampa} disabled={printing} className="flex-1 gap-1.5">
-              {printing ? <><span className="animate-spin">⏳</span></> : <><Printer className="h-3.5 w-3.5" /> Stampa RT</>}
+        {/* Footer compatto su 2 righe: evita overflow su schermi piccoli */}
+        <div className="flex flex-col gap-2 mt-1">
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleBrowserPrint} className="flex-1 gap-1.5 text-sm">
+              <Printer className="h-3.5 w-3.5" /> Browser
             </Button>
-          )}
-        </DialogFooter>
+            {orderId && (
+              <Button onClick={handleStampa} disabled={printing} className="flex-1 gap-1.5 text-sm">
+                {printing ? <span className="animate-spin">⏳</span> : <Printer className="h-3.5 w-3.5" />}
+                {printing ? "Stampa…" : "Stampa RT"}
+              </Button>
+            )}
+          </div>
+          <Button variant="outline" onClick={onClose} className="w-full text-sm">Chiudi</Button>
+        </div>
       </DialogContent>
     </Dialog>
   );

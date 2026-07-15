@@ -447,10 +447,8 @@ export function buildPrecontoDocument(opts: {
   righe: { desc: string; qta: number; prezzoUnitario: string }[];
   totale: string;
 }): string {
-  return (
-    buildPrecontoCopy({ ...opts, isCopiaCliente: false }) +
-    buildPrecontoCopy({ ...opts, isCopiaCliente: true })
-  );
+  // Una sola copia: la RT non tollera due documenti concatenati (ERRORE 16)
+  return buildPrecontoCopy({ ...opts, isCopiaCliente: false });
 }
 
 // ── Stampa documento gestionale libero (per fatture, note, conferme) ─────────
