@@ -136,6 +136,11 @@ function FloorElement({ t, isSelected, onClick, reservation, assignMode, moveMod
     : et === "muro"   ? "░░"
     : "";
 
+  const accentStrip = isTargetable ? "bg-emerald-400"
+    : status === "free" ? "bg-emerald-500"
+    : status === "occupied" ? dotTone
+    : "bg-blue-500";
+
   return (
     <button
       disabled={isDecor || ((assignMode || moveMode) && !isTargetable)}
@@ -147,9 +152,10 @@ function FloorElement({ t, isSelected, onClick, reservation, assignMode, moveMod
           : undefined
       }
       className={cn(
-        "absolute flex items-center justify-center border-2 select-none transition-all active:scale-95 shadow-sm",
+        "absolute border-2 select-none transition-all active:scale-95 shadow-sm overflow-hidden",
+        isRound || isDecor ? "flex items-center justify-center" : "flex flex-col",
         isDecor ? decorStyle : cn(statusBg),
-        isRound ? "rounded-full" : "rounded-2xl",
+        isRound ? "rounded-full" : "rounded-xl",
         isSelected && !isDecor ? "ring-4 ring-primary ring-offset-2 shadow-xl scale-105 z-10" : "",
         !isDecor && !assignMode && !moveMode && "cursor-pointer",
         isTargetable && "cursor-pointer",
@@ -162,50 +168,58 @@ function FloorElement({ t, isSelected, onClick, reservation, assignMode, moveMod
       {isDecor ? (
         <span className={cn("text-sm font-bold tracking-widest", et === "pianta" && "text-2xl")}>{decorLabel}</span>
       ) : (
-        <div className="flex flex-col items-center justify-between w-full h-full p-1.5 overflow-hidden">
-          {/* Top: status badge + numero coperti */}
-          <div className="flex items-center justify-between w-full px-0.5">
-            <div className={cn("h-2.5 w-2.5 rounded-full shrink-0 ring-2 ring-white", statusDot)} />
-            <span className="text-[10px] text-slate-400 flex items-center gap-0.5 font-medium">
-              <Users className="h-2.5 w-2.5" />{t.seats}
-            </span>
-          </div>
+        <>
+          {/* Striscia colorata status in cima (solo tavoli non rotondi) */}
+          {!isRound && <div className={cn("h-[3px] w-full shrink-0", accentStrip)} />}
 
-          {/* Centro: nome tavolo grande */}
-          <div className="flex-1 flex items-center justify-center w-full min-h-0">
-            <span className={cn(
-              "font-extrabold text-slate-800 text-center leading-none truncate w-full px-0.5",
-              t.name && t.name.length <= 3 ? "text-2xl" : t.name && t.name.length <= 5 ? "text-lg" : "text-sm",
-            )}>{t.name}</span>
-          </div>
+          <div className={cn("flex flex-col items-center justify-between p-1.5 overflow-hidden", isRound ? "w-full h-full" : "flex-1 w-full")}>
+            {/* Top: status dot + posti */}
+            <div className="flex items-center justify-between w-full px-0.5">
+              <div className={cn("h-2 w-2 rounded-full shrink-0 ring-[1.5px] ring-white shadow-sm", statusDot)} />
+              <span className="text-[10px] text-slate-400 flex items-center gap-0.5 font-medium">
+                <Users className="h-2.5 w-2.5" />{t.seats}
+              </span>
+            </div>
 
-          {/* Bottom: stato dinamico — totale ordine, prenotazione, o vuoto */}
-          {t.activeOrderTotal ? (
-            <div className="w-full flex flex-col items-center gap-0.5">
-              <span className="text-[13px] font-extrabold text-primary leading-none">€{t.activeOrderTotal}</span>
-              {durataMin !== null && (
-                <span className={cn(
-                  "text-[10px] flex items-center gap-0.5 leading-none font-semibold",
-                  durataLunga ? "text-red-500" : "text-slate-500",
-                )}>
-                  <Clock className="h-2.5 w-2.5" />
-                  {durataMin < 60 ? `${durataMin}'` : `${Math.floor(durataMin / 60)}h${(durataMin % 60).toString().padStart(2, "0")}`}
+            {/* Centro: nome tavolo */}
+            <div className="flex-1 flex items-center justify-center w-full min-h-0">
+              <span className={cn(
+                "font-extrabold text-slate-800 text-center leading-none truncate w-full px-0.5",
+                t.name && t.name.length <= 3 ? "text-2xl" : t.name && t.name.length <= 5 ? "text-lg" : "text-sm",
+              )}>{t.name}</span>
+            </div>
+
+            {/* Bottom: totale / prenotazione / libero */}
+            {t.activeOrderTotal ? (
+              <div className="w-full flex flex-col items-center gap-0.5">
+                <span className="text-[13px] font-extrabold text-primary leading-none">€{t.activeOrderTotal}</span>
+                {durataMin !== null && (
+                  <span className={cn(
+                    "text-[9px] px-1.5 py-0.5 rounded-full font-bold leading-none flex items-center gap-0.5",
+                    durataLunga ? "bg-red-100 text-red-600" : durataMin >= 60 ? "bg-orange-100 text-orange-600" : "bg-slate-100 text-slate-500",
+                  )}>
+                    <Clock className="h-2 w-2" />
+                    {durataMin < 60 ? `${durataMin}'` : `${Math.floor(durataMin / 60)}h${(durataMin % 60).toString().padStart(2, "0")}`}
+                  </span>
+                )}
+              </div>
+            ) : reservation ? (
+              <div className="w-full flex flex-col items-center gap-0.5 px-0.5">
+                <span className="text-[10px] font-bold text-blue-700 truncate w-full text-center leading-none">
+                  {reservation.guestName.length > 10 ? reservation.guestName.slice(0, 9) + "…" : reservation.guestName}
                 </span>
-              )}
-            </div>
-          ) : reservation ? (
-            <div className="w-full flex flex-col items-center gap-0.5 px-0.5">
-              <span className="text-[10px] font-bold text-blue-700 truncate w-full text-center leading-none">
-                {reservation.guestName.length > 10 ? reservation.guestName.slice(0, 9) + "…" : reservation.guestName}
-              </span>
-              <span className="text-[10px] text-blue-500 flex items-center gap-0.5 leading-none font-semibold">
-                <CalendarClock className="h-2.5 w-2.5" />{reservation.time.slice(0, 5)}
-              </span>
-            </div>
-          ) : (
-            <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Libero</span>
-          )}
-        </div>
+                <span className="text-[10px] text-blue-500 flex items-center gap-0.5 leading-none font-semibold">
+                  <CalendarClock className="h-2.5 w-2.5" />{reservation.time.slice(0, 5)}
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1">
+                <div className={cn("h-1.5 w-1.5 rounded-full", isTargetable ? "bg-emerald-400 animate-pulse" : "bg-emerald-500")} />
+                <span className="text-[9px] text-emerald-600 font-bold uppercase tracking-wide">Libero</span>
+              </div>
+            )}
+          </div>
+        </>
       )}
     </button>
   );
@@ -1618,8 +1632,25 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
   const restante = Math.max(0, Math.round((total - paidRomana) * 100) / 100);
   const hasPagatiPrecedenti = paidRomana > 0.005;
 
-  const [phase, setPhase] = useState<"setup" | "pagamento">("setup");
+  const [phase, setPhase] = useState<"preconto" | "setup" | "pagamento">(() => hasPagatiPrecedenti ? "setup" : "preconto");
+  const [precontoPrinting, setPrecontoPrinting] = useState(false);
+  const [precontoResult, setPrecontoResult] = useState<{ ok: boolean; error?: string | null } | null>(null);
   const [numSplits, setNumSplits] = useState(hasPagatiPrecedenti ? 1 : 2);
+
+  async function stampaPrecontoRT() {
+    if (!orderId) return;
+    setPrecontoPrinting(true);
+    setPrecontoResult(null);
+    try {
+      const res = await fetch(`${API}/orders/${orderId}/preconto`, { method: "POST" });
+      const json = await res.json();
+      setPrecontoResult({ ok: json.ok, error: json.error });
+    } catch {
+      setPrecontoResult({ ok: false, error: "Errore di rete" });
+    } finally {
+      setPrecontoPrinting(false);
+    }
+  }
   const [quote, setQuote] = useState<RomanaQuota[]>([]);
 
   function calcolaQuote(n: number): RomanaQuota[] {
@@ -1758,6 +1789,59 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
 
   return (
     <>
+        {/* ── Fase 1: stampa preconto prima di scegliere la divisione ─────── */}
+        {phase === "preconto" && (
+          <>
+            <div className="py-3 text-center space-y-4">
+              {/* Totale da dividere */}
+              <div className="bg-slate-50 rounded-xl py-3 px-4">
+                <p className="text-xs text-slate-500 mb-0.5">Totale da dividere</p>
+                <p className="text-4xl font-bold text-slate-900">€ {restante.toFixed(2)}</p>
+                {tableName && <p className="text-xs text-slate-400 mt-0.5">{tableName}</p>}
+              </div>
+
+              {/* Pulsante stampa RT */}
+              <div className="space-y-3 px-1">
+                <p className="text-sm text-slate-600 font-medium">
+                  Stampa il preconto da mostrare al cliente prima di dividere il conto:
+                </p>
+                <button
+                  onClick={stampaPrecontoRT}
+                  disabled={precontoPrinting || !orderId}
+                  className="w-full flex items-center justify-center gap-2 py-3 bg-primary text-white rounded-xl font-semibold text-sm hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-50">
+                  {precontoPrinting
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Printer className="h-4 w-4" />}
+                  {precontoPrinting ? "Stampa in corso…" : "Stampa Preconto RT"}
+                </button>
+              </div>
+
+              {/* Risultato stampa */}
+              {precontoResult && (
+                <div className={cn(
+                  "text-center text-xs font-semibold px-3 py-2.5 rounded-xl border",
+                  precontoResult.ok
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                    : "bg-amber-50 border-amber-200 text-amber-700"
+                )}>
+                  {precontoResult.ok
+                    ? "✓ Preconto stampato sulla RT"
+                    : `⚠ RT: ${precontoResult.error ?? "non disponibile"}`}
+                </div>
+              )}
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={onCancel} className="flex-1">
+                Annulla
+              </Button>
+              <Button onClick={() => setPhase("setup")} className="flex-1">
+                Avanti — Scegli divisione →
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+
         {phase === "setup" && (
           <>
             <div className="py-3 text-center space-y-4">
@@ -3096,7 +3180,7 @@ export default function FrontOffice() {
   }
 
   /**
-   * Esplodi tutto: itera su TUTTI gli articoli del tavolo con qty>1 e li
+   * Espandi tutto: itera su TUTTI gli articoli del tavolo con qty>1 e li
    * separa in righe singole da 1. Utile come step preparatorio prima di un
    * conto separato o di una romana, così ogni voce diventa selezionabile.
    */
@@ -3786,9 +3870,9 @@ export default function FrontOffice() {
             <button
               disabled={!items.some(i => i.quantity > 1)}
               onClick={handleExplodeAll}
-              title="Esplodi tutti: ogni articolo del tavolo con qty>1 viene separato in righe da 1 (utile per conto separato/romana)"
+              title="Espandi: ogni articolo con qty>1 viene separato in righe da 1 (utile per conto separato/romana)"
               className="h-10 rounded-lg flex items-center justify-center bg-indigo-800 text-indigo-200 hover:bg-indigo-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              Esplodi
+              Espandi
             </button>
 
             {/* Riga 4 */}
@@ -4469,7 +4553,7 @@ export default function FrontOffice() {
                   <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center text-slate-500 text-sm">
                     Servono almeno 2 articoli per il conto separato.
                     <div className="mt-2 text-xs text-slate-400">
-                      Suggerimento: usa <strong>Esplodi</strong> per separare gli articoli con quantità maggiore di 1.
+                      Suggerimento: usa <strong>Espandi</strong> per separare gli articoli con quantità maggiore di 1.
                     </div>
                   </div>
                 ) : (
