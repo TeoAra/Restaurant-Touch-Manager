@@ -152,8 +152,7 @@ function FloorElement({ t, isSelected, onClick, reservation, assignMode, moveMod
           : undefined
       }
       className={cn(
-        "absolute border-2 select-none transition-all active:scale-95 shadow-sm overflow-hidden",
-        isRound || isDecor ? "flex items-center justify-center" : "flex flex-col",
+        "absolute flex items-center justify-center border-2 select-none transition-all active:scale-95 shadow-sm",
         isDecor ? decorStyle : cn(statusBg),
         isRound ? "rounded-full" : "rounded-xl",
         isSelected && !isDecor ? "ring-4 ring-primary ring-offset-2 shadow-xl scale-105 z-10" : "",
@@ -168,58 +167,56 @@ function FloorElement({ t, isSelected, onClick, reservation, assignMode, moveMod
       {isDecor ? (
         <span className={cn("text-sm font-bold tracking-widest", et === "pianta" && "text-2xl")}>{decorLabel}</span>
       ) : (
-        <>
-          {/* Striscia colorata status in cima (solo tavoli non rotondi) */}
-          {!isRound && <div className={cn("h-[3px] w-full shrink-0", accentStrip)} />}
+        <div className="relative flex flex-col items-center justify-between w-full h-full p-1.5 overflow-hidden">
+          {/* Striscia colorata status — absolute in cima, non partecipa al flex layout */}
+          {!isRound && <div className={cn("absolute top-0 left-0 right-0 h-[3px]", accentStrip)} />}
 
-          <div className={cn("flex flex-col items-center justify-between p-1.5 overflow-hidden", isRound ? "w-full h-full" : "flex-1 w-full")}>
-            {/* Top: status dot + posti */}
-            <div className="flex items-center justify-between w-full px-0.5">
-              <div className={cn("h-2 w-2 rounded-full shrink-0 ring-[1.5px] ring-white shadow-sm", statusDot)} />
-              <span className="text-[10px] text-slate-400 flex items-center gap-0.5 font-medium">
-                <Users className="h-2.5 w-2.5" />{t.seats}
+          {/* Top: status dot + posti (piccolo margin-top per non sovrapporsi alla strip) */}
+          <div className={cn("flex items-center justify-between w-full px-0.5", !isRound && "mt-[2px]")}>
+            <div className={cn("h-2 w-2 rounded-full shrink-0 ring-[1.5px] ring-white shadow-sm", statusDot)} />
+            <span className="text-[10px] text-slate-400 flex items-center gap-0.5 font-medium">
+              <Users className="h-2.5 w-2.5" />{t.seats}
+            </span>
+          </div>
+
+          {/* Centro: nome tavolo */}
+          <div className="flex-1 flex items-center justify-center w-full min-h-0">
+            <span className={cn(
+              "font-extrabold text-slate-800 text-center leading-none truncate w-full px-0.5",
+              t.name && t.name.length <= 3 ? "text-2xl" : t.name && t.name.length <= 5 ? "text-lg" : "text-sm",
+            )}>{t.name}</span>
+          </div>
+
+          {/* Bottom: totale / prenotazione / libero */}
+          {t.activeOrderTotal ? (
+            <div className="w-full flex flex-col items-center gap-0.5">
+              <span className="text-[13px] font-extrabold text-primary leading-none">€{t.activeOrderTotal}</span>
+              {durataMin !== null && (
+                <span className={cn(
+                  "text-[9px] px-1.5 py-0.5 rounded-full font-bold leading-none flex items-center gap-0.5",
+                  durataLunga ? "bg-red-100 text-red-600" : durataMin >= 60 ? "bg-orange-100 text-orange-600" : "bg-slate-100 text-slate-500",
+                )}>
+                  <Clock className="h-2 w-2" />
+                  {durataMin < 60 ? `${durataMin}'` : `${Math.floor(durataMin / 60)}h${(durataMin % 60).toString().padStart(2, "0")}`}
+                </span>
+              )}
+            </div>
+          ) : reservation ? (
+            <div className="w-full flex flex-col items-center gap-0.5 px-0.5">
+              <span className="text-[10px] font-bold text-blue-700 truncate w-full text-center leading-none">
+                {reservation.guestName.length > 10 ? reservation.guestName.slice(0, 9) + "…" : reservation.guestName}
+              </span>
+              <span className="text-[10px] text-blue-500 flex items-center gap-0.5 leading-none font-semibold">
+                <CalendarClock className="h-2.5 w-2.5" />{reservation.time.slice(0, 5)}
               </span>
             </div>
-
-            {/* Centro: nome tavolo */}
-            <div className="flex-1 flex items-center justify-center w-full min-h-0">
-              <span className={cn(
-                "font-extrabold text-slate-800 text-center leading-none truncate w-full px-0.5",
-                t.name && t.name.length <= 3 ? "text-2xl" : t.name && t.name.length <= 5 ? "text-lg" : "text-sm",
-              )}>{t.name}</span>
+          ) : (
+            <div className="flex items-center gap-1">
+              <div className={cn("h-1.5 w-1.5 rounded-full", isTargetable ? "bg-emerald-400 animate-pulse" : "bg-emerald-500")} />
+              <span className="text-[9px] text-emerald-600 font-bold uppercase tracking-wide">Libero</span>
             </div>
-
-            {/* Bottom: totale / prenotazione / libero */}
-            {t.activeOrderTotal ? (
-              <div className="w-full flex flex-col items-center gap-0.5">
-                <span className="text-[13px] font-extrabold text-primary leading-none">€{t.activeOrderTotal}</span>
-                {durataMin !== null && (
-                  <span className={cn(
-                    "text-[9px] px-1.5 py-0.5 rounded-full font-bold leading-none flex items-center gap-0.5",
-                    durataLunga ? "bg-red-100 text-red-600" : durataMin >= 60 ? "bg-orange-100 text-orange-600" : "bg-slate-100 text-slate-500",
-                  )}>
-                    <Clock className="h-2 w-2" />
-                    {durataMin < 60 ? `${durataMin}'` : `${Math.floor(durataMin / 60)}h${(durataMin % 60).toString().padStart(2, "0")}`}
-                  </span>
-                )}
-              </div>
-            ) : reservation ? (
-              <div className="w-full flex flex-col items-center gap-0.5 px-0.5">
-                <span className="text-[10px] font-bold text-blue-700 truncate w-full text-center leading-none">
-                  {reservation.guestName.length > 10 ? reservation.guestName.slice(0, 9) + "…" : reservation.guestName}
-                </span>
-                <span className="text-[10px] text-blue-500 flex items-center gap-0.5 leading-none font-semibold">
-                  <CalendarClock className="h-2.5 w-2.5" />{reservation.time.slice(0, 5)}
-                </span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1">
-                <div className={cn("h-1.5 w-1.5 rounded-full", isTargetable ? "bg-emerald-400 animate-pulse" : "bg-emerald-500")} />
-                <span className="text-[9px] text-emerald-600 font-bold uppercase tracking-wide">Libero</span>
-              </div>
-            )}
-          </div>
-        </>
+          )}
+        </div>
       )}
     </button>
   );
@@ -984,6 +981,25 @@ function UserMenuButton({ showUserMenu, setShowUserMenu }: {
 
 // ─── Payment Dialog ───────────────────────────────────────────────────────────
 type SimpleCustomer = { id: number; ragioneSociale: string; partitaIva: string | null; codiceFiscale: string | null; sdiCode: string | null; pec: string | null; indirizzoVia: string | null; indirizzoCap: string | null; indirizzoComune: string | null; indirizzoProvince: string | null };
+
+function CustomerCard({ c, selected, onSelect }: { c: SimpleCustomer; selected: boolean; onSelect: () => void }) {
+  return (
+    <button
+      onClick={onSelect}
+      className={cn(
+        "w-full text-left px-4 py-3 rounded-xl border-2 transition-all active:scale-95",
+        selected
+          ? "border-emerald-600 bg-emerald-900/40"
+          : "border-[#2d3044] bg-[#22263a] hover:border-primary/40",
+      )}>
+      <div className="font-semibold text-slate-200 text-sm">{c.ragioneSociale}</div>
+      <div className="flex gap-3 mt-0.5">
+        {c.partitaIva && <span className="text-[10px] text-slate-500 font-mono">P.IVA {c.partitaIva}</span>}
+        {c.codiceFiscale && <span className="text-[10px] text-slate-500 font-mono">CF {c.codiceFiscale}</span>}
+      </div>
+    </button>
+  );
+}
 
 // ─── New-customer mini-form (inside PaymentDialog) ────────────────────────────
 type ViesStatus = "idle" | "loading" | "ok" | "error";
@@ -2679,6 +2695,10 @@ export default function FrontOffice() {
   const [clntResults, setClntResults] = useState<SimpleCustomer[]>([]);
   const [clntSearching, setClntSearching] = useState(false);
   const [showNewClntForm, setShowNewClntForm] = useState(false);
+  const { data: allCustomers = [] } = useQuery<SimpleCustomer[]>({
+    queryKey: ["customers-all"],
+    queryFn: () => fetch(`${API}/customers`).then(r => r.json()),
+  });
 
   // Dialog state
   const [showPayment, setShowPayment] = useState(false);
@@ -4454,44 +4474,47 @@ export default function FrontOffice() {
                   </div>
                 )}
 
-                {/* Search results */}
-                {clntResults.length > 0 && (
+                {/* Risultati ricerca (quando l'utente ha digitato 2+ caratteri) */}
+                {clntSearch.length >= 2 && (
                   <div className="space-y-1.5">
-                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 px-1">
-                      Risultati ricerca ({clntResults.length})
-                    </div>
-                    {clntResults.map(c => (
-                      <button key={c.id}
-                        onClick={() => {
-                          setInvoiceCustomer(c);
-                          setClntSearch("");
-                          setClntResults([]);
-                          addLog("info", `Cliente selezionato per fattura: ${c.ragioneSociale}`);
-                        }}
-                        className={cn(
-                          "w-full text-left px-4 py-3 rounded-xl border-2 transition-all active:scale-95",
-                          invoiceCustomer?.id === c.id
-                            ? "border-emerald-600 bg-emerald-900/40"
-                            : "border-[#2d3044] bg-[#22263a] hover:border-primary/40"
-                        )}>
-                        <div className="font-semibold text-slate-200 text-sm">{c.ragioneSociale}</div>
-                        <div className="flex gap-3 mt-0.5">
-                          {c.partitaIva && <span className="text-[10px] text-slate-500 font-mono">P.IVA {c.partitaIva}</span>}
-                          {c.codiceFiscale && <span className="text-[10px] text-slate-500 font-mono">CF {c.codiceFiscale}</span>}
+                    {clntResults.length > 0 ? (
+                      <>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 px-1">
+                          Risultati ricerca ({clntResults.length})
                         </div>
-                      </button>
-                    ))}
+                        {clntResults.map(c => (
+                          <CustomerCard key={c.id} c={c} selected={invoiceCustomer?.id === c.id}
+                            onSelect={() => { setInvoiceCustomer(c); setClntSearch(""); setClntResults([]); addLog("info", `Cliente selezionato per fattura: ${c.ragioneSociale}`); }} />
+                        ))}
+                      </>
+                    ) : !clntSearching && (
+                      <div className="text-center py-6 text-slate-600 text-xs">Nessun cliente trovato</div>
+                    )}
                   </div>
                 )}
 
-                {/* Empty state when no search */}
-                {!showNewClntForm && clntSearch.length < 2 && clntResults.length === 0 && !invoiceCustomer && (
-                  <div className="text-center py-16 text-slate-600">
-                    <ReceiptText className="h-10 w-10 mx-auto mb-3 opacity-20" />
-                    <div className="text-sm font-semibold text-slate-500">Fattura elettronica</div>
-                    <div className="text-xs text-slate-600 mt-1 max-w-[240px] mx-auto">
-                      Cerca o crea il cliente, poi paga normalmente — la fattura viene emessa automaticamente
-                    </div>
+                {/* Lista tutti i clienti (default, quando non si sta cercando) */}
+                {!showNewClntForm && clntSearch.length < 2 && (
+                  <div className="space-y-1.5">
+                    {allCustomers.length > 0 ? (
+                      <>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 px-1">
+                          Tutti i clienti ({allCustomers.length})
+                        </div>
+                        {allCustomers.map(c => (
+                          <CustomerCard key={c.id} c={c} selected={invoiceCustomer?.id === c.id}
+                            onSelect={() => { setInvoiceCustomer(c); addLog("info", `Cliente selezionato per fattura: ${c.ragioneSociale}`); }} />
+                        ))}
+                      </>
+                    ) : (
+                      <div className="text-center py-16 text-slate-600">
+                        <ReceiptText className="h-10 w-10 mx-auto mb-3 opacity-20" />
+                        <div className="text-sm font-semibold text-slate-500">Nessun cliente</div>
+                        <div className="text-xs text-slate-600 mt-1 max-w-[240px] mx-auto">
+                          Crea il primo cliente per emettere fatture elettroniche
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
