@@ -2042,6 +2042,34 @@ function PrecontoDialog({ open, onClose, order, items, orderId, coverPrice, cove
     }
   }
 
+  function handleBrowserPrint() {
+    if (!order) return;
+    const ragSoc = order.tableName || "Scontrino Rapido";
+    const dataOra = new Date(order.createdAt).toLocaleString("it-IT");
+    const righe = items.map(i =>
+      `<tr><td>${i.quantity}x ${i.productName}</td><td style="text-align:right">€ ${parseFloat(i.subtotal).toFixed(2)}</td></tr>`
+    ).join("");
+    const coverRow = coverTotal > 0
+      ? `<tr><td>${covers}x Coperto</td><td style="text-align:right">€ ${coverTotal.toFixed(2)}</td></tr>`
+      : "";
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Preconto</title>
+<style>body{font-family:monospace;max-width:300px;margin:auto;padding:16px;font-size:13px}
+h2{text-align:center;margin:0}p{text-align:center;margin:4px 0;font-size:11px;color:#555}
+table{width:100%;border-collapse:collapse;margin:8px 0}
+tr td{padding:2px 0}hr{border:1px dashed #999}
+.total{font-weight:bold;font-size:15px;border-top:2px solid #333;padding-top:6px}
+.footer{text-align:center;font-size:10px;color:#888;margin-top:12px}
+@media print{body{margin:0}}</style></head><body>
+<h2>${ragSoc}</h2><p>${dataOra}</p>
+${covers > 0 ? `<p>${covers} coperti${coverPrice > 0 ? ` × €${coverPrice.toFixed(2)}` : ""}</p>` : ""}
+<hr><table>${righe}${coverRow}</table><hr>
+<table><tr class="total"><td>TOTALE</td><td style="text-align:right">€ ${grandTotal.toFixed(2)}</td></tr></table>
+<div class="footer">DOCUMENTO NON VALIDO AI FINI FISCALI</div>
+</body></html>`;
+    const w = window.open("", "_blank", "width=400,height=600");
+    if (w) { w.document.write(html); w.document.close(); w.focus(); w.print(); }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-sm">
@@ -2075,16 +2103,19 @@ function PrecontoDialog({ open, onClose, order, items, orderId, coverPrice, cove
             <span>€ {grandTotal.toFixed(2)}</span>
           </div>
           {printResult && (
-            <div className={cn("text-center text-xs font-semibold px-3 py-2 rounded-lg", printResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700")}>
-              {printResult.ok ? "✓ Preconto stampato" : `Errore RT: ${printResult.error ?? "sconosciuto"}`}
+            <div className={cn("text-center text-xs font-semibold px-3 py-2 rounded-lg", printResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
+              {printResult.ok ? "✓ Gestionale stampato sulla RT" : `RT: ${printResult.error ?? "non disponibile"} — usa Stampa Browser`}
             </div>
           )}
         </div>
-        <DialogFooter className="gap-2 flex-row">
+        <DialogFooter className="gap-2 flex-col sm:flex-row">
           <Button variant="outline" onClick={onClose} className="flex-1">Chiudi</Button>
+          <Button variant="outline" onClick={handleBrowserPrint} className="flex-1 gap-1.5">
+            <Printer className="h-3.5 w-3.5" /> Stampa browser
+          </Button>
           {orderId && (
             <Button onClick={handleStampa} disabled={printing} className="flex-1 gap-1.5">
-              {printing ? <><span className="animate-spin">⏳</span> Stampa...</> : <><Printer className="h-3.5 w-3.5" /> Stampa RT</>}
+              {printing ? <><span className="animate-spin">⏳</span></> : <><Printer className="h-3.5 w-3.5" /> Stampa RT</>}
             </Button>
           )}
         </DialogFooter>

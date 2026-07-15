@@ -453,6 +453,57 @@ export function buildPrecontoDocument(opts: {
   );
 }
 
+// ── Stampa documento gestionale libero (per fatture, note, conferme) ─────────
+// Non richiede orderId né metodoPagamento — adatto a documenti non legati a un ordine.
+export async function emettiGestionaleLibero(opts: {
+  titolo?: string;
+  righe: { desc: string; qta: number; prezzoUnitario: string }[];
+  totale: string;
+  ragioneSociale?: string;
+  note?: string;
+  printer?: RtPrinter | null;
+}): Promise<CgiResult> {
+  const printer = opts.printer ?? await getFiscalPrinter();
+  if (!printer) return { ok: false, error: "Nessuna stampante fiscale configurata" };
+
+  const { titolo, righe, totale, ragioneSociale, note } = opts;
+  const parts: string[] = [];
+  const sep = "--------------------------------";
+  const printLine = (s: string) => parts.push(`"${xonDesc(s)}"@`);
+
+  printLine("DOCUMENTO NON FISCALE");
+  if (titolo) printLine(titolo);
+  if (ragioneSociale) { printLine(sep); printLine(ragioneSociale); }
+  printLine(sep);
+
+  for (const r of righe) {
+    const qta = parseFloat(String(r.qta));
+    const pu = parseFloat(r.prezzoUnitario);
+    const tot = (qta * pu).toFixed(2);
+    const desc = xonDesc(r.desc);
+    const qtaStr = Number.isInteger(qta) && qta === 1 ? "" : `${Math.round(qta)}x `;
+    printLine(`${qtaStr}${desc}`);
+    printLine(`  EUR ${tot}`);
+  }
+
+  printLine(sep);
+  printLine(`TOTALE EUR ${parseFloat(totale).toFixed(2)}`);
+  if (note) printLine(note);
+  printLine(sep);
+  printLine("DOCUMENTO NON VALIDO AI");
+  printLine("FINI FISCALI");
+  parts.push("@");
+
+  const rtPort = printer.port ?? 1126;
+  const raw = await sendXonXoff(printer.ip, rtPort, parts.join(""), 8000);
+  return {
+    ok: raw.xoffCount === 0,
+    ms: raw.ms,
+    body: raw.ascii,
+    error: raw.error ?? (raw.xoffCount > 0 ? `RT errore: ${raw.xoffCount} XOFF` : undefined),
+  };
+}
+
 // ── Stampa preconto sulla RT (ordine rimane aperto) ───────────────────────────
 export async function emettiPreconto(opts: {
   tavolo?: string;

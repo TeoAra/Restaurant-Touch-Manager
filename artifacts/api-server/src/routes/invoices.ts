@@ -3,6 +3,7 @@ import { db, invoicesTable, customersTable, appSettingsTable } from "@workspace/
 import { eq, desc } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { generateFatturaPAXml } from "../lib/fatturaPA.js";
+import { emettiGestionaleLibero, getFiscalPrinter } from "../lib/fiscal-printer.js";
 
 const router = Router();
 
@@ -117,12 +118,54 @@ router.post("/:id/emit", async (req, res) => {
   const id = Number(req.params.id);
   const [inv] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
   if (!inv) return res.status(404).json({ error: "Fattura non trovata" });
+
   const xml = await buildXml(inv);
+  const settings = await getSettings();
+
   const [updated] = await db.update(invoicesTable)
     .set({ xmlContent: xml, stato: "emessa" })
     .where(eq(invoicesTable.id, id))
     .returning();
-  return res.json({ ...updated, xml });
+
+  // ── Stampa gestionale RT (best-effort, non blocca la risposta) ────────────
+  let rtOk = false;
+  let rtError: string | undefined;
+  try {
+    const printer = await getFiscalPrinter();
+    if (printer) {
+      let customer = null;
+      if (inv.customerId) {
+        const [c] = await db.select().from(customersTable).where(eq(customersTable.id, inv.customerId));
+        customer = c ?? null;
+      }
+      let righe: Array<{ descrizione: string; quantita: string; prezzoUnitario: string }> = [];
+      try { righe = JSON.parse(inv.righe ?? "[]"); } catch { righe = []; }
+      if (righe.length === 0) {
+        righe = [{ descrizione: "Servizi ristorazione", quantita: "1", prezzoUnitario: inv.imponibile ?? "0" }];
+      }
+      const titolo = `FATTURA ${inv.anno}/${String(inv.numero).padStart(4, "0")}`;
+      const rt = await emettiGestionaleLibero({
+        titolo,
+        righe: righe.map(r => ({
+          desc: r.descrizione,
+          qta: parseFloat(r.quantita) || 1,
+          prezzoUnitario: r.prezzoUnitario,
+        })),
+        totale: inv.totale ?? "0",
+        ragioneSociale: customer?.ragioneSociale ?? settings["ragione_sociale"],
+        note: `IVA ${inv.aliquotaIva}%   EUR ${inv.iva}`,
+        printer,
+      });
+      rtOk = rt.ok;
+      rtError = rt.error;
+    }
+  } catch (e) {
+    rtError = e instanceof Error ? e.message : String(e);
+  }
+
+  const fileName = `IT${settings["partita_iva"] ?? "00000000000"}_${String(inv.anno).slice(-2)}${String(inv.numero).padStart(5, "0")}_001.xml`;
+
+  return res.json({ ...updated, xml, rtOk, rtError, fileName });
 });
 
 router.delete("/:id", async (req, res) => {
