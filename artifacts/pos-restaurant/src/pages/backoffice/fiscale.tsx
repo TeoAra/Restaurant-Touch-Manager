@@ -546,7 +546,7 @@ export default function FiscalePage() {
               <div className="flex-1">
                 {lotteriaData?.codice
                   ? <>Codice attivo: <span className="font-mono font-bold text-base tracking-widest ml-1">{lotteriaData.codice}</span></>
-                  : "Nessun codice lotteria configurato — ogni scontrino sarà senza codice"
+                  : "Nessun codice salvato — il codice lotteria si inserisce in cassa, per singolo scontrino"
                 }
               </div>
               {lotteriaData?.codice && (
@@ -566,9 +566,10 @@ export default function FiscalePage() {
                 <div>
                   <h3 className="font-bold text-lg text-slate-800">Lotteria degli Scontrini</h3>
                   <p className="text-sm text-slate-500 mt-0.5">
-                    Il codice (8 caratteri alfanumerici) viene inserito automaticamente in ogni scontrino tramite il comando
+                    Il codice (8 caratteri alfanumerici) viene trasmesso alla RT tramite il comando
                     <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-xs mx-1">"XXXXXXXX"L</code>
-                    prima del pagamento (XonXoff).
+                    prima del pagamento (XonXoff). In cassa il codice vale per il <strong>singolo scontrino</strong>:
+                    si inserisce dal bottone Lotteria e viene usato una sola volta.
                   </p>
                 </div>
               </div>
@@ -577,8 +578,8 @@ export default function FiscalePage() {
                 <p className="font-semibold mb-1">Come funziona</p>
                 <ol className="list-decimal ml-4 space-y-0.5">
                   <li>Il cliente cerca il suo codice su <strong>lotteriadegliscontrini.it</strong></li>
-                  <li>Il cassiere inserisce il codice qui sotto</li>
-                  <li>Il codice viene aggiunto automaticamente ad ogni scontrino fino alla prossima modifica</li>
+                  <li>Il cassiere inserisce il codice <strong>in cassa</strong> (bottone Lotteria) prima di incassare</li>
+                  <li>Il codice viene incluso solo nello scontrino successivo, poi si azzera (one-shot)</li>
                   <li>La RT stampa il codice e lo trasmette all'AdE</li>
                 </ol>
               </div>

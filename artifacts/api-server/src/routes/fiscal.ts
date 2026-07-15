@@ -520,6 +520,7 @@ router.post("/romana", async (req, res) => {
     quoteTotali = 1,
     tableName,
     isUltima   = false,
+    lotteria,
   } = req.body as {
     orderId: number;
     importo: string;
@@ -528,6 +529,7 @@ router.post("/romana", async (req, res) => {
     quoteTotali?: number;
     tableName?: string;
     isUltima?: boolean;
+    lotteria?: string; // codice lotteria one-shot dal POS (solo per questa quota)
   };
 
   if (!orderId || !importo || parseFloat(importo) <= 0) {
@@ -560,6 +562,7 @@ router.post("/romana", async (req, res) => {
       importo,
       metodoPagamento,
       righe: [{ desc, qta: 1, prezzoUnitario: importo, aliquotaIva }],
+      lotteria,
       printer,
     });
     receiptId = receipt.id;
