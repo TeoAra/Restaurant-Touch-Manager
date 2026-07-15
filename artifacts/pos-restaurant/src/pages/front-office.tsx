@@ -152,8 +152,8 @@ function FloorElement({ t, isSelected, onClick, reservation, assignMode, moveMod
           : undefined
       }
       className={cn(
-        "absolute flex items-center justify-center border-2 select-none transition-all active:scale-95 shadow-sm",
-        isDecor ? decorStyle : cn(statusBg),
+        "absolute border-2 select-none transition-all active:scale-95 shadow-sm overflow-hidden",
+        isDecor ? cn(decorStyle, "flex items-center justify-center") : cn(statusBg),
         isRound ? "rounded-full" : "rounded-xl",
         isSelected && !isDecor ? "ring-4 ring-primary ring-offset-2 shadow-xl scale-105 z-10" : "",
         !isDecor && !assignMode && !moveMode && "cursor-pointer",
@@ -167,11 +167,13 @@ function FloorElement({ t, isSelected, onClick, reservation, assignMode, moveMod
       {isDecor ? (
         <span className={cn("text-sm font-bold tracking-widest", et === "pianta" && "text-2xl")}>{decorLabel}</span>
       ) : (
-        <div className="relative flex flex-col items-center justify-between w-full h-full p-1.5 overflow-hidden">
-          {/* Striscia colorata status — absolute in cima, non partecipa al flex layout */}
+        /* inset-0 garantisce che il div riempia esattamente il button
+           indipendentemente da rotazione / sizeScale */
+        <div className="absolute inset-0 flex flex-col items-center justify-between p-1.5">
+          {/* Striscia colorata status in cima */}
           {!isRound && <div className={cn("absolute top-0 left-0 right-0 h-[3px]", accentStrip)} />}
 
-          {/* Top: status dot + posti (piccolo margin-top per non sovrapporsi alla strip) */}
+          {/* Top: status dot + posti */}
           <div className={cn("flex items-center justify-between w-full px-0.5", !isRound && "mt-[2px]")}>
             <div className={cn("h-2 w-2 rounded-full shrink-0 ring-[1.5px] ring-white shadow-sm", statusDot)} />
             <span className="text-[10px] text-slate-400 flex items-center gap-0.5 font-medium">
@@ -180,7 +182,7 @@ function FloorElement({ t, isSelected, onClick, reservation, assignMode, moveMod
           </div>
 
           {/* Centro: nome tavolo */}
-          <div className="flex-1 flex items-center justify-center w-full min-h-0">
+          <div className="flex-1 flex items-center justify-center w-full min-h-0 overflow-hidden">
             <span className={cn(
               "font-extrabold text-slate-800 text-center leading-none truncate w-full px-0.5",
               t.name && t.name.length <= 3 ? "text-2xl" : t.name && t.name.length <= 5 ? "text-lg" : "text-sm",
