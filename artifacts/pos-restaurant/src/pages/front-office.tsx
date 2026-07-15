@@ -2693,6 +2693,8 @@ export default function FrontOffice() {
 
   // Invoice customer (selected in CLNT tab)
   const [invoiceCustomer, setInvoiceCustomer] = useState<SimpleCustomer | null>(null);
+  const [invoiceNumero, setInvoiceNumero] = useState("");
+  const [invoiceAnno, setInvoiceAnno] = useState(String(new Date().getFullYear()));
   const [clntSearch, setClntSearch] = useState("");
   const [clntResults, setClntResults] = useState<SimpleCustomer[]>([]);
   const [clntSearching, setClntSearching] = useState(false);
@@ -3416,6 +3418,8 @@ export default function FrontOffice() {
         }));
         const imponibile = righe.reduce((s, r) => s + parseFloat(r.imponibile || "0"), 0);
         const iva = imponibile * 0.22;
+        const nParsed = parseInt(invoiceNumero, 10);
+        const aParsed = parseInt(invoiceAnno, 10);
         const invRes = await fetch(`${API}/invoices`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -3428,12 +3432,31 @@ export default function FrontOffice() {
             iva: iva.toFixed(2),
             totale: (imponibile + iva).toFixed(2),
             righe,
+            ...(!isNaN(nParsed) && invoiceNumero ? { numero: nParsed } : {}),
+            ...(!isNaN(aParsed) && invoiceAnno ? { anno: aParsed } : {}),
           }),
         });
         if (invRes.ok) {
           const inv = await invRes.json();
-          await fetch(`${API}/invoices/${inv.id}/emit`, { method: "POST" });
+          const emitRes = await fetch(`${API}/invoices/${inv.id}/emit`, { method: "POST" });
+          if (emitRes.ok) {
+            const emitData = await emitRes.json() as { xml?: string; fileName?: string };
+            if (emitData.xml && emitData.fileName) {
+              const blob = new Blob([emitData.xml], { type: "application/xml" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = emitData.fileName;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }
+          }
           toast({ title: "Fattura emessa", description: `N. ${inv.numero}/${inv.anno}` });
+          setInvoiceNumero("");
+          setInvoiceAnno(String(new Date().getFullYear()));
+          setInvoiceCustomer(null);
         }
       } catch {
         toast({ title: "Pagamento OK — errore fattura", variant: "destructive" });
@@ -4410,13 +4433,35 @@ export default function FrontOffice() {
                     )}
                   </div>
                   <button
-                    onClick={() => setInvoiceCustomer(null)}
+                    onClick={() => { setInvoiceCustomer(null); setInvoiceNumero(""); setInvoiceAnno(String(new Date().getFullYear())); }}
                     className="h-7 w-7 rounded-lg bg-emerald-900/60 hover:bg-emerald-900 flex items-center justify-center shrink-0 transition-colors">
                     <X className="h-3.5 w-3.5 text-emerald-400" />
                   </button>
                 </div>
+
+                {/* N° fattura opzionale */}
+                <div className="mt-2.5 flex items-center gap-2">
+                  <span className="text-[10px] text-emerald-500 font-bold whitespace-nowrap shrink-0">N° fattura:</span>
+                  <input
+                    value={invoiceNumero}
+                    onChange={e => setInvoiceNumero(e.target.value.replace(/\D/g, ""))}
+                    placeholder="auto"
+                    maxLength={6}
+                    className="w-14 text-center font-mono text-xs bg-[#0d1a14] border border-emerald-700 rounded-lg px-2 py-1.5 text-emerald-200 placeholder:text-emerald-800 outline-none focus:border-emerald-500 transition-colors"
+                    title="Numero progressivo (lascia vuoto per automatico)"
+                  />
+                  <span className="text-emerald-500 font-bold text-sm shrink-0">/</span>
+                  <input
+                    value={invoiceAnno}
+                    onChange={e => setInvoiceAnno(e.target.value.replace(/\D/g, ""))}
+                    maxLength={4}
+                    className="w-16 text-center font-mono text-xs bg-[#0d1a14] border border-emerald-700 rounded-lg px-2 py-1.5 text-emerald-200 outline-none focus:border-emerald-500 transition-colors"
+                    title="Anno"
+                  />
+                </div>
+
                 <div className="mt-2 text-[10px] text-emerald-500 bg-emerald-900/40 rounded-lg px-3 py-1.5">
-                  Al prossimo pagamento verrà emessa automaticamente la fattura elettronica
+                  Al pagamento la fattura viene emessa e l'XML scaricato automaticamente
                 </div>
               </div>
             )}
