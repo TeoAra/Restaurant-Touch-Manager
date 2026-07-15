@@ -74,6 +74,7 @@ export default function FatturePage() {
 
   const [form, setForm] = useState({
     numero: "",
+    anno: String(new Date().getFullYear()),
     customerId: "", tipoDocumento: "TD01", data: new Date().toISOString().slice(0, 10),
     aliquotaIva: "22", righe: [{ descrizione: "Servizi ristorazione", quantita: "1", prezzoUnitario: "", importo: "", aliquotaIva: "22" }] as RigaFattura[],
     note: "",
@@ -118,6 +119,7 @@ export default function FatturePage() {
   function openNew() {
     setForm({
       numero: "",
+      anno: String(new Date().getFullYear()),
       customerId: "", tipoDocumento: "TD01", data: new Date().toISOString().slice(0, 10),
       aliquotaIva: "22", righe: [{ descrizione: "Servizi ristorazione", quantita: "1", prezzoUnitario: "", importo: "", aliquotaIva: "22" }],
       note: "",
@@ -125,24 +127,10 @@ export default function FatturePage() {
     setDialog({ open: true });
   }
 
-  // Parsa formato "N" oppure "N/ANNO"
-  function parseNumeroAnno(s: string): { numero?: number; anno?: number } {
-    const trimmed = s.trim();
-    if (!trimmed) return {};
-    const slash = trimmed.indexOf("/");
-    if (slash === -1) {
-      const n = parseInt(trimmed, 10);
-      return isNaN(n) ? {} : { numero: n };
-    }
-    const n = parseInt(trimmed.slice(0, slash), 10);
-    const a = parseInt(trimmed.slice(slash + 1), 10);
-    if (isNaN(n)) return {};
-    return { numero: n, ...(isNaN(a) ? {} : { anno: a }) };
-  }
-
   async function handleSave() {
     const t = totals();
-    const parsed = parseNumeroAnno(form.numero);
+    const n = parseInt(form.numero, 10);
+    const a = parseInt(form.anno, 10);
     const body: Record<string, unknown> = {
       customerId: form.customerId ? Number(form.customerId) : undefined,
       tipoDocumento: form.tipoDocumento,
@@ -153,7 +141,8 @@ export default function FatturePage() {
       totale: t.totale,
       righe: form.righe.map(r => ({ ...r, importo: r.importo || (parseFloat(r.prezzoUnitario) * (parseFloat(r.quantita) || 1)).toFixed(2) })),
       note: form.note || undefined,
-      ...parsed,
+      ...(!isNaN(n) ? { numero: n } : {}),
+      ...(!isNaN(a) ? { anno: a } : {}),
     };
 
     const resp = await fetch(`${API}/invoices`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -433,16 +422,25 @@ export default function FatturePage() {
                 <Input type="date" value={form.data} onChange={e => setForm(f => ({ ...f, data: e.target.value }))} className="h-9 text-sm" />
               </div>
               <div>
-                <Label className="text-xs text-slate-500 mb-1 block">
-                  N° fattura
-                  <span className="ml-1 font-normal text-slate-400">(es. 1 oppure 1/2025)</span>
-                </Label>
-                <Input
-                  placeholder="auto"
-                  value={form.numero}
-                  onChange={e => setForm(f => ({ ...f, numero: e.target.value }))}
-                  className="h-9 text-sm font-mono"
-                />
+                <Label className="text-xs text-slate-500 mb-1 block">N° fattura</Label>
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    placeholder="auto"
+                    value={form.numero}
+                    onChange={e => setForm(f => ({ ...f, numero: e.target.value.replace(/\D/g, "") }))}
+                    className="h-9 text-sm font-mono w-16 text-center"
+                    maxLength={6}
+                    title="Numero progressivo"
+                  />
+                  <span className="text-slate-400 font-bold text-base shrink-0">/</span>
+                  <Input
+                    value={form.anno}
+                    onChange={e => setForm(f => ({ ...f, anno: e.target.value.replace(/\D/g, "") }))}
+                    className="h-9 text-sm font-mono w-20 text-center"
+                    maxLength={4}
+                    title="Anno"
+                  />
+                </div>
               </div>
             </div>
 
