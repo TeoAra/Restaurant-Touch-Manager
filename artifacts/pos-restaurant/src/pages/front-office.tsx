@@ -52,6 +52,48 @@ function useSettings() {
   });
 }
 
+// ─── Terminali POS abilitati ─────────────────────────────────────────────────
+// Nuove chiavi pos_pax_enabled / pos_mypos_enabled; fallback alla vecchia pos_type.
+type PosTerminalId = "pax" | "mypos";
+const POS_TERMINAL_LABEL: Record<PosTerminalId, string> = {
+  pax: "Nexi PAX D230",
+  mypos: "myPOS Go",
+};
+function enabledPosTerminals(s: Record<string, string>): PosTerminalId[] {
+  const legacy = s["pos_type"] ?? "none";
+  const pax = s["pos_pax_enabled"] != null ? s["pos_pax_enabled"] === "true" : legacy === "pax";
+  const mypos = s["pos_mypos_enabled"] != null ? s["pos_mypos_enabled"] === "true" : legacy === "mypos";
+  const out: PosTerminalId[] = [];
+  if (pax) out.push("pax");
+  if (mypos) out.push("mypos");
+  return out;
+}
+
+// Selettore terminale (mostrato solo se più di un terminale è abilitato)
+function PosTerminalPicker({ terminals, value, onChange, compact }: {
+  terminals: PosTerminalId[]; value: PosTerminalId | null;
+  onChange: (t: PosTerminalId) => void; compact?: boolean;
+}) {
+  if (terminals.length < 2) return null;
+  return (
+    <div>
+      <div className={cn("font-semibold text-slate-500 mb-1.5", compact ? "text-[10px]" : "text-xs")}>Terminale POS</div>
+      <div className="grid grid-cols-2 gap-1.5">
+        {terminals.map(t => (
+          <button key={t} type="button" onClick={() => onChange(t)}
+            className={cn(
+              "flex items-center justify-center gap-1.5 rounded-lg border-2 font-semibold transition-all active:scale-95",
+              compact ? "py-2 text-[11px]" : "py-2.5 text-xs",
+              value === t ? "border-primary bg-orange-50 text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300"
+            )}>
+            <CreditCard className="h-3.5 w-3.5" /> {POS_TERMINAL_LABEL[t]}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Element size helper (matches back-office) ────────────────────────────────
 function getElementSize(t: { elementType?: string; shape?: string }) {
   const et = t.elementType ?? "table";
@@ -1256,7 +1298,9 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
 
   // ── Terminale POS ──────────────────────────────────────────────────────────
   const { data: pdSettings = {} } = useSettings();
-  const posType = pdSettings["pos_type"] ?? "none";
+  const posTerminals = enabledPosTerminals(pdSettings);
+  const [posTerminal, setPosTerminal] = useState<PosTerminalId | null>(null);
+  const activePosTerminal: PosTerminalId | null = posTerminal ?? posTerminals[0] ?? null;
   const [posPhase, setPosPhase] = useState<PosPhase>("idle");
   const [posError, setPosError] = useState<string | null>(null);
   const alertAnomalousPay = pdSettings["feat_alert_totale_anomalo"] === "true";
@@ -1280,7 +1324,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
     if (!open) {
       setGiven(""); setEmittiFattura(false); setSelectedCustomer(null);
       setCustomerSearch(""); setShowNewCustomer(false);
-      setPosPhase("idle"); setPosError(null);
+      setPosPhase("idle"); setPosError(null); setPosTerminal(null);
       setManciaStr("");
     }
   }, [open]);
@@ -1348,6 +1392,14 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
               </button>
             ))}
           </div>
+
+          {method === "card" && (
+            <PosTerminalPicker
+              terminals={posTerminals}
+              value={activePosTerminal}
+              onChange={t => { setPosTerminal(t); setPosPhase("idle"); setPosError(null); }}
+            />
+          )}
 
           {method === "cash" && (
             <>
@@ -1464,9 +1516,9 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
                 <div className="text-center">
                   <p className="font-bold text-lg text-slate-800">In attesa del terminale…</p>
                   <p className="text-sm text-slate-500 mt-1">
-                    {posType === "pax" ? "Avvicina/inserisci carta sul PAX D230" : "Inserisci l'importo sul terminale myPOS"}
+                    {activePosTerminal === "pax" ? "Avvicina/inserisci carta sul Nexi PAX D230" : "Inserisci l'importo sul terminale myPOS"}
                   </p>
-                  <p className="text-2xl font-bold text-primary mt-2">€ {total.toFixed(2)}</p>
+                  <p className="text-2xl font-bold text-primary mt-2">€ {totalConMancia.toFixed(2)}</p>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => setPosPhase("idle")}>Annulla</Button>
               </>
@@ -1476,16 +1528,25 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
                   <CreditCard className="h-7 w-7 text-primary" />
                 </div>
                 <div className="text-center">
-                  <p className="font-bold text-lg text-slate-800">Pagamento sul terminale myPOS</p>
-                  <p className="text-sm text-slate-500 mt-1">Digita l'importo sul Go 2 e fai pagare il cliente</p>
-                  <p className="text-3xl font-bold text-primary mt-2">€ {total.toFixed(2)}</p>
+                  <p className="font-bold text-lg text-slate-800">
+                    Pagamento sul terminale {activePosTerminal ? POS_TERMINAL_LABEL[activePosTerminal] : "POS"}
+                  </p>
+                  <p className="text-sm text-slate-500 mt-1">Digita l'importo sul terminale e fai pagare il cliente</p>
+                  <p className="text-3xl font-bold text-primary mt-2">€ {totalConMancia.toFixed(2)}</p>
                 </div>
                 <div className="flex gap-2 w-full">
                   <Button variant="outline" className="flex-1 h-9 text-sm" onClick={() => setPosPhase("idle")}>Annulla</Button>
                   <Button className="flex-1 h-9 text-sm" onClick={() => {
-                    if (!confirmAnomalousIfNeeded(total)) return;
+                    if (!confirmAnomalousIfNeeded(totalConMancia)) return;
+                    if (mancia > 0 && orderId) {
+                      fetch(`${API}/orders/${orderId}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ mancia: mancia.toFixed(2) }),
+                      }).catch(() => {});
+                    }
                     setPosPhase("idle");
-                    onPay(method, parseFloat(given) || total, emittiFattura && selectedCustomer ? selectedCustomer.id : undefined, emittiFattura ? (selectedCustomer?.ragioneSociale ?? undefined) : undefined);
+                    onPay(method, parseFloat(given) || totalConMancia, emittiFattura && selectedCustomer ? selectedCustomer.id : undefined, emittiFattura ? (selectedCustomer?.ragioneSociale ?? undefined) : undefined);
                   }}>
                     <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" /> Pagamento ricevuto
                   </Button>
@@ -1496,12 +1557,28 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
         )}
 
         {posPhase === "declined" && posError && (
-          <div className="flex items-start gap-2 p-3 bg-red-50 rounded-xl border border-red-200">
-            <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-red-700">Terminale: transazione rifiutata</p>
-              <p className="text-xs text-red-500 mt-0.5">{posError}</p>
+          <div className="space-y-2">
+            <div className="flex items-start gap-2 p-3 bg-red-50 rounded-xl border border-red-200">
+              <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-red-700">Terminale: transazione rifiutata</p>
+                <p className="text-xs text-red-500 mt-0.5">{posError}</p>
+              </div>
             </div>
+            <Button variant="outline" className="w-full h-10 text-sm" onClick={() => {
+              if (!confirmAnomalousIfNeeded(totalConMancia)) return;
+              if (mancia > 0 && orderId) {
+                fetch(`${API}/orders/${orderId}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ mancia: mancia.toFixed(2) }),
+                }).catch(() => {});
+              }
+              setPosPhase("idle");
+              onPay(method, parseFloat(given) || totalConMancia, emittiFattura && selectedCustomer ? selectedCustomer.id : undefined, emittiFattura ? (selectedCustomer?.ragioneSociale ?? undefined) : undefined);
+            }}>
+              <CheckCircle2 className="h-4 w-4 mr-2" /> Registra comunque incasso manuale
+            </Button>
           </div>
         )}
 
@@ -1512,15 +1589,15 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
               const customerId = emittiFattura && selectedCustomer ? selectedCustomer.id : undefined;
               const ragSoc = emittiFattura ? (selectedCustomer?.ragioneSociale ?? undefined) : undefined;
               if (!confirmAnomalousIfNeeded(totalConMancia)) return;
-              // Carta + terminale configurato → chiama prima il POS
-              if (method === "card" && posType !== "none") {
+              // Carta + terminale abilitato → chiama prima il POS
+              if (method === "card" && activePosTerminal) {
                 setPosPhase("waiting");
                 setPosError(null);
                 try {
                   const resp = await fetch(`${API}/pos/sale`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ amountCents: Math.round(totalConMancia * 100), orderId }),
+                    body: JSON.stringify({ amountCents: Math.round(totalConMancia * 100), orderId, terminal: activePosTerminal }),
                   });
                   const result = await resp.json();
                   if (result.manualConfirmRequired) {
@@ -1528,6 +1605,13 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
                     return;
                   }
                   if (result.approved) {
+                    if (mancia > 0 && orderId) {
+                      fetch(`${API}/orders/${orderId}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ mancia: mancia.toFixed(2) }),
+                      }).catch(() => {});
+                    }
                     setPosPhase("idle");
                     onPay(method, parseFloat(given) || totalConMancia, customerId, ragSoc);
                   } else {
@@ -1561,7 +1645,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
           >
             {posPhase === "waiting"
               ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Terminale…</>
-              : method === "card" && posType !== "none"
+              : method === "card" && activePosTerminal
                 ? <><CreditCard className="h-4 w-4 mr-2" />Avvia terminale</>
                 : emittiFattura ? "Incassa + Fattura" : `Incassa € ${totalConMancia.toFixed(2)}`
             }
@@ -1644,7 +1728,9 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
   onCancel: () => void;
 }) {
   const { data: rdSettings = {} } = useSettings();
-  const rdPosType = rdSettings["pos_type"] ?? "none";
+  const rdPosTerminals = enabledPosTerminals(rdSettings);
+  const [rdPosTerminal, setRdPosTerminal] = useState<PosTerminalId | null>(null);
+  const rdActiveTerminal: PosTerminalId | null = rdPosTerminal ?? rdPosTerminals[0] ?? null;
 
   // Importo da incassare in questa sessione (totale ordine - già pagato con romana)
   const restante = Math.max(0, Math.round((total - paidRomana) * 100) / 100);
@@ -1724,8 +1810,8 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
     if (!orderId) return;
     const quota = quote.find(q => q.n === n)!;
 
-    // ── Carta + terminale POS configurato ─────────────────────────────────────
-    if (metodo === "card" && rdPosType !== "none") {
+    // ── Carta + terminale POS abilitato ───────────────────────────────────────
+    if (metodo === "card" && rdActiveTerminal) {
       setQuote(prev => prev.map(q => q.n === n ? { ...q, stato: "pos_waiting", metodoPagamento: metodo } : q));
       try {
         const posResp = await fetch(`${API}/pos/sale`, {
@@ -1735,6 +1821,7 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
             amountCents: Math.round(quota.importo * 100),
             orderId,
             reference: `O${orderId}-Q${n}`,
+            terminal: rdActiveTerminal,
           }),
         });
         const posData = await posResp.json();
@@ -1965,6 +2052,8 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
                 )}
               </div>
 
+              <PosTerminalPicker compact terminals={rdPosTerminals} value={rdActiveTerminal} onChange={setRdPosTerminal} />
+
               {/* Lista quote */}
               <div className="space-y-2">
                 {quote.map(q => {
@@ -2023,11 +2112,13 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
                           </div>
                           {isPosWait && (
                             <p className="text-[10px] text-blue-600">
-                              {rdPosType === "pax" ? "Avvicina/inserisci carta sul PAX D230…" : "Attesa terminale…"}
+                              {rdActiveTerminal === "pax" ? "Avvicina/inserisci carta sul Nexi PAX D230…" : "Attesa terminale…"}
                             </p>
                           )}
                           {isPosManual && (
-                            <p className="text-[10px] text-amber-600">Digita € {q.importo.toFixed(2)} sul myPOS Go 2</p>
+                            <p className="text-[10px] text-amber-600">
+                              Digita € {q.importo.toFixed(2)} sul {rdActiveTerminal ? POS_TERMINAL_LABEL[rdActiveTerminal] : "terminale POS"}
+                            </p>
                           )}
                           {isPaid && !q.rtOk && (
                             <p className="text-[10px] text-amber-600">RT non risposta — scontrino solo nel gestionale</p>
@@ -2236,11 +2327,11 @@ ${covers > 0 ? `<p>${covers} coperti${coverPrice > 0 ? ` × €${coverPrice.toFi
 }
 
 // ─── Split Bill: body riusabile (dialog + tab "tot" inline) ───────────────────
-function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount }: {
+function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId }: {
   items: Array<{ id: number; productName: string; quantity: number; unitPrice: string; subtotal: string }>;
   onPay: (method: string, amount: number, itemIds: number[], coversToDeduct: number) => void;
   onCancel: () => void;
-  coverPrice: number; coverCount: number;
+  coverPrice: number; coverCount: number; orderId?: number;
 }) {
   const coverRows = coverPrice > 0 && coverCount > 0
     ? Array.from({ length: coverCount }, (_, i) => ({
@@ -2258,6 +2349,44 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount }: {
   const [method, setMethod] = useState<"cash" | "card" | "ticket" | "other">("cash");
   const { data: sbSettings = {} } = useSettings();
   const sbBuoniPastoOn = sbSettings["feat_buoni_pasto"] === "true";
+
+  // ── Terminale POS (pagamento carta) ────────────────────────────────────────
+  const sbPosTerminals = enabledPosTerminals(sbSettings);
+  const [sbPosTerminal, setSbPosTerminal] = useState<PosTerminalId | null>(null);
+  const sbActiveTerminal: PosTerminalId | null = sbPosTerminal ?? sbPosTerminals[0] ?? null;
+  const [sbPosPhase, setSbPosPhase] = useState<"idle" | "waiting" | "manual_confirm" | "declined">("idle");
+  const [sbPosError, setSbPosError] = useState<string | null>(null);
+
+  function doIncassaFinale() {
+    const ids = allRows.filter(r => (qty[r.id] ?? 0) > 0 && !r.isCover).map(r => r.id);
+    const coversToDeduct = coverRows.filter(r => (qty[r.id] ?? 0) > 0).length;
+    setSbPosPhase("idle");
+    onPay(method, splitTotal, ids, coversToDeduct);
+  }
+
+  async function handleIncassa() {
+    if (method === "card" && sbActiveTerminal) {
+      setSbPosPhase("waiting");
+      setSbPosError(null);
+      try {
+        const resp = await fetch(`${API}/pos/sale`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ amountCents: Math.round(splitTotal * 100), orderId, terminal: sbActiveTerminal }),
+        });
+        const result = await resp.json();
+        if (result.manualConfirmRequired) { setSbPosPhase("manual_confirm"); return; }
+        if (result.approved) { doIncassaFinale(); return; }
+        setSbPosPhase("declined");
+        setSbPosError(result.error ?? result.responseMessage ?? "Transazione rifiutata");
+      } catch {
+        setSbPosPhase("declined");
+        setSbPosError("Impossibile contattare il terminale POS. Verifica la connessione di rete.");
+      }
+      return;
+    }
+    doIncassaFinale();
+  }
 
   function setRowQty(id: number, val: number, max: number) {
     setQty(q => ({ ...q, [id]: Math.min(max, Math.max(0, val)) }));
@@ -2368,20 +2497,53 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount }: {
                   );
                 })}
               </div>
+              {method === "card" && (
+                <div className="mt-2">
+                  <PosTerminalPicker compact terminals={sbPosTerminals} value={sbActiveTerminal}
+                    onChange={t => { setSbPosTerminal(t); setSbPosPhase("idle"); setSbPosError(null); }} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {sbPosPhase === "manual_confirm" && (
+            <div className="p-3 bg-amber-50 rounded-xl border-2 border-amber-300 space-y-2">
+              <p className="text-xs font-bold text-amber-800 text-center">
+                Digita € {splitTotal.toFixed(2)} sul {sbActiveTerminal ? POS_TERMINAL_LABEL[sbActiveTerminal] : "terminale POS"} e fai pagare il cliente
+              </p>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="flex-1 h-9 text-xs" onClick={() => setSbPosPhase("idle")}>Annulla</Button>
+                <Button size="sm" className="flex-1 h-9 text-xs" onClick={doIncassaFinale}>
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Pagamento ricevuto
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {sbPosPhase === "declined" && sbPosError && (
+            <div className="p-3 bg-red-50 rounded-xl border border-red-200 space-y-2">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                <p className="text-xs text-red-600">{sbPosError}</p>
+              </div>
+              <Button variant="outline" size="sm" className="w-full h-9 text-xs" onClick={doIncassaFinale}>
+                <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Registra comunque incasso manuale
+              </Button>
             </div>
           )}
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onCancel}>Annulla</Button>
         <Button
-          onClick={() => {
-            const ids = allRows.filter(r => (qty[r.id] ?? 0) > 0 && !r.isCover).map(r => r.id);
-            const coversToDeduct = coverRows.filter(r => (qty[r.id] ?? 0) > 0).length;
-            onPay(method, splitTotal, ids, coversToDeduct);
-          }}
-          disabled={!hasSelection}
+          onClick={handleIncassa}
+          disabled={!hasSelection || sbPosPhase === "waiting"}
         >
-          Incassa € {splitTotal.toFixed(2)}
+          {sbPosPhase === "waiting"
+            ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Terminale…</>
+            : method === "card" && sbActiveTerminal
+              ? <><CreditCard className="h-4 w-4 mr-2" />Avvia terminale € {splitTotal.toFixed(2)}</>
+              : <>Incassa € {splitTotal.toFixed(2)}</>
+          }
         </Button>
       </DialogFooter>
     </>
@@ -2572,11 +2734,12 @@ function EmptyState({ label }: { label: string }) {
 
 // ─── Inline Payment Panel (TOT tab) ────────────────────────────────────────────
 const DENOMINATIONS = [200, 100, 50, 20, 10, 5, 2, 1, 0.5];
-function InlinePaymentPanel({ total, onPay, disabled, alertAnomalous }: {
+function InlinePaymentPanel({ total, onPay, disabled, alertAnomalous, orderId }: {
   total: number;
   disabled: boolean;
   onPay: (method: string, amountGiven?: number) => void;
   alertAnomalous?: boolean;
+  orderId?: number;
 }) {
   const handleConfirmedPay = (method: string, amount?: number) => {
     if (alertAnomalous && (total < 1 || total > 500)) {
@@ -2591,8 +2754,48 @@ function InlinePaymentPanel({ total, onPay, disabled, alertAnomalous }: {
   const change = method === "cash" && givenNum >= total ? givenNum - total : 0;
   const canPay = !disabled && total > 0 && (method !== "cash" || givenNum >= total);
 
+  // ── Terminale POS (pagamento carta) ────────────────────────────────────────
+  const { data: ipSettings = {} } = useSettings();
+  const ipPosTerminals = enabledPosTerminals(ipSettings);
+  const [ipPosTerminal, setIpPosTerminal] = useState<PosTerminalId | null>(null);
+  const ipActiveTerminal: PosTerminalId | null = ipPosTerminal ?? ipPosTerminals[0] ?? null;
+  const [ipPosPhase, setIpPosPhase] = useState<"idle" | "waiting" | "manual_confirm" | "declined">("idle");
+  const [ipPosError, setIpPosError] = useState<string | null>(null);
+  const ipAttemptRef = useRef(0);
+
+  async function handleIncassaClick() {
+    if (method === "card" && ipActiveTerminal) {
+      if (alertAnomalous && (total < 1 || total > 500)) {
+        const reason = total < 1 ? "molto basso" : "molto alto";
+        if (!window.confirm(`Totale ${reason}: € ${total.toFixed(2)}\n\nConfermi l'incasso?`)) return;
+      }
+      const attempt = ++ipAttemptRef.current;
+      setIpPosPhase("waiting");
+      setIpPosError(null);
+      try {
+        const resp = await fetch(`${API}/pos/sale`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ amountCents: Math.round(total * 100), orderId, terminal: ipActiveTerminal }),
+        });
+        const result = await resp.json();
+        if (attempt !== ipAttemptRef.current) return; // annullato dall'utente: ignora esito tardivo
+        if (result.manualConfirmRequired) { setIpPosPhase("manual_confirm"); return; }
+        if (result.approved) { setIpPosPhase("idle"); onPay(method, undefined); return; }
+        setIpPosPhase("declined");
+        setIpPosError(result.error ?? result.responseMessage ?? "Transazione rifiutata");
+      } catch {
+        if (attempt !== ipAttemptRef.current) return;
+        setIpPosPhase("declined");
+        setIpPosError("Impossibile contattare il terminale POS. Verifica la connessione di rete.");
+      }
+      return;
+    }
+    handleConfirmedPay(method, method === "cash" ? givenNum : undefined);
+  }
+
   return (
-    <div className="flex-1 overflow-hidden bg-[#f4f6fa] p-3 flex flex-col gap-2.5">
+    <div className="flex-1 overflow-hidden bg-[#f4f6fa] p-3 flex flex-col gap-2.5 relative">
       {/* Total */}
       <div className="bg-slate-800 rounded-2xl px-4 py-3 text-center shrink-0">
         <div className="text-[10px] text-slate-400 uppercase tracking-widest mb-0.5">Totale da pagare</div>
@@ -2602,7 +2805,7 @@ function InlinePaymentPanel({ total, onPay, disabled, alertAnomalous }: {
       {/* Method selector */}
       <div className="grid grid-cols-3 gap-2 shrink-0">
         {([["cash","CONTANTI","text-emerald-500"],["card","BANCOMAT","text-blue-500"],["other","ALTRO","text-purple-500"]] as const).map(([id, label, col]) => (
-          <button key={id} onClick={() => setMethod(id as typeof method)}
+          <button key={id} onClick={() => { setMethod(id as typeof method); setIpPosPhase("idle"); setIpPosError(null); }}
             className={cn("py-2.5 rounded-xl font-bold text-sm border-2 transition-all active:scale-95",
               method === id ? "border-primary bg-primary text-white shadow-lg" : "border-slate-200 bg-white text-slate-700 hover:border-primary")}>
             <div className={cn("text-lg mb-0.5", method === id ? "text-white" : col)}>
@@ -2612,6 +2815,28 @@ function InlinePaymentPanel({ total, onPay, disabled, alertAnomalous }: {
           </button>
         ))}
       </div>
+
+      {/* Scelta terminale POS (solo carta, più terminali abilitati) */}
+      {method === "card" && (
+        <div className="shrink-0">
+          <PosTerminalPicker compact terminals={ipPosTerminals} value={ipActiveTerminal}
+            onChange={t => { setIpPosTerminal(t); setIpPosPhase("idle"); setIpPosError(null); }} />
+        </div>
+      )}
+
+      {/* Errore terminale + fallback manuale */}
+      {ipPosPhase === "declined" && ipPosError && (
+        <div className="p-3 bg-red-50 rounded-xl border border-red-200 space-y-2 shrink-0">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+            <p className="text-xs text-red-600">{ipPosError}</p>
+          </div>
+          <Button variant="outline" size="sm" className="w-full h-9 text-xs"
+            onClick={() => { setIpPosPhase("idle"); onPay(method, undefined); }}>
+            <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Registra comunque incasso manuale
+          </Button>
+        </div>
+      )}
 
       {/* Cash input */}
       {method === "cash" && (
@@ -2642,14 +2867,58 @@ function InlinePaymentPanel({ total, onPay, disabled, alertAnomalous }: {
 
       {/* Confirm */}
       <button
-        disabled={!canPay}
-        onClick={() => handleConfirmedPay(method, method === "cash" ? givenNum : undefined)}
+        disabled={!canPay || ipPosPhase === "waiting"}
+        onClick={handleIncassaClick}
         className={cn(
           "w-full py-3 rounded-xl text-base font-bold transition-all active:scale-95 mt-auto shrink-0",
-          canPay ? "bg-primary text-white shadow-lg hover:bg-primary/90" : "bg-slate-200 text-slate-400 cursor-not-allowed"
+          canPay && ipPosPhase !== "waiting" ? "bg-primary text-white shadow-lg hover:bg-primary/90" : "bg-slate-200 text-slate-400 cursor-not-allowed"
         )}>
-        {disabled ? "Nessun ordine aperto" : canPay ? `INCASSA  € ${total.toFixed(2)}` : "Inserire importo"}
+        {disabled ? "Nessun ordine aperto"
+          : ipPosPhase === "waiting" ? "TERMINALE…"
+          : canPay
+            ? (method === "card" && ipActiveTerminal ? `AVVIA TERMINALE  € ${total.toFixed(2)}` : `INCASSA  € ${total.toFixed(2)}`)
+            : "Inserire importo"}
       </button>
+
+      {/* Overlay attesa / conferma manuale terminale */}
+      {(ipPosPhase === "waiting" || ipPosPhase === "manual_confirm") && (
+        <div className="absolute inset-0 z-20 bg-white/95 flex flex-col items-center justify-center gap-4 p-4 rounded-none">
+          {ipPosPhase === "waiting" ? (
+            <>
+              <div className="h-16 w-16 rounded-full bg-blue-50 border-4 border-blue-200 flex items-center justify-center animate-pulse">
+                <CreditCard className="h-7 w-7 text-blue-600" />
+              </div>
+              <div className="text-center">
+                <p className="font-bold text-lg text-slate-800">In attesa del terminale…</p>
+                <p className="text-sm text-slate-500 mt-1">
+                  {ipActiveTerminal === "pax" ? "Avvicina/inserisci carta sul Nexi PAX D230" : "Inserisci l'importo sul terminale myPOS"}
+                </p>
+                <p className="text-2xl font-bold text-primary mt-2">€ {total.toFixed(2)}</p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => { ipAttemptRef.current++; setIpPosPhase("idle"); }}>Annulla</Button>
+            </>
+          ) : (
+            <>
+              <div className="h-16 w-16 rounded-full bg-orange-50 border-4 border-orange-200 flex items-center justify-center">
+                <CreditCard className="h-7 w-7 text-primary" />
+              </div>
+              <div className="text-center">
+                <p className="font-bold text-lg text-slate-800">
+                  Pagamento sul terminale {ipActiveTerminal ? POS_TERMINAL_LABEL[ipActiveTerminal] : "POS"}
+                </p>
+                <p className="text-sm text-slate-500 mt-1">Digita l'importo sul terminale e fai pagare il cliente</p>
+                <p className="text-3xl font-bold text-primary mt-2">€ {total.toFixed(2)}</p>
+              </div>
+              <div className="flex gap-2 w-full max-w-xs">
+                <Button variant="outline" className="flex-1 h-10 text-sm" onClick={() => setIpPosPhase("idle")}>Annulla</Button>
+                <Button className="flex-1 h-10 text-sm" onClick={() => { setIpPosPhase("idle"); onPay(method, undefined); }}>
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" /> Pagamento ricevuto
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -4618,9 +4887,11 @@ export default function FrontOffice() {
             {/* Modalità: pagamento intero */}
             {paymentMode === "full" && (
               <InlinePaymentPanel
+                key={`pay-${activeOrderId ?? "none"}`}
                 total={total}
                 disabled={items.length === 0}
                 alertAnomalous={settings["feat_alert_totale_anomalo"] === "true"}
+                orderId={activeOrderId ?? undefined}
                 onPay={(method, amountGiven) => handlePay(method, amountGiven, invoiceCustomer?.id, invoiceCustomer?.ragioneSociale ?? undefined)}
               />
             )}
@@ -4642,6 +4913,7 @@ export default function FrontOffice() {
                       items={items as never}
                       coverPrice={coverPrice}
                       coverCount={coverCount}
+                      orderId={activeOrderId ?? undefined}
                       onPay={(method, amount, ids, coversToDeduct) => {
                         handlePay(method, amount, undefined, undefined, ids, coversToDeduct);
                       }}

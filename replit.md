@@ -264,6 +264,24 @@ Code review architect: PASS. Fix applicati post-review: join `orders.status='pai
 
 Code review architect (2 iterazioni): PASS finale su tutti gli scenari (items-only, soli coperti, mix, full payment, edge case ordine vuoto). Typecheck OK su api-server.
 
+## Terminali POS bancari (doppio terminale)
+
+Supporto per DUE terminali bancari indipendenti, con scelta al momento del pagamento carta:
+
+- **Nexi PAX D230** (LAN, protocollo ECR/POSLINK su TCP — `lib/pos-terminal.ts`). Richiede attivazione "Protocollo 17/ECR" chiamando Nexi.
+- **myPOS Go** (4G): per ora sempre **conferma manuale** (l'operatore digita l'importo sul terminale e conferma in cassa); integrazione CRR API futura.
+
+**Settings keys**: `pos_pax_enabled`, `pos_mypos_enabled` (`"true"/"false"`), `pos_pax_ip`, `pos_pax_port`, `pos_mypos_apikey`, `pos_mypos_terminal_id`. **Retro-compat**: se le nuove chiavi non esistono si usa la vecchia `pos_type` (`none|pax|mypos`); le nuove chiavi hanno precedenza (check `!= null`).
+
+**Backend** (`routes/pos.ts`, FUORI da OpenAPI per scelta — fetch diretto dal client):
+- `enabledPosTerminals(settings)` esportata; stessa logica duplicata in `front-office.tsx`.
+- `POST /api/pos/sale` body `{amountCents, orderId?, terminal?: "pax"|"mypos"}` → 400 se >1 abilitato senza `terminal`, 400 se terminale non abilitato, lenient `{approved:true, "conferma manuale"}` se 0 abilitati (retro-compat pos_type=none). Risposta: `approved` / `manualConfirmRequired` / errore.
+- `GET /api/pos/ping` — solo PAX (TCP).
+
+**Frontend** (`front-office.tsx`): helper modulo `enabledPosTerminals`, `POS_TERMINAL_LABEL`, componente `PosTerminalPicker` (chips, visibile solo se ≥2 terminali abilitati). Flusso POS carta in 4 punti: **PaymentDialog** (+ fix: overlay usa totalConMancia; mancia salvata via PATCH orders anche nei path card approved/manual_confirm), **InlinePaymentPanel** (tab Tot; keyed per activeOrderId; guardia anti-esito-tardivo su Annulla via ref contatore tentativi), **SplitBillBody**, **RomanaBody**. Pattern comune: `approved` → onPay; `manualConfirmRequired` → pannello "Pagamento ricevuto"; `declined`/rete → errore + bottone "Registra comunque incasso manuale".
+
+**Settings UI** (`backoffice/settings.tsx`): due toggle indipendenti; config PAX (ip/porta/ping) e myPOS (apikey/serial) visibili solo se abilitati; `posForm` deriva i valori legacy da `pos_type` al primo load.
+
 ### UX redesign — "Esplodi tutti" + tab Tot come hub di pagamento
 
 **Problema utente**: 1) "Sep. Prod." era poco utile perché agiva su un singolo articolo selezionato; 2) Conto Separato e Romana aprivano dialog modali che coprivano la cassa.

@@ -111,7 +111,8 @@ export default function SettingsPage() {
   }, [settings]);
 
   const [posForm, setPosForm] = useState({
-    pos_type: "none",
+    pos_pax_enabled: "false",
+    pos_mypos_enabled: "false",
     pos_pax_ip: "192.168.8.163",
     pos_pax_port: "10009",
     pos_mypos_apikey: "",
@@ -119,8 +120,11 @@ export default function SettingsPage() {
   });
   useEffect(() => {
     if (Object.keys(settings).length > 0) {
+      // Retro-compat: se le nuove chiavi non esistono, deriva dallo storico pos_type
+      const legacy = settings.pos_type ?? "none";
       setPosForm(f => ({
-        pos_type:              settings.pos_type              ?? f.pos_type,
+        pos_pax_enabled:       settings.pos_pax_enabled       ?? (legacy === "pax" ? "true" : f.pos_pax_enabled),
+        pos_mypos_enabled:     settings.pos_mypos_enabled     ?? (legacy === "mypos" ? "true" : f.pos_mypos_enabled),
         pos_pax_ip:            settings.pos_pax_ip            ?? f.pos_pax_ip,
         pos_pax_port:          settings.pos_pax_port          ?? f.pos_pax_port,
         pos_mypos_apikey:      settings.pos_mypos_apikey      ?? f.pos_mypos_apikey,
@@ -378,37 +382,28 @@ export default function SettingsPage() {
         </h2>
         <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-5">
           <p className="text-xs text-slate-400 leading-relaxed">
-            Quando abilitato, premendo <span className="font-semibold text-slate-600">Carta/POS</span> in cassa il sistema comunica
-            automaticamente con il terminale fisico, attende l'approvazione e poi stampa lo scontrino fiscale sulla RT.
+            Abilita i terminali che usi in cassa. Se ne abiliti più di uno, al momento del pagamento con
+            <span className="font-semibold text-slate-600"> Carta/POS</span> potrai scegliere su quale terminale incassare.
           </p>
 
-          {/* Selezione tipo terminale */}
-          <div>
-            <Label className="text-xs text-slate-500 mb-2 block">Tipo terminale</Label>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { id: "none",  label: "Nessuno",       desc: "Conferma manuale" },
-                { id: "pax",   label: "PAX D230 (Nexi)",desc: "TCP POSLINK LAN" },
-                { id: "mypos", label: "myPOS Go 2",    desc: "Conferma manuale" },
-              ].map(t => (
-                <button key={t.id} onClick={() => setPosForm(f => ({ ...f, pos_type: t.id }))}
-                  className={cn(
-                    "rounded-xl border-2 p-3 text-left transition-all",
-                    posForm.pos_type === t.id
-                      ? "border-primary bg-orange-50"
-                      : "border-slate-200 hover:border-slate-300"
-                  )}>
-                  <div className={cn("text-sm font-semibold", posForm.pos_type === t.id ? "text-primary" : "text-slate-700")}>
-                    {t.label}
-                  </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">{t.desc}</div>
-                </button>
-              ))}
+          {/* Toggle Nexi PAX D230 */}
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-semibold text-slate-700">Nexi PAX D230</div>
+              <div className="text-[11px] text-slate-400 mt-0.5">Collegamento in rete locale (protocollo cassa-POS)</div>
             </div>
+            <button
+              onClick={() => setPosForm(f => ({ ...f, pos_pax_enabled: f.pos_pax_enabled === "true" ? "false" : "true" }))}
+              className={cn("relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                posForm.pos_pax_enabled === "true" ? "bg-primary" : "bg-slate-200")}
+            >
+              <span className={cn("pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out",
+                posForm.pos_pax_enabled === "true" ? "translate-x-5" : "translate-x-0")} />
+            </button>
           </div>
 
           {/* Config PAX */}
-          {posForm.pos_type === "pax" && (
+          {posForm.pos_pax_enabled === "true" && (
             <div className="space-y-3 border-t border-slate-100 pt-4">
               <p className="text-xs text-slate-500 font-semibold">Configurazione PAX D230</p>
               <div className="grid grid-cols-2 gap-3">
@@ -418,8 +413,10 @@ export default function SettingsPage() {
                   setVal={v => setPosForm(f => ({ ...f, pos_pax_port: v }))} placeholder="10009" />
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                Protocollo: PAX POSLINK A30 over TCP/IP. Assicurati che il terminale sia nella stessa LAN e che
-                la porta ECR sia aperta (Menu terminale → Impostazioni → ECR/POSLINK → Abilita).
+                Il terminale deve essere sulla stessa rete Wi-Fi/LAN della cassa. <strong>Importante:</strong> il
+                collegamento cassa-POS va prima attivato da Nexi — chiama l'assistenza Nexi e chiedi
+                l'attivazione del "collegamento a registratore di cassa" (Protocollo 17/ECR) sul tuo PAX D230.
+                Senza attivazione il terminale non risponde e la cassa userà la conferma manuale.
               </p>
               {/* Ping test */}
               <div className="flex items-center gap-3">
@@ -442,19 +439,37 @@ export default function SettingsPage() {
             </div>
           )}
 
+          {/* Toggle myPOS */}
+          <div className="flex items-center justify-between border-t border-slate-100 pt-4">
+            <div>
+              <div className="text-sm font-semibold text-slate-700">myPOS Go</div>
+              <div className="text-[11px] text-slate-400 mt-0.5">Funziona anche in 4G — per ora con conferma manuale in cassa</div>
+            </div>
+            <button
+              onClick={() => setPosForm(f => ({ ...f, pos_mypos_enabled: f.pos_mypos_enabled === "true" ? "false" : "true" }))}
+              className={cn("relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                posForm.pos_mypos_enabled === "true" ? "bg-primary" : "bg-slate-200")}
+            >
+              <span className={cn("pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out",
+                posForm.pos_mypos_enabled === "true" ? "translate-x-5" : "translate-x-0")} />
+            </button>
+          </div>
+
           {/* Config myPOS */}
-          {posForm.pos_type === "mypos" && (
+          {posForm.pos_mypos_enabled === "true" && (
             <div className="space-y-3 border-t border-slate-100 pt-4">
-              <p className="text-xs text-slate-500 font-semibold">Configurazione myPOS Go 2</p>
+              <p className="text-xs text-slate-500 font-semibold">Configurazione myPOS Go</p>
               <div className="grid grid-cols-1 gap-3">
-                <DField label="myPOS API Key" val={posForm.pos_mypos_apikey}
-                  setVal={v => setPosForm(f => ({ ...f, pos_mypos_apikey: v }))} placeholder="Inserisci la tua API Key myPOS" />
+                <DField label="myPOS API Key (per la futura integrazione automatica)" val={posForm.pos_mypos_apikey}
+                  setVal={v => setPosForm(f => ({ ...f, pos_mypos_apikey: v }))} placeholder="Lascia vuoto se non ancora richiesta" />
                 <DField label="Serial Number terminale" val={posForm.pos_mypos_terminal_id}
                   setVal={v => setPosForm(f => ({ ...f, pos_mypos_terminal_id: v }))} placeholder="es. M01234567" />
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                myPOS Go 2 è un terminale standalone. La cassa mostrerà l'importo da digitare sul terminale;
-                il cassiere conferma manualmente l'avvenuto pagamento. Il sistema emette poi lo scontrino RT.
+                Per ora la cassa mostra l'importo da digitare sul terminale e il cassiere conferma manualmente
+                l'avvenuto pagamento; lo scontrino RT viene emesso subito dopo. L'incasso automatico via internet
+                (myPOS Cash Register API, funziona anche in 4G) sarà collegato quando myPOS abiliterà l'account
+                partner: la richiesta si fa dal sito sviluppatori myPOS.
               </p>
             </div>
           )}
