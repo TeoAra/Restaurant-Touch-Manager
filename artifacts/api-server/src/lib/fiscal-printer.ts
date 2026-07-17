@@ -503,6 +503,10 @@ export async function emettiGestionaleLibero(opts: {
 }
 
 // ── Stampa preconto sulla RT (ordine rimane aperto) ───────────────────────────
+// Usa il medesimo pattern di comando di emettiGestionaleLibero ("text"@ per ogni
+// riga) che funziona sulla DTR. Il formato custom buildPrecontoCopy causava
+// ERRORE 16 "Input Errato". Non eseguiamo pre-check (? / k) per evitare
+// interferenze con lo stato interno della RT.
 export async function emettiPreconto(opts: {
   tavolo?: string;
   coperti?: number;
@@ -514,22 +518,50 @@ export async function emettiPreconto(opts: {
   const printer = opts.printer ?? await getFiscalPrinter();
   if (!printer) return { ok: false, error: "Nessuna stampante fiscale configurata" };
 
-  const rtPort = printer.port ?? 1126;
+  const { tavolo, coperti, righe, ragioneSociale } = opts;
 
-  // ── Pre-check: annulla eventuali documenti aperti (fiscali o non-fiscali) ─
-  // Stesso approccio di emettiFiscalReceipt: se stato != 0 inviamo 'k'
-  const preStatus = await sendXonXoff(printer.ip, rtPort, "?", 2500);
-  const preQ = parseStatusQ(preStatus.ascii);
-  if (preQ && preQ.stato !== 0) {
-    console.warn(`[PRECONTO] Documento aperto (stato=${preQ.stato}), invio annullo 'k'...`);
-    await sendXonXoff(printer.ip, rtPort, "k", 2500);
-    await new Promise(r => setTimeout(r, 500));
+  // Totale difensivo: se il valore arriva NaN usa 0
+  const totaleNum = parseFloat(opts.totale);
+  const totale = (isNaN(totaleNum) ? 0 : totaleNum).toFixed(2);
+
+  // ── Costruzione comando: stesso pattern di emettiGestionaleLibero ─────────
+  const parts: string[] = [];
+  const sep = "--------------------------------";
+  const printLine = (s: string) => parts.push(`"${xonDesc(s)}"@`);
+
+  printLine("DOCUMENTO NON FISCALE");
+  printLine("DOCUMENTO GESTIONALE");
+  printLine("*** PRECONTO ***");
+  if (ragioneSociale) { printLine(sep); printLine(ragioneSociale); }
+  printLine(sep);
+  // Righe info tavolo/coperti (solo testo, nessun prezzo)
+  if (tavolo) printLine(`TAVOLO: ${tavolo}`);
+  if (coperti != null && coperti > 0) printLine(`COPERTI: ${coperti}`);
+  if (tavolo || (coperti != null && coperti > 0)) printLine(sep);
+
+  // Articoli
+  for (const r of righe) {
+    const qta = parseFloat(String(r.qta));
+    const pu  = parseFloat(r.prezzoUnitario);
+    const tot = (qta * pu).toFixed(2);
+    const desc = xonDesc(r.desc);
+    const qtaStr = Number.isInteger(qta) && qta === 1 ? "" : `${Math.round(qta)}x `;
+    printLine(`${qtaStr}${desc}`);
+    printLine(`  EUR ${tot}`);
   }
 
-  const cmd = buildPrecontoDocument(opts);
-  console.log("[PRECONTO] cmd len:", cmd.length, "totale:", opts.totale);
+  printLine(sep);
+  printLine(`TOTALE EUR ${totale}`);
+  printLine(sep);
+  printLine("DOCUMENTO NON VALIDO AI");
+  printLine("FINI FISCALI");
+  parts.push("@");
+
+  const cmd = parts.join("");
+  const rtPort = printer.port ?? 1126;
+  console.log("[PRECONTO] cmd len=%d totale=%s", cmd.length, totale);
   const raw = await sendXonXoff(printer.ip, rtPort, cmd, 8000);
-  console.log("[PRECONTO] RT raw: ok=%s xoff=%s ascii=%s", raw.ok, raw.xoffCount, raw.ascii.substring(0, 200));
+  console.log("[PRECONTO] RT ok=%s xoff=%s ascii=%s", raw.ok, raw.xoffCount, raw.ascii.substring(0, 200));
   return {
     ok: raw.xoffCount === 0,
     ms: raw.ms,
