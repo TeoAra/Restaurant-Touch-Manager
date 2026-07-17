@@ -264,6 +264,14 @@ Code review architect: PASS. Fix applicati post-review: join `orders.status='pai
 
 Code review architect (2 iterazioni): PASS finale su tutti gli scenari (items-only, soli coperti, mix, full payment, edge case ordine vuoto). Typecheck OK su api-server.
 
+## RT DTR — regole protocollo documenti gestionali (fix ERRORE 16)
+
+Spec ufficiale nel repo: `attached_assets/SPEC_XonXoff_DTR_21_1776802630202.pdf`.
+- La parola **TOTALE è vietata** nelle righe `"..."@` (limitazione di legge): la RT annulla la riga/va in ERRORE 16. `stampaDocumentoGestionale` sanitizza `/TOTALE/gi → "TOT."`; i builder usano `TOT. EUR`.
+- **Record max 256 byte** lato PC (soglia buffer RT 384 byte, overflow = caratteri persi → ERRORE 16). `sendXonXoffDocument` invia in chunk ≤200 byte di comandi completi, pausa 120ms, rispetta XOFF/XON; su XOFF persistente invia `K` (tasto C) per sbloccare e riprova. Esito ok = ultimo flow-byte non-XOFF (XOFF transitori sono flow-control normale).
+- Timer di risposta riarmato solo su byte ASCII (la RT idle manda XON ogni ~1s).
+- Il font delle righe `@` nel gestionale è lo stesso dello scontrino (nessun selettore font nel protocollo).
+
 ## Terminali POS bancari (doppio terminale)
 
 Supporto per DUE terminali bancari indipendenti, con scelta al momento del pagamento carta:

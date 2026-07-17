@@ -309,6 +309,129 @@ export function buildXonXoffReceipt(opts: {
   return parts.join("");
 }
 
+// ── Invio flow-controlled per documenti lunghi (spec DTR §Controlli di flusso) ──
+// La spec impone dal lato PC "records di lunghezza massima compresa tra i 256
+// bytes": la soglia del buffer RX della RT è 384 byte, superata la quale i
+// caratteri vengono PERSI senza recupero → la RT riceve comandi mutilati e va
+// in ERRORE 16 "Input Errato". Questa funzione invia i comandi in gruppi di
+// comandi COMPLETI (mai spezzati a metà: la RT annulla i comandi incompleti
+// dopo ~1s di silenzio) da max ~200 byte, e rispetta il flow-control XOFF/XON
+// tra un gruppo e l'altro (XOFF = buffer quasi pieno → attendi XON).
+export async function sendXonXoffDocument(
+  ip: string,
+  port: number,
+  records: string[],
+  waitForResponseMs = 8000,
+): Promise<XonXoffResult> {
+  const t0 = Date.now();
+  const CHUNK_MAX = 200;
+
+  // Raggruppa i record (comandi completi) in chunk ≤ CHUNK_MAX byte
+  const chunks: string[] = [];
+  let cur = "";
+  for (const r of records) {
+    if (cur.length > 0 && cur.length + r.length > CHUNK_MAX) {
+      chunks.push(cur);
+      cur = "";
+    }
+    cur += r;
+  }
+  if (cur.length > 0) chunks.push(cur);
+
+  return new Promise<XonXoffResult>((resolve) => {
+    let settled = false;
+    let ascii = "";
+    let xoffCount = 0;
+    let xoffPaused = false;         // ultimo flow-byte ricevuto è XOFF
+    let xonWaiter: (() => void) | null = null;
+    let allSent = false;
+    let responseTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const finish = (ok: boolean, error?: string) => {
+      if (settled) return;
+      settled = true;
+      if (responseTimer) clearTimeout(responseTimer);
+      socket.destroy();
+      resolve({ ok, ms: Date.now() - t0, ascii, xoffCount, error });
+    };
+
+    const scheduleFinish = () => {
+      if (responseTimer) clearTimeout(responseTimer);
+      // OK se a fine colloquio la RT NON è rimasta in XOFF (XOFF transitori
+      // da buffer pieno seguiti da XON sono normali e non sono errori).
+      responseTimer = setTimeout(
+        () => finish(!xoffPaused, xoffPaused ? `RT in XOFF a fine invio (${xoffCount} XOFF)` : undefined),
+        waitForResponseMs,
+      );
+    };
+
+    const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+    const socket = new net.Socket();
+    socket.setTimeout(30000);
+
+    const waitXon = (ms: number) => new Promise<boolean>((res) => {
+      if (!xoffPaused) return res(true);
+      const to = setTimeout(() => { xonWaiter = null; res(false); }, ms);
+      xonWaiter = () => { clearTimeout(to); res(true); };
+    });
+
+    socket.connect(port, ip, () => {
+      void (async () => {
+        await delay(150); // eventuale XON iniziale
+        for (const chunk of chunks) {
+          if (settled) return;
+          if (xoffPaused) {
+            // Buffer RT quasi pieno: attendi XON (max 4s) prima di continuare
+            let gotXon = await waitXon(4000);
+            if (settled) return;
+            if (!gotXon) {
+              // Spec §"Comando non eseguibile": la RT in errore risponde XOFF
+              // a ogni carattere finché non si preme il tasto C. "K" equivale
+              // al tasto C → sblocca l'errore, poi attendi XON e riprova.
+              console.warn("[XONXOFF-DOC] RT in XOFF persistente, invio 'K' (tasto C) per sbloccare...");
+              socket.write(Buffer.from("K", "latin1"));
+              gotXon = await waitXon(3000);
+              if (settled) return;
+              if (!gotXon) {
+                finish(false, `RT bloccata in XOFF durante l'invio (${xoffCount} XOFF, anche dopo 'K')`);
+                return;
+              }
+            }
+          }
+          socket.write(Buffer.from(chunk, "latin1"));
+          await delay(120); // pausa breve tra i record (<1s, no annullo comando)
+        }
+        allSent = true;
+        scheduleFinish();
+      })();
+    });
+
+    socket.on("data", (chunk: Buffer) => {
+      let gotAscii = false;
+      for (const byte of chunk) {
+        if (byte === XOFF) {
+          xoffCount++;
+          xoffPaused = true;
+        } else if (byte === XON) {
+          xoffPaused = false;
+          if (xonWaiter) { xonWaiter(); xonWaiter = null; }
+        } else if (byte >= 0x20 && byte <= 0x7e) {
+          ascii += String.fromCharCode(byte);
+          gotAscii = true;
+        }
+      }
+      // Riarma il timer solo su payload ASCII: la RT idle manda XON ogni
+      // secondo e riarmare su XON terrebbe la promise appesa all'infinito.
+      if (allSent && gotAscii) scheduleFinish();
+    });
+
+    socket.on("end",     () => finish(allSent && !xoffPaused));
+    socket.on("timeout", () => finish(allSent && !xoffPaused, allSent ? undefined : "Timeout TCP durante invio"));
+    socket.on("error",   (err: Error) => finish(false, err.message));
+  });
+}
+
 // ── Invia comando XonXoff generico (per X/Z-report, annullo, ecc.) ───────────
 // Corrisponde a sendCgiCommand ma via XonXoff su TCP.
 export async function sendXonXoffCommand(
@@ -356,15 +479,21 @@ async function stampaDocumentoGestionale(
     await new Promise(r => setTimeout(r, 500));
   }
 
-  const cmd = "j" + righeTesto.map(s => `"${xonDesc(s)}"@`).join("") + "J";
-  console.log("[GESTIONALE] cmd len=%d righe=%d", cmd.length, righeTesto.length);
-  const raw = await sendXonXoff(printer.ip, rtPort, cmd, waitMs);
+  // La parola "TOTALE" è VIETATA dal protocollo nelle righe di testo "@":
+  // la spec dice che la RT annulla la riga che la contiene (limitazione di
+  // legge anti-scontrino-falso) → ERRORE 16 Input Errato. Sostituita con TOT.
+  const sanitizzaRiga = (s: string) => xonDesc(s.replace(/TOTALE/gi, "TOT."));
+
+  const records = ["j", ...righeTesto.map(s => `"${sanitizzaRiga(s)}"@`), "J"];
+  const totLen = records.reduce((a, r) => a + r.length, 0);
+  console.log("[GESTIONALE] records=%d len=%d", records.length, totLen);
+  const raw = await sendXonXoffDocument(printer.ip, rtPort, records, waitMs);
   console.log("[GESTIONALE] RT ok=%s xoff=%s ascii=%s", raw.ok, raw.xoffCount, raw.ascii.substring(0, 200));
   return {
-    ok: raw.xoffCount === 0,
+    ok: raw.ok,
     ms: raw.ms,
     body: raw.ascii,
-    error: raw.error ?? (raw.xoffCount > 0 ? `RT errore: ${raw.xoffCount} XOFF` : undefined),
+    error: raw.error ?? (raw.ok ? undefined : `RT errore: ${raw.xoffCount} XOFF`),
   };
 }
 
@@ -401,7 +530,7 @@ export async function emettiGestionaleLibero(opts: {
 
   lines.push(sep);
   const totNum = parseFloat(totale);
-  lines.push(`TOTALE EUR ${(isNaN(totNum) ? 0 : totNum).toFixed(2)}`);
+  lines.push(`TOT. EUR ${(isNaN(totNum) ? 0 : totNum).toFixed(2)}`);
   if (note) lines.push(note);
 
   return stampaDocumentoGestionale(printer, lines);
@@ -483,7 +612,7 @@ export async function emettiFatturaCortesia(opts: {
     lines.push(`IVA ${aliq} EUR ${ivaNum.toFixed(2)}`.replace(/\s+/g, " "));
   }
   const totNum = parseFloat(opts.totale);
-  lines.push(`TOTALE EUR ${(isNaN(totNum) ? 0 : totNum).toFixed(2)}`);
+  lines.push(`TOT. EUR ${(isNaN(totNum) ? 0 : totNum).toFixed(2)}`);
 
   lines.push(sep);
   lines.push("FATTURA ELETTRONICA EMESSA");
@@ -536,7 +665,7 @@ export async function emettiPreconto(opts: {
   }
 
   lines.push(sep);
-  lines.push(`TOTALE EUR ${totale}`);
+  lines.push(`TOT. EUR ${totale}`);
   lines.push(sep);
   lines.push("DOCUMENTO NON VALIDO AI");
   lines.push("FINI FISCALI");
@@ -581,7 +710,7 @@ export async function emettiDocumentoNonFiscale(opts: {
   lines.push(sep);
   const metodo = metodoPagamento === "cash" ? "CONTANTI" : metodoPagamento === "card" ? "CARTA" : "ALTRO";
   const impNum = parseFloat(importo);
-  lines.push(`TOTALE EUR ${(isNaN(impNum) ? 0 : impNum).toFixed(2)}`);
+  lines.push(`TOT. EUR ${(isNaN(impNum) ? 0 : impNum).toFixed(2)}`);
   lines.push(`PAGAMENTO: ${metodo}`);
   if (note) lines.push(note);
   if (ragioneSociale) {
