@@ -327,128 +327,45 @@ export async function sendXonXoffCommand(
   };
 }
 
-// ── Costruisce una singola copia del documento gestionale non-fiscale ─────────
-// Protocollo XonXoff DTR: ogni riga si stampa con "TESTO"@
-// Il documento termina con @  (chiude il documento non-fiscale)
-function buildNonFiscalCopy(opts: {
-  ragioneSociale?: string;
-  righe: { desc: string; qta: number; prezzoUnitario: string }[];
-  importo: string;
-  metodoPagamento: string;
-  note?: string;
-  isCopiaCliente: boolean;
-}): string {
-  const { ragioneSociale, righe, importo, metodoPagamento, note, isCopiaCliente } = opts;
-  const parts: string[] = [];
+// ── Helper: stampa un documento gestionale VERO sulla RT ─────────────────────
+// Protocollo DTR XonXoff:
+//   j            → APRE il documento gestionale (la RT stampa la sua intestazione)
+//   "testo"@     → stampa una riga di testo dentro il documento
+//   J            → CHIUDE il documento (la RT stampa il piè di pagina e taglia)
+// NOTA: un "@" nudo senza stringa tra virgolette è input non valido → ERRORE 16.
+// Il vecchio codice non apriva mai il documento e terminava con "@" nudo:
+// per questo mancavano intestazione/coda e la RT andava in ERRORE 16.
+async function stampaDocumentoGestionale(
+  printer: RtPrinter,
+  righeTesto: string[],
+  waitMs = 8000,
+): Promise<CgiResult> {
+  const rtPort = printer.port ?? 1126;
 
-  const sep = "--------------------------------";
-  const printLine = (s: string) => parts.push(`"${xonDesc(s)}"@`);
-
-  printLine("DOCUMENTO NON FISCALE");
-  printLine("DOCUMENTO GESTIONALE");
-  if (isCopiaCliente) {
-    printLine("*** COPIA CLIENTE ***");
-  }
-  printLine(sep);
-
-  for (const r of righe) {
-    const qta = parseFloat(String(r.qta));
-    const pu = parseFloat(r.prezzoUnitario);
-    const tot = (qta * pu).toFixed(2);
-    const desc = xonDesc(r.desc);
-    const qtaStr = Number.isInteger(qta) && qta === 1 ? "" : `x${qta} `;
-    printLine(`${qtaStr}${desc}`);
-    printLine(`  EUR ${tot}`);
+  // Pre-check: se c'è un documento rimasto aperto (fiscale o gestionale)
+  // da un tentativo precedente fallito, chiudilo/annullalo prima di aprire.
+  const preStatus = await sendXonXoff(printer.ip, rtPort, "?", 2500);
+  const preQ = parseStatusQ(preStatus.ascii);
+  if (preQ && preQ.stato === 3) {
+    console.warn("[GESTIONALE] Documento gestionale rimasto aperto, invio chiusura 'J'...");
+    await sendXonXoff(printer.ip, rtPort, "J", 2500);
+    await new Promise(r => setTimeout(r, 500));
+  } else if (preQ && preQ.stato !== 0) {
+    console.warn(`[GESTIONALE] Scontrino aperto (stato=${preQ.stato}), invio annullo 'k'...`);
+    await sendXonXoff(printer.ip, rtPort, "k", 2500);
+    await new Promise(r => setTimeout(r, 500));
   }
 
-  printLine(sep);
-  const metodo = metodoPagamento === "cash" ? "CONTANTI" : metodoPagamento === "card" ? "CARTA" : "ALTRO";
-  printLine(`TOTALE EUR ${parseFloat(importo).toFixed(2)}`);
-  printLine(`PAGAMENTO: ${metodo}`);
-
-  if (note) printLine(note);
-  if (ragioneSociale) {
-    printLine(sep);
-    printLine(`CLIENTE: ${ragioneSociale}`);
-  }
-
-  printLine(sep);
-  printLine("DOCUMENTO NON VALIDO AI");
-  printLine("FINI FISCALI");
-
-  // Chiudi documento non-fiscale
-  parts.push("@");
-
-  return parts.join("");
-}
-
-// ── Costruisce documento gestionale in DUPLICE COPIA ─────────────────────────
-// Prima copia (locale) + seconda copia con "COPIA CLIENTE"
-export function buildNonFiscalDocument(opts: {
-  ragioneSociale?: string;
-  righe: { desc: string; qta: number; prezzoUnitario: string }[];
-  importo: string;
-  metodoPagamento: string;
-  note?: string;
-}): string {
-  const copia1 = buildNonFiscalCopy({ ...opts, isCopiaCliente: false });
-  const copia2 = buildNonFiscalCopy({ ...opts, isCopiaCliente: true });
-  return copia1 + copia2;
-}
-
-// ── Costruisce documento PRECONTO (non-fiscale, senza pagamento) ─────────────
-// Due copie: ristorante + cliente
-function buildPrecontoCopy(opts: {
-  ragioneSociale?: string;
-  tavolo?: string;
-  coperti?: number;
-  righe: { desc: string; qta: number; prezzoUnitario: string }[];
-  totale: string;
-  isCopiaCliente: boolean;
-}): string {
-  const { ragioneSociale, tavolo, coperti, righe, totale, isCopiaCliente } = opts;
-  const parts: string[] = [];
-  const sep = "--------------------------------";
-  const printLine = (s: string) => parts.push(`"${xonDesc(s)}"@`);
-
-  printLine("DOCUMENTO NON FISCALE");
-  printLine("*** PRECONTO ***");
-  if (isCopiaCliente) printLine("--- COPIA CLIENTE ---");
-  printLine(sep);
-  if (tavolo) printLine(`TAVOLO: ${tavolo}`);
-  if (coperti != null && coperti > 0) printLine(`COPERTI: ${coperti}`);
-  if (ragioneSociale) printLine(ragioneSociale);
-  printLine(sep);
-
-  for (const r of righe) {
-    const qta = parseFloat(String(r.qta));
-    const pu = parseFloat(r.prezzoUnitario);
-    const tot = (qta * pu).toFixed(2);
-    const desc = xonDesc(r.desc);
-    const qtaStr = Number.isInteger(qta) && qta === 1 ? "" : `${Math.round(qta)}x `;
-    printLine(`${qtaStr}${desc}`);
-    printLine(`  EUR ${tot}`);
-  }
-
-  printLine(sep);
-  printLine(`TOTALE EUR ${parseFloat(totale).toFixed(2)}`);
-  printLine(sep);
-  printLine("DOCUMENTO NON VALIDO AI");
-  printLine("FINI FISCALI");
-
-  parts.push("@");
-  return parts.join("");
-}
-
-export function buildPrecontoDocument(opts: {
-  ragioneSociale?: string;
-  tavolo?: string;
-  coperti?: number;
-  righe: { desc: string; qta: number; prezzoUnitario: string }[];
-  totale: string;
-}): string {
-  // Una sola copia: la RT non tollera due documenti concatenati (ERRORE 16)
-  return buildPrecontoCopy({ ...opts, isCopiaCliente: false });
+  const cmd = "j" + righeTesto.map(s => `"${xonDesc(s)}"@`).join("") + "J";
+  console.log("[GESTIONALE] cmd len=%d righe=%d", cmd.length, righeTesto.length);
+  const raw = await sendXonXoff(printer.ip, rtPort, cmd, waitMs);
+  console.log("[GESTIONALE] RT ok=%s xoff=%s ascii=%s", raw.ok, raw.xoffCount, raw.ascii.substring(0, 200));
+  return {
+    ok: raw.xoffCount === 0,
+    ms: raw.ms,
+    body: raw.ascii,
+    error: raw.error ?? (raw.xoffCount > 0 ? `RT errore: ${raw.xoffCount} XOFF` : undefined),
+  };
 }
 
 // ── Stampa documento gestionale libero (per fatture, note, conferme) ─────────
@@ -465,14 +382,12 @@ export async function emettiGestionaleLibero(opts: {
   if (!printer) return { ok: false, error: "Nessuna stampante fiscale configurata" };
 
   const { titolo, righe, totale, ragioneSociale, note } = opts;
-  const parts: string[] = [];
   const sep = "--------------------------------";
-  const printLine = (s: string) => parts.push(`"${xonDesc(s)}"@`);
+  const lines: string[] = [];
 
-  printLine("DOCUMENTO NON FISCALE");
-  if (titolo) printLine(titolo);
-  if (ragioneSociale) { printLine(sep); printLine(ragioneSociale); }
-  printLine(sep);
+  if (titolo) lines.push(titolo);
+  if (ragioneSociale) { lines.push(sep); lines.push(ragioneSociale); }
+  lines.push(sep);
 
   for (const r of righe) {
     const qta = parseFloat(String(r.qta));
@@ -480,33 +395,22 @@ export async function emettiGestionaleLibero(opts: {
     const tot = (qta * pu).toFixed(2);
     const desc = xonDesc(r.desc);
     const qtaStr = Number.isInteger(qta) && qta === 1 ? "" : `${Math.round(qta)}x `;
-    printLine(`${qtaStr}${desc}`);
-    printLine(`  EUR ${tot}`);
+    lines.push(`${qtaStr}${desc}`);
+    lines.push(`  EUR ${tot}`);
   }
 
-  printLine(sep);
-  printLine(`TOTALE EUR ${parseFloat(totale).toFixed(2)}`);
-  if (note) printLine(note);
-  printLine(sep);
-  printLine("DOCUMENTO NON VALIDO AI");
-  printLine("FINI FISCALI");
-  parts.push("@");
+  lines.push(sep);
+  const totNum = parseFloat(totale);
+  lines.push(`TOTALE EUR ${(isNaN(totNum) ? 0 : totNum).toFixed(2)}`);
+  if (note) lines.push(note);
 
-  const rtPort = printer.port ?? 1126;
-  const raw = await sendXonXoff(printer.ip, rtPort, parts.join(""), 8000);
-  return {
-    ok: raw.xoffCount === 0,
-    ms: raw.ms,
-    body: raw.ascii,
-    error: raw.error ?? (raw.xoffCount > 0 ? `RT errore: ${raw.xoffCount} XOFF` : undefined),
-  };
+  return stampaDocumentoGestionale(printer, lines);
 }
 
 // ── Stampa preconto sulla RT (ordine rimane aperto) ───────────────────────────
-// Usa il medesimo pattern di comando di emettiGestionaleLibero ("text"@ per ogni
-// riga) che funziona sulla DTR. Il formato custom buildPrecontoCopy causava
-// ERRORE 16 "Input Errato". Non eseguiamo pre-check (? / k) per evitare
-// interferenze con lo stato interno della RT.
+// Usa il documento gestionale VERO della RT: apertura 'j', righe "testo"@,
+// chiusura 'J'. La RT stampa da sola la propria intestazione e il piè di
+// pagina "DOCUMENTO GESTIONALE".
 export async function emettiPreconto(opts: {
   tavolo?: string;
   coperti?: number;
@@ -518,56 +422,39 @@ export async function emettiPreconto(opts: {
   const printer = opts.printer ?? await getFiscalPrinter();
   if (!printer) return { ok: false, error: "Nessuna stampante fiscale configurata" };
 
-  const { tavolo, coperti, righe, ragioneSociale } = opts;
+  const { tavolo, coperti, righe } = opts;
 
   // Totale difensivo: se il valore arriva NaN usa 0
   const totaleNum = parseFloat(opts.totale);
   const totale = (isNaN(totaleNum) ? 0 : totaleNum).toFixed(2);
 
-  // ── Costruzione comando: stesso pattern di emettiGestionaleLibero ─────────
-  const parts: string[] = [];
   const sep = "--------------------------------";
-  const printLine = (s: string) => parts.push(`"${xonDesc(s)}"@`);
+  const lines: string[] = [];
 
-  printLine("DOCUMENTO NON FISCALE");
-  printLine("DOCUMENTO GESTIONALE");
-  printLine("*** PRECONTO ***");
-  if (ragioneSociale) { printLine(sep); printLine(ragioneSociale); }
-  printLine(sep);
-  // Righe info tavolo/coperti (solo testo, nessun prezzo)
-  if (tavolo) printLine(`TAVOLO: ${tavolo}`);
-  if (coperti != null && coperti > 0) printLine(`COPERTI: ${coperti}`);
-  if (tavolo || (coperti != null && coperti > 0)) printLine(sep);
+  lines.push("*** PRECONTO ***");
+  lines.push(sep);
+  if (tavolo) lines.push(`TAVOLO: ${tavolo}`);
+  if (coperti != null && coperti > 0) lines.push(`COPERTI: ${coperti}`);
+  if (tavolo || (coperti != null && coperti > 0)) lines.push(sep);
 
-  // Articoli
   for (const r of righe) {
     const qta = parseFloat(String(r.qta));
     const pu  = parseFloat(r.prezzoUnitario);
     const tot = (qta * pu).toFixed(2);
     const desc = xonDesc(r.desc);
     const qtaStr = Number.isInteger(qta) && qta === 1 ? "" : `${Math.round(qta)}x `;
-    printLine(`${qtaStr}${desc}`);
-    printLine(`  EUR ${tot}`);
+    lines.push(`${qtaStr}${desc}`);
+    lines.push(`  EUR ${tot}`);
   }
 
-  printLine(sep);
-  printLine(`TOTALE EUR ${totale}`);
-  printLine(sep);
-  printLine("DOCUMENTO NON VALIDO AI");
-  printLine("FINI FISCALI");
-  parts.push("@");
+  lines.push(sep);
+  lines.push(`TOTALE EUR ${totale}`);
+  lines.push(sep);
+  lines.push("DOCUMENTO NON VALIDO AI");
+  lines.push("FINI FISCALI");
 
-  const cmd = parts.join("");
-  const rtPort = printer.port ?? 1126;
-  console.log("[PRECONTO] cmd len=%d totale=%s", cmd.length, totale);
-  const raw = await sendXonXoff(printer.ip, rtPort, cmd, 8000);
-  console.log("[PRECONTO] RT ok=%s xoff=%s ascii=%s", raw.ok, raw.xoffCount, raw.ascii.substring(0, 200));
-  return {
-    ok: raw.xoffCount === 0,
-    ms: raw.ms,
-    body: raw.ascii,
-    error: raw.error ?? (raw.xoffCount > 0 ? `RT errore: ${raw.xoffCount} XOFF` : undefined),
-  };
+  console.log("[PRECONTO] righe=%d totale=%s", lines.length, totale);
+  return stampaDocumentoGestionale(printer, lines);
 }
 
 // ── Emetti documento non-fiscale sulla RT ─────────────────────────────────
@@ -587,19 +474,38 @@ export async function emettiDocumentoNonFiscale(opts: {
     return { ok: false, error: "Nessuna stampante fiscale configurata" };
   }
 
-  const cmd = buildNonFiscalDocument({ ragioneSociale, righe, importo, metodoPagamento, note });
-  console.log("[NON-FISCAL] Documento non fiscale cmd len:", cmd.length);
+  const sep = "--------------------------------";
+  const lines: string[] = [];
 
-  const rtPort = printer.port ?? 1126;
-  const raw = await sendXonXoff(printer.ip, rtPort, cmd, 6000);
-  console.log("[NON-FISCAL] RT raw: ok=%s xoff=%s ascii=%s", raw.ok, raw.xoffCount, raw.ascii.substring(0, 200));
+  lines.push("DOCUMENTO GESTIONALE");
+  lines.push(sep);
 
-  return {
-    ok: raw.xoffCount === 0,
-    ms: raw.ms,
-    body: raw.ascii,
-    error: raw.error ?? (raw.xoffCount > 0 ? `RT errore: ${raw.xoffCount} XOFF` : undefined),
-  };
+  for (const r of righe) {
+    const qta = parseFloat(String(r.qta));
+    const pu = parseFloat(r.prezzoUnitario);
+    const tot = (qta * pu).toFixed(2);
+    const desc = xonDesc(r.desc);
+    const qtaStr = Number.isInteger(qta) && qta === 1 ? "" : `${Math.round(qta)}x `;
+    lines.push(`${qtaStr}${desc}`);
+    lines.push(`  EUR ${tot}`);
+  }
+
+  lines.push(sep);
+  const metodo = metodoPagamento === "cash" ? "CONTANTI" : metodoPagamento === "card" ? "CARTA" : "ALTRO";
+  const impNum = parseFloat(importo);
+  lines.push(`TOTALE EUR ${(isNaN(impNum) ? 0 : impNum).toFixed(2)}`);
+  lines.push(`PAGAMENTO: ${metodo}`);
+  if (note) lines.push(note);
+  if (ragioneSociale) {
+    lines.push(sep);
+    lines.push(`CLIENTE: ${ragioneSociale}`);
+  }
+  lines.push(sep);
+  lines.push("DOCUMENTO NON VALIDO AI");
+  lines.push("FINI FISCALI");
+
+  console.log("[NON-FISCAL] righe=%d importo=%s", lines.length, importo);
+  return stampaDocumentoGestionale(printer, lines, 6000);
 }
 
 // ── Invia solo il codice lotteria (verifica connettività) ──────────────────
@@ -659,8 +565,15 @@ export async function emettiFiscalReceipt(opts: {
     const preStatus = await sendXonXoff(printer.ip, rtPort, "?", 2500);
     const preQ = parseStatusQ(preStatus.ascii);
     console.log(`[FISCAL] Pre-check: stato=${preQ?.stato ?? "?"} ascii=${preStatus.ascii.substring(0, 100)}`);
-    if (preQ && preQ.stato !== 0) {
-      // Scontrino o documento aperto → annulla prima di procedere
+    if (preQ && preQ.stato === 3) {
+      // Documento gestionale rimasto aperto → dentro un doc non fiscale il
+      // comando 'k' viene ignorato dalla RT: va chiuso con 'J'.
+      console.warn("[FISCAL] Documento gestionale aperto (stato=3), invio chiusura 'J'...");
+      const chiusura = await sendXonXoff(printer.ip, rtPort, "J", 2500);
+      console.log(`[FISCAL] Chiusura gestionale: xoff=${chiusura.xoffCount} ascii=${chiusura.ascii.substring(0, 60)}`);
+      await new Promise(r => setTimeout(r, 500));
+    } else if (preQ && preQ.stato !== 0) {
+      // Scontrino fiscale aperto → annulla prima di procedere
       console.warn(`[FISCAL] Scontrino aperto (stato=${preQ.stato}), invio annullo 'k'...`);
       const annullo = await sendXonXoff(printer.ip, rtPort, "k", 2500);
       console.log(`[FISCAL] Annullo: xoff=${annullo.xoffCount} ascii=${annullo.ascii.substring(0, 60)}`);
