@@ -407,6 +407,94 @@ export async function emettiGestionaleLibero(opts: {
   return stampaDocumentoGestionale(printer, lines);
 }
 
+// ── Stampa copia di cortesia FATTURA sulla RT ────────────────────────────────
+// Documento gestionale completo con intestazione fattura: numero, data,
+// dati cliente (P.IVA / CF / indirizzo), righe, imponibile, IVA e totale.
+// La fattura elettronica vera resta l'XML FatturaPA: questa è solo la copia
+// cartacea di cortesia.
+export async function emettiFatturaCortesia(opts: {
+  numero: string;          // es. "2026/0001"
+  data: string;            // ISO "YYYY-MM-DD"
+  cliente?: {
+    denominazione?: string;
+    partitaIva?: string | null;
+    codiceFiscale?: string | null;
+    indirizzo?: string | null;
+    cap?: string | null;
+    comune?: string | null;
+    provincia?: string | null;
+  } | null;
+  righe: { desc: string; qta: number; prezzoUnitario: string }[];
+  imponibile?: string | null;
+  aliquotaIva?: string | null;
+  iva?: string | null;
+  totale: string;
+  printer?: RtPrinter | null;
+}): Promise<CgiResult> {
+  const printer = opts.printer ?? await getFiscalPrinter();
+  if (!printer) return { ok: false, error: "Nessuna stampante fiscale configurata" };
+
+  const { numero, cliente, righe, imponibile, aliquotaIva, iva } = opts;
+  const sep = "--------------------------------";
+  const lines: string[] = [];
+
+  // Data in formato italiano GG/MM/AAAA
+  let dataIt = opts.data;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(opts.data ?? "");
+  if (m) dataIt = `${m[3]}/${m[2]}/${m[1]}`;
+
+  lines.push("*** FATTURA ***");
+  lines.push("(COPIA DI CORTESIA)");
+  lines.push(sep);
+  lines.push(`FATTURA N. ${numero}`);
+  lines.push(`DATA: ${dataIt}`);
+
+  // ── Dati cliente ──────────────────────────────────────────────────────────
+  if (cliente && (cliente.denominazione || cliente.partitaIva || cliente.codiceFiscale)) {
+    lines.push(sep);
+    lines.push("CLIENTE:");
+    if (cliente.denominazione) lines.push(cliente.denominazione);
+    if (cliente.partitaIva)    lines.push(`P.IVA: ${cliente.partitaIva}`);
+    if (cliente.codiceFiscale) lines.push(`CF: ${cliente.codiceFiscale}`);
+    if (cliente.indirizzo)     lines.push(cliente.indirizzo);
+    const cittaLine = [cliente.cap, cliente.comune, cliente.provincia ? `(${cliente.provincia})` : ""]
+      .filter(Boolean).join(" ").trim();
+    if (cittaLine) lines.push(cittaLine);
+  }
+
+  lines.push(sep);
+  for (const r of righe) {
+    const qta = parseFloat(String(r.qta));
+    const pu = parseFloat(r.prezzoUnitario);
+    const tot = (qta * pu).toFixed(2);
+    const desc = xonDesc(r.desc);
+    const qtaStr = Number.isInteger(qta) && qta === 1 ? "" : `${Math.round(qta)}x `;
+    lines.push(`${qtaStr}${desc}`);
+    lines.push(`  EUR ${tot}`);
+  }
+
+  // ── Riepilogo importi ─────────────────────────────────────────────────────
+  lines.push(sep);
+  const impNum = parseFloat(imponibile ?? "");
+  if (!isNaN(impNum)) lines.push(`IMPONIBILE EUR ${impNum.toFixed(2)}`);
+  const ivaNum = parseFloat(iva ?? "");
+  if (!isNaN(ivaNum)) {
+    const aliq = aliquotaIva ? `${aliquotaIva}%` : "";
+    lines.push(`IVA ${aliq} EUR ${ivaNum.toFixed(2)}`.replace(/\s+/g, " "));
+  }
+  const totNum = parseFloat(opts.totale);
+  lines.push(`TOTALE EUR ${(isNaN(totNum) ? 0 : totNum).toFixed(2)}`);
+
+  lines.push(sep);
+  lines.push("FATTURA ELETTRONICA EMESSA");
+  lines.push("IN FORMATO XML (FatturaPA)");
+  lines.push("COPIA NON VALIDA AI");
+  lines.push("FINI FISCALI");
+
+  console.log("[FATTURA-RT] righe=%d numero=%s", lines.length, numero);
+  return stampaDocumentoGestionale(printer, lines);
+}
+
 // ── Stampa preconto sulla RT (ordine rimane aperto) ───────────────────────────
 // Usa il documento gestionale VERO della RT: apertura 'j', righe "testo"@,
 // chiusura 'J'. La RT stampa da sola la propria intestazione e il piè di

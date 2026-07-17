@@ -3,7 +3,7 @@ import { db, invoicesTable, customersTable, appSettingsTable } from "@workspace/
 import { eq, desc } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { generateFatturaPAXml } from "../lib/fatturaPA.js";
-import { emettiGestionaleLibero, getFiscalPrinter } from "../lib/fiscal-printer.js";
+import { emettiFatturaCortesia, getFiscalPrinter } from "../lib/fiscal-printer.js";
 
 const router = Router();
 
@@ -143,17 +143,30 @@ router.post("/:id/emit", async (req, res) => {
       if (righe.length === 0) {
         righe = [{ descrizione: "Servizi ristorazione", quantita: "1", prezzoUnitario: inv.imponibile ?? "0" }];
       }
-      const titolo = `FATTURA ${inv.anno}/${String(inv.numero).padStart(4, "0")}`;
-      const rt = await emettiGestionaleLibero({
-        titolo,
+      // Denominazione cliente: ragione sociale (azienda) oppure nome+cognome (privato)
+      const denominazione = customer?.ragioneSociale
+        ?? ([customer?.nome, customer?.cognome].filter(Boolean).join(" ") || undefined);
+      const rt = await emettiFatturaCortesia({
+        numero: `${inv.anno}/${String(inv.numero).padStart(4, "0")}`,
+        data: inv.data,
+        cliente: customer ? {
+          denominazione,
+          partitaIva: customer.partitaIva,
+          codiceFiscale: customer.codiceFiscale,
+          indirizzo: customer.indirizzo,
+          cap: customer.cap,
+          comune: customer.comune,
+          provincia: customer.provincia,
+        } : null,
         righe: righe.map(r => ({
           desc: r.descrizione,
           qta: parseFloat(r.quantita) || 1,
           prezzoUnitario: r.prezzoUnitario,
         })),
+        imponibile: inv.imponibile,
+        aliquotaIva: inv.aliquotaIva,
+        iva: inv.iva,
         totale: inv.totale ?? "0",
-        ragioneSociale: customer?.ragioneSociale ?? settings["ragione_sociale"],
-        note: `IVA ${inv.aliquotaIva}%   EUR ${inv.iva}`,
         printer,
       });
       rtOk = rt.ok;
