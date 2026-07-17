@@ -1,7 +1,28 @@
 import { Link } from "wouter";
-import { UtensilsCrossed, LayoutGrid, BarChart3, CreditCard, ArrowRight, BookOpen, Layers, Printer, Settings, Users, Receipt, FileText, User, Tag, Zap, Bike, Package, Sun, BadgePercent, SlidersHorizontal, CalendarDays, Sparkles, ShieldCheck, Activity } from "lucide-react";
-import { useGetDashboardSummary } from "@workspace/api-client-react";
+import { UtensilsCrossed, LayoutGrid, BarChart3, CreditCard, ArrowRight, BookOpen, Layers, Printer, Settings, Users, Receipt, FileText, User, Tag, Zap, Bike, Package, Sun, BadgePercent, SlidersHorizontal, CalendarDays, Sparkles, ShieldCheck, Activity, TrendingUp, TrendingDown } from "lucide-react";
+import { useGetDashboardSummary, useGetSalesByDay } from "@workspace/api-client-react";
+import { ResponsiveContainer, BarChart, Bar, Tooltip, XAxis } from "recharts";
 import { BackofficeShell } from "@/components/BackofficeShell";
+
+// Variazione % rispetto a un periodo precedente (null se il confronto non ha senso)
+function calcDelta(cur?: string, prev?: string): number | null {
+  const c = parseFloat(cur ?? "");
+  const p = parseFloat(prev ?? "");
+  if (isNaN(c) || isNaN(p) || p === 0) return null;
+  return ((c - p) / p) * 100;
+}
+
+function DeltaBadge({ pct, label }: { pct: number | null; label: string }) {
+  if (pct == null) return <div className="text-[10px] text-slate-400 mt-0.5">{label}: n.d.</div>;
+  const up = pct >= 0;
+  const Icon = up ? TrendingUp : TrendingDown;
+  return (
+    <div className={`flex items-center gap-1 text-[10px] font-semibold mt-0.5 ${up ? "text-emerald-600" : "text-red-500"}`}>
+      <Icon className="h-3 w-3" />
+      <span>{up ? "+" : ""}{pct.toFixed(0)}% {label}</span>
+    </div>
+  );
+}
 
 const sections = [
   // Database prodotti
@@ -54,7 +75,15 @@ export default function BackOfficeIndex() {
   // Auto-refresh ogni 30s per dashboard live
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: summary, dataUpdatedAt } = useGetDashboardSummary({ query: { refetchInterval: 30_000 } as any });
+  const { data: sales7 = [] } = useGetSalesByDay({ days: 7 });
   const lastUpdate = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
+
+  const deltaIeri = calcDelta(summary?.todayRevenue, summary?.yesterdayRevenue);
+  const deltaSettimana = calcDelta(summary?.todayRevenue, summary?.lastWeekRevenue);
+  const spark = sales7.map(d => ({
+    label: new Date(d.date).toLocaleDateString("it-IT", { weekday: "short" }),
+    revenue: parseFloat(d.revenue),
+  }));
 
   return (
     <BackofficeShell title="Back Office" subtitle="Gestione ristorante" isRoot>
@@ -70,18 +99,44 @@ export default function BackOfficeIndex() {
               </div>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+                <div className="text-[11px] text-slate-400 mb-1">Incasso oggi</div>
+                <div className="text-xl font-bold text-primary">€ {summary.todayRevenue}</div>
+                <DeltaBadge pct={deltaIeri} label="vs ieri" />
+                <DeltaBadge pct={deltaSettimana} label={`vs ${new Date().toLocaleDateString("it-IT", { weekday: "short" })} scorso`} />
+              </div>
               {[
-                { label: "Incasso oggi", value: `€ ${summary.todayRevenue}`, accent: true },
-                { label: "Ordini chiusi", value: String(summary.todayOrders), accent: false },
-                { label: "Scontrino medio", value: `€ ${summary.avgOrderValue}`, accent: false },
-                { label: "Ordini aperti", value: String(summary.openOrders), accent: false },
-                { label: "Tavoli occupati", value: `${summary.occupiedTables}/${summary.totalTables}`, accent: false },
+                { label: "Ordini chiusi", value: String(summary.todayOrders), sub: summary.yesterdayOrders != null ? `ieri: ${summary.yesterdayOrders}` : undefined },
+                { label: "Scontrino medio", value: `€ ${summary.avgOrderValue}`, sub: undefined },
+                { label: "Ordini aperti", value: String(summary.openOrders), sub: undefined },
+                { label: "Tavoli occupati", value: `${summary.occupiedTables}/${summary.totalTables}`, sub: undefined },
               ].map(k => (
                 <div key={k.label} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
                   <div className="text-[11px] text-slate-400 mb-1">{k.label}</div>
-                  <div className={`text-xl font-bold ${k.accent ? "text-primary" : "text-slate-800"}`}>{k.value}</div>
+                  <div className="text-xl font-bold text-slate-800">{k.value}</div>
+                  {k.sub && <div className="text-[10px] text-slate-400 mt-0.5">{k.sub}</div>}
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Andamento ultimi 7 giorni */}
+        {spark.length > 0 && spark.some(s => s.revenue > 0) && (
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+            <div className="text-[11px] text-slate-400 mb-2">Incassi ultimi 7 giorni</div>
+            <div className="h-20">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={spark} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+                  <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#94a3b8" }} axisLine={false} tickLine={false} interval={0} />
+                  <Tooltip
+                    cursor={{ fill: "rgba(0,0,0,0.04)" }}
+                    contentStyle={{ borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 12 }}
+                    formatter={(v: number) => [`€ ${v.toFixed(2)}`, "Incasso"]}
+                  />
+                  <Bar dataKey="revenue" fill="hsl(27 96% 51%)" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </div>
         )}

@@ -237,6 +237,16 @@ Audit del piano T001-T011: praticamente tutto era già implementato dalle sessio
 
 Code review architect: PASS sulle 3 fix; nessuna regressione introdotta. Errori typecheck residui solo su `mockup-sandbox/components/ui/calendar.tsx` e `spinner.tsx` (duplicate `@types/react`) — preesistenti, indipendenti da queste modifiche.
 
+## Sessione 2026-07-17 — Miglioramento backoffice (T001–T006)
+
+- **Sidebar raggruppata** (`Sidebar.tsx`): gruppi collassabili (Prodotti&Menu / Sconti&Promozioni / Sala&Stampa / Report&Cassa / Clienti&Fatture / Sistema), tutte le 26 route raggiungibili (prima solo 10, mancavano ovunque Reparti e Commenti Cucina). Stato gruppi in localStorage `sidebar_open_groups`; gruppo attivo sempre aperto.
+- **Dashboard con confronto periodo**: `/api/dashboard/summary` ritorna anche `yesterdayRevenue/yesterdayOrders/lastWeekRevenue/lastWeekOrders` (query unica su ordini paid ultimi 8gg). `backoffice/index.tsx`: badge Δ% "vs ieri" e "vs stesso giorno scorso", sub "ieri: N" su ordini chiusi, sparkline incassi 7gg (recharts).
+- **Report con range date**: `/api/dashboard/sales-by-day?days=` (clamp 1-365, default 30); `/api/dashboard/top-products?from&to` (SQL GROUP BY, **solo ordini paid**, periodo riferito a `orders.createdAt` NON a `order_items.createdAt` — gli item possono essere aggiunti in momenti diversi). `reports.tsx`: selettore 7/14/30/90gg sul grafico vendite, filtro date su top products (vuoto = tutto lo storico).
+- **Export CSV** (`src/lib/csv.ts`): `downloadCsv` con BOM UTF-8, separatore `;`, CRLF, escaping + anti formula-injection (prefisso `'` su celle che iniziano con `=`,`+`,`@`,tab); `itNum` per virgola decimale italiana. Bottoni "Esporta CSV" su: Report IVA, Vendite per giorno, Top prodotti, Pagamenti.
+- **Pagina Pagamenti** (`payments.tsx`): filtri client-side data dal/al + metodo (bottoni derivati dai metodi presenti nei dati, incluso `ticket` Buoni Pasto), "Azzera filtri", export CSV, empty state differenziato.
+
+Code review architect: PASS. Fix applicati post-review: join `orders.status='paid'` su top-products, anti formula-injection CSV, attribuzione periodo a data ordine.
+
 ### Fix UX: mappa tavoli front-office troppo grande
 
 `TableMapPanel` (front-office.tsx) faceva upscale fino a 2× quando c'erano pochi tavoli (un solo tavolo occupava tutto lo schermo). Cambiato `setScale(Math.min(fitScale, 1))` per non ingrandire mai oltre la dimensione naturale; con tanti tavoli scala giù come prima. Costante `MIN_RENDERED_CELL` rimossa (unused).

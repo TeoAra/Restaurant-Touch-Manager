@@ -4,10 +4,24 @@ import {
   useGetTopProducts,
 } from "@workspace/api-client-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { TrendingUp, ShoppingCart, TableProperties, Euro, Receipt, Clock } from "lucide-react";
+import { TrendingUp, ShoppingCart, TableProperties, Euro, Receipt, Clock, Download } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { useEffect, useState } from "react";
+import { downloadCsv, itNum } from "@/lib/csv";
+
+function ExportCsvButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+    >
+      <Download className="h-3.5 w-3.5" />
+      Esporta CSV
+    </button>
+  );
+}
 
 const API = (import.meta.env.BASE_URL || "/") + "api";
 
@@ -47,6 +61,17 @@ function IvaReportSection() {
           <label className="text-muted-foreground">al</label>
           <input type="date" value={to} onChange={e => setTo(e.target.value)}
             className="bg-background border border-border rounded-md px-2 py-1 text-sm" />
+          <ExportCsvButton
+            disabled={rows.length === 0}
+            onClick={() => downloadCsv(
+              `report-iva_${from}_${to}.csv`,
+              ["Aliquota %", "Imponibile", "IVA", "Totale", "Scontrini"],
+              [
+                ...rows.map(r => [r.aliquota, itNum(r.imponibile), itNum(r.iva), itNum(r.totale), r.orders]),
+                ["TOTALE", itNum(totImponibile), itNum(totIva), itNum(totTotale), ""],
+              ],
+            )}
+          />
         </div>
       </div>
       {loading ? (
@@ -161,12 +186,21 @@ function StatCard({ label, value, icon: Icon, sub }: { label: string; value: str
   );
 }
 
+const RANGE_OPTIONS = [7, 14, 30, 90] as const;
+
 export default function ReportsPage() {
   const { data: summary } = useGetDashboardSummary();
-  const { data: salesByDay = [] } = useGetSalesByDay();
-  const { data: topProducts = [] } = useGetTopProducts();
+  const [rangeDays, setRangeDays] = useState<number>(14);
+  const { data: salesByDay = [] } = useGetSalesByDay({ days: rangeDays });
 
-  const chartData = salesByDay.slice(-14).map((d) => ({
+  // Filtro periodo per prodotti più venduti (vuoto = tutto lo storico)
+  const [tpFrom, setTpFrom] = useState("");
+  const [tpTo, setTpTo] = useState("");
+  const { data: topProducts = [] } = useGetTopProducts(
+    tpFrom || tpTo ? { from: tpFrom || undefined, to: tpTo || undefined } : undefined,
+  );
+
+  const chartData = salesByDay.map((d) => ({
     date: new Date(d.date).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" }),
     revenue: parseFloat(d.revenue),
     orders: d.orders,
@@ -190,7 +224,34 @@ export default function ReportsPage() {
 
           {/* Sales chart */}
           <div className="bg-card border border-border rounded-xl p-5">
-            <h3 className="font-bold text-foreground mb-4">Vendite ultimi 14 giorni</h3>
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+              <h3 className="font-bold text-foreground">Vendite ultimi {rangeDays} giorni</h3>
+              <div className="flex items-center gap-2">
+                <div className="flex rounded-lg border border-border overflow-hidden">
+                  {RANGE_OPTIONS.map(d => (
+                    <button
+                      key={d}
+                      onClick={() => setRangeDays(d)}
+                      className={`px-3 py-1.5 text-xs font-semibold transition-colors ${
+                        rangeDays === d
+                          ? "bg-primary text-white"
+                          : "bg-background text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {d}gg
+                    </button>
+                  ))}
+                </div>
+                <ExportCsvButton
+                  disabled={chartData.length === 0}
+                  onClick={() => downloadCsv(
+                    `vendite-${rangeDays}gg.csv`,
+                    ["Data", "Incasso", "Ordini"],
+                    salesByDay.map(d => [d.date, itNum(d.revenue), d.orders]),
+                  )}
+                />
+              </div>
+            </div>
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
@@ -216,7 +277,33 @@ export default function ReportsPage() {
 
           {/* Top products */}
           <div className="bg-card border border-border rounded-xl p-5">
-            <h3 className="font-bold text-foreground mb-4">Prodotti piu venduti</h3>
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+              <h3 className="font-bold text-foreground">Prodotti più venduti</h3>
+              <div className="flex items-center gap-2 text-sm">
+                <label className="text-muted-foreground">Dal</label>
+                <input type="date" value={tpFrom} onChange={e => setTpFrom(e.target.value)}
+                  className="bg-background border border-border rounded-md px-2 py-1 text-sm" />
+                <label className="text-muted-foreground">al</label>
+                <input type="date" value={tpTo} onChange={e => setTpTo(e.target.value)}
+                  className="bg-background border border-border rounded-md px-2 py-1 text-sm" />
+                {(tpFrom || tpTo) && (
+                  <button
+                    onClick={() => { setTpFrom(""); setTpTo(""); }}
+                    className="text-xs text-muted-foreground hover:text-foreground underline"
+                  >
+                    Tutto
+                  </button>
+                )}
+                <ExportCsvButton
+                  disabled={topProducts.length === 0}
+                  onClick={() => downloadCsv(
+                    `top-prodotti${tpFrom ? `_${tpFrom}` : ""}${tpTo ? `_${tpTo}` : ""}.csv`,
+                    ["Posizione", "Prodotto", "Quantità", "Incasso"],
+                    topProducts.map((p, i) => [i + 1, p.productName, p.totalQuantity, itNum(p.totalRevenue)]),
+                  )}
+                />
+              </div>
+            </div>
             <div className="space-y-3">
               {topProducts.length === 0 ? (
                 <div className="text-center text-muted-foreground py-4 text-sm">Nessun dato disponibile</div>

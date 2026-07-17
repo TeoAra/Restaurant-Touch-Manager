@@ -25,6 +25,8 @@ import type {
   CreateProductBody,
   CreateTableBody,
   DashboardSummary,
+  GetSalesByDayParams,
+  GetTopProductsParams,
   HealthStatus,
   ListOrdersParams,
   ListProductsParams,
@@ -2505,43 +2507,59 @@ export function useGetDashboardSummary<
 }
 
 /**
- * @summary Sales totals grouped by day (last 30 days)
+ * @summary Sales totals grouped by day (default last 30 days)
  */
-export const getGetSalesByDayUrl = () => {
-  return `/api/dashboard/sales-by-day`;
+export const getGetSalesByDayUrl = (params?: GetSalesByDayParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/dashboard/sales-by-day?${stringifiedParams}`
+    : `/api/dashboard/sales-by-day`;
 };
 
 export const getSalesByDay = async (
+  params?: GetSalesByDayParams,
   options?: RequestInit,
 ): Promise<SalesByDay[]> => {
-  return customFetch<SalesByDay[]>(getGetSalesByDayUrl(), {
+  return customFetch<SalesByDay[]>(getGetSalesByDayUrl(params), {
     ...options,
     method: "GET",
   });
 };
 
-export const getGetSalesByDayQueryKey = () => {
-  return [`/api/dashboard/sales-by-day`] as const;
+export const getGetSalesByDayQueryKey = (params?: GetSalesByDayParams) => {
+  return [`/api/dashboard/sales-by-day`, ...(params ? [params] : [])] as const;
 };
 
 export const getGetSalesByDayQueryOptions = <
   TData = Awaited<ReturnType<typeof getSalesByDay>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof getSalesByDay>>,
-    TError,
-    TData
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}) => {
+>(
+  params?: GetSalesByDayParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSalesByDay>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getGetSalesByDayQueryKey();
+  const queryKey = queryOptions?.queryKey ?? getGetSalesByDayQueryKey(params);
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getSalesByDay>>> = ({
     signal,
-  }) => getSalesByDay({ signal, ...requestOptions });
+  }) => getSalesByDay(params, { signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof getSalesByDay>>,
@@ -2556,21 +2574,24 @@ export type GetSalesByDayQueryResult = NonNullable<
 export type GetSalesByDayQueryError = ErrorType<unknown>;
 
 /**
- * @summary Sales totals grouped by day (last 30 days)
+ * @summary Sales totals grouped by day (default last 30 days)
  */
 
 export function useGetSalesByDay<
   TData = Awaited<ReturnType<typeof getSalesByDay>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof getSalesByDay>>,
-    TError,
-    TData
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getGetSalesByDayQueryOptions(options);
+>(
+  params?: GetSalesByDayParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSalesByDay>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSalesByDayQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
@@ -2582,41 +2603,57 @@ export function useGetSalesByDay<
 /**
  * @summary Top selling products
  */
-export const getGetTopProductsUrl = () => {
-  return `/api/dashboard/top-products`;
+export const getGetTopProductsUrl = (params?: GetTopProductsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/dashboard/top-products?${stringifiedParams}`
+    : `/api/dashboard/top-products`;
 };
 
 export const getTopProducts = async (
+  params?: GetTopProductsParams,
   options?: RequestInit,
 ): Promise<TopProduct[]> => {
-  return customFetch<TopProduct[]>(getGetTopProductsUrl(), {
+  return customFetch<TopProduct[]>(getGetTopProductsUrl(params), {
     ...options,
     method: "GET",
   });
 };
 
-export const getGetTopProductsQueryKey = () => {
-  return [`/api/dashboard/top-products`] as const;
+export const getGetTopProductsQueryKey = (params?: GetTopProductsParams) => {
+  return [`/api/dashboard/top-products`, ...(params ? [params] : [])] as const;
 };
 
 export const getGetTopProductsQueryOptions = <
   TData = Awaited<ReturnType<typeof getTopProducts>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof getTopProducts>>,
-    TError,
-    TData
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}) => {
+>(
+  params?: GetTopProductsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTopProducts>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getGetTopProductsQueryKey();
+  const queryKey = queryOptions?.queryKey ?? getGetTopProductsQueryKey(params);
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getTopProducts>>> = ({
     signal,
-  }) => getTopProducts({ signal, ...requestOptions });
+  }) => getTopProducts(params, { signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof getTopProducts>>,
@@ -2637,15 +2674,18 @@ export type GetTopProductsQueryError = ErrorType<unknown>;
 export function useGetTopProducts<
   TData = Awaited<ReturnType<typeof getTopProducts>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof getTopProducts>>,
-    TError,
-    TData
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getGetTopProductsQueryOptions(options);
+>(
+  params?: GetTopProductsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTopProducts>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetTopProductsQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

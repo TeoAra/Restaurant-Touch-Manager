@@ -464,11 +464,19 @@ export const GetDashboardSummaryResponse = zod.object({
   occupiedTables: zod.number(),
   totalTables: zod.number(),
   avgOrderValue: zod.string(),
+  yesterdayRevenue: zod.string(),
+  yesterdayOrders: zod.number(),
+  lastWeekRevenue: zod.string(),
+  lastWeekOrders: zod.number(),
 });
 
 /**
- * @summary Sales totals grouped by day (last 30 days)
+ * @summary Sales totals grouped by day (default last 30 days)
  */
+export const GetSalesByDayQueryParams = zod.object({
+  days: zod.coerce.number().optional(),
+});
+
 export const GetSalesByDayResponseItem = zod.object({
   date: zod.string(),
   revenue: zod.string(),
@@ -479,6 +487,11 @@ export const GetSalesByDayResponse = zod.array(GetSalesByDayResponseItem);
 /**
  * @summary Top selling products
  */
+export const GetTopProductsQueryParams = zod.object({
+  from: zod.coerce.string().optional(),
+  to: zod.coerce.string().optional(),
+});
+
 export const GetTopProductsResponseItem = zod.object({
   productId: zod.number(),
   productName: zod.string(),

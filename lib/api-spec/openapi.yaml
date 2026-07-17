@@ -579,7 +579,13 @@ paths:
     get:
       operationId: getSalesByDay
       tags: [dashboard]
-      summary: Sales totals grouped by day (last 30 days)
+      summary: Sales totals grouped by day (default last 30 days)
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
       responses:
         "200":
           description: Sales by day
@@ -595,6 +601,17 @@ paths:
       operationId: getTopProducts
       tags: [dashboard]
       summary: Top selling products
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: Top products
@@ -974,6 +991,14 @@ components:
           type: integer
         avgOrderValue:
           type: string
+        yesterdayRevenue:
+          type: string
+        yesterdayOrders:
+          type: integer
+        lastWeekRevenue:
+          type: string
+        lastWeekOrders:
+          type: integer
       required:
         - todayRevenue
         - todayOrders
@@ -981,6 +1006,10 @@ components:
         - occupiedTables
         - totalTables
         - avgOrderValue
+        - yesterdayRevenue
+        - yesterdayOrders
+        - lastWeekRevenue
+        - lastWeekOrders
 
     SalesByDay:
       type: object

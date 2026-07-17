@@ -1,1 +1,2 @@
 - [Protocollo DTR RT XonXoff](dtr-rt-protocol.md) — doc gestionali richiedono apertura `j` e chiusura `J`; `@` nudo → ERRORE 16; con stato 3 il `k` è ignorato, serve `J`. Spec PDF in attached_assets.
+- [Attribuzione vendite nei report](report-attribution.md) — report vendite sempre su orders.createdAt + status paid, mai su order_items.createdAt.

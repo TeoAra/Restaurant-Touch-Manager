@@ -273,6 +273,10 @@ export interface DashboardSummary {
   occupiedTables: number;
   totalTables: number;
   avgOrderValue: string;
+  yesterdayRevenue: string;
+  yesterdayOrders: number;
+  lastWeekRevenue: string;
+  lastWeekOrders: number;
 }
 
 export interface SalesByDay {
@@ -338,3 +342,12 @@ export const ListOrdersStatus = {
   paid: "paid",
   cancelled: "cancelled",
 } as const;
+
+export type GetSalesByDayParams = {
+  days?: number;
+};
+
+export type GetTopProductsParams = {
+  from?: string;
+  to?: string;
+};

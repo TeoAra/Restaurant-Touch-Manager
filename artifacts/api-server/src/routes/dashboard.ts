@@ -1,18 +1,37 @@
 import { Router } from "express";
 import { db, ordersTable, orderItemsTable, tablesTable, paymentsTable, roomsTable } from "@workspace/db";
-import { eq, and, gte, sql } from "drizzle-orm";
+import { eq, and, gte, lt, sql } from "drizzle-orm";
 
 const router = Router();
 
 router.get("/summary", async (req, res) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  // Stesso giorno della settimana scorsa (es. giovedì vs giovedì scorso)
+  const lastWeekStart = new Date(today);
+  lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+  const lastWeekEnd = new Date(lastWeekStart);
+  lastWeekEnd.setDate(lastWeekEnd.getDate() + 1);
 
-  const allOrders = await db.select().from(ordersTable);
-  const todayOrders = allOrders.filter(o => new Date(o.createdAt) >= today && o.status === "paid");
-  const openOrders = allOrders.filter(o => o.status === "open");
+  // Carichiamo solo gli ordini pagati degli ultimi 8 giorni (basta per oggi/ieri/settimana scorsa)
+  const paidOrders = await db.select().from(ordersTable)
+    .where(and(gte(ordersTable.createdAt, lastWeekStart), eq(ordersTable.status, "paid")));
+  const openOrdersList = await db.select().from(ordersTable).where(eq(ordersTable.status, "open"));
 
-  const todayRevenue = todayOrders.reduce((sum, o) => sum + parseFloat(o.total), 0);
+  const todayOrders = paidOrders.filter(o => new Date(o.createdAt) >= today);
+  const yesterdayOrders = paidOrders.filter(o => {
+    const d = new Date(o.createdAt);
+    return d >= yesterday && d < today;
+  });
+  const lastWeekOrders = paidOrders.filter(o => {
+    const d = new Date(o.createdAt);
+    return d >= lastWeekStart && d < lastWeekEnd;
+  });
+
+  const sum = (list: typeof paidOrders) => list.reduce((s, o) => s + parseFloat(o.total), 0);
+  const todayRevenue = sum(todayOrders);
   const avgOrderValue = todayOrders.length > 0 ? todayRevenue / todayOrders.length : 0;
 
   const tables = await db.select().from(tablesTable);
@@ -21,20 +40,28 @@ router.get("/summary", async (req, res) => {
   res.json({
     todayRevenue: todayRevenue.toFixed(2),
     todayOrders: todayOrders.length,
-    openOrders: openOrders.length,
+    openOrders: openOrdersList.length,
     occupiedTables,
     totalTables: tables.length,
     avgOrderValue: avgOrderValue.toFixed(2),
+    yesterdayRevenue: sum(yesterdayOrders).toFixed(2),
+    yesterdayOrders: yesterdayOrders.length,
+    lastWeekRevenue: sum(lastWeekOrders).toFixed(2),
+    lastWeekOrders: lastWeekOrders.length,
   });
 });
 
 router.get("/sales-by-day", async (req, res) => {
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  thirtyDaysAgo.setHours(0, 0, 0, 0);
+  // Range flessibile: ?days=7|14|30|90 (default 30, clamp 1..365)
+  const daysRaw = parseInt(String(req.query.days ?? "30"), 10);
+  const days = isNaN(daysRaw) ? 30 : Math.min(365, Math.max(1, daysRaw));
+
+  const rangeStart = new Date();
+  rangeStart.setDate(rangeStart.getDate() - days);
+  rangeStart.setHours(0, 0, 0, 0);
 
   const orders = await db.select().from(ordersTable)
-    .where(and(gte(ordersTable.createdAt, thirtyDaysAgo), eq(ordersTable.status, "paid")));
+    .where(and(gte(ordersTable.createdAt, rangeStart), eq(ordersTable.status, "paid")));
 
   const byDay = new Map<string, { revenue: number; orders: number }>();
   for (const order of orders) {
@@ -46,9 +73,9 @@ router.get("/sales-by-day", async (req, res) => {
     });
   }
 
-  // Fill in all days in the last 30 days
+  // Riempi tutti i giorni del periodo richiesto
   const result = [];
-  for (let i = 29; i >= 0; i--) {
+  for (let i = days - 1; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const dateStr = d.toISOString().split("T")[0];
@@ -64,29 +91,45 @@ router.get("/sales-by-day", async (req, res) => {
 });
 
 router.get("/top-products", async (req, res) => {
-  const items = await db.select().from(orderItemsTable);
-  const productMap = new Map<number, { productName: string; totalQuantity: number; totalRevenue: number }>();
+  // Filtro periodo opzionale: ?from=YYYY-MM-DD&to=YYYY-MM-DD (default: tutto lo storico)
+  const { from, to } = req.query as { from?: string; to?: string };
+  const isDate = (s?: string) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
-  for (const item of items) {
-    const existing = productMap.get(item.productId) ?? { productName: item.productName, totalQuantity: 0, totalRevenue: 0 };
-    productMap.set(item.productId, {
-      productName: item.productName,
-      totalQuantity: existing.totalQuantity + item.quantity,
-      totalRevenue: existing.totalRevenue + parseFloat(item.subtotal),
-    });
+  // Il periodo è riferito alla data dell'ORDINE (non dell'articolo, che può
+  // essere stato aggiunto in un momento diverso): coerente con sales-by-day.
+  const conditions = [];
+  if (isDate(from)) conditions.push(gte(ordersTable.createdAt, new Date(`${from}T00:00:00`)));
+  if (isDate(to)) {
+    const toEnd = new Date(`${to}T00:00:00`);
+    toEnd.setDate(toEnd.getDate() + 1);
+    conditions.push(lt(ordersTable.createdAt, toEnd));
   }
 
-  const result = Array.from(productMap.entries())
-    .map(([productId, data]) => ({
-      productId,
-      productName: data.productName,
-      totalQuantity: data.totalQuantity,
-      totalRevenue: data.totalRevenue.toFixed(2),
-    }))
-    .sort((a, b) => b.totalQuantity - a.totalQuantity)
-    .slice(0, 10);
+  // Solo ordini pagati: il report deve riflettere le vendite reali,
+  // non gli articoli di ordini ancora aperti o annullati.
+  conditions.push(eq(ordersTable.status, "paid"));
 
-  res.json(result);
+  // Aggregazione in SQL (GROUP BY) invece che in memoria
+  const rows = await db
+    .select({
+      productId: orderItemsTable.productId,
+      productName: sql<string>`MAX(${orderItemsTable.productName})`,
+      totalQuantity: sql<number>`SUM(${orderItemsTable.quantity})::int`,
+      totalRevenue: sql<string>`SUM(${orderItemsTable.subtotal}::numeric)::text`,
+    })
+    .from(orderItemsTable)
+    .innerJoin(ordersTable, eq(orderItemsTable.orderId, ordersTable.id))
+    .where(and(...conditions))
+    .groupBy(orderItemsTable.productId)
+    .orderBy(sql`SUM(${orderItemsTable.quantity}) DESC`)
+    .limit(10);
+
+  res.json(rows.map(r => ({
+    productId: r.productId,
+    productName: r.productName,
+    totalQuantity: r.totalQuantity,
+    totalRevenue: parseFloat(r.totalRevenue ?? "0").toFixed(2),
+  })));
 });
 
 // ── Alias per /api/fiscal/iva-report (compat: /api/dashboard/iva-report) ──
