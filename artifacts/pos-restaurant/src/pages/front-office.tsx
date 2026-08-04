@@ -3645,7 +3645,9 @@ export default function FrontOffice() {
     // dove non passa per handleExitOrder).
     const lotteriaOneShot = lotteriaCodice || undefined;
     if (lotteriaOneShot) { setLotteriaCodice(""); setLotteriaInput(""); }
-    const paymentRes = await createPayment.mutateAsync({
+    let paymentRes: unknown;
+    try {
+      paymentRes = await createPayment.mutateAsync({
       data: {
         orderId: activeOrderId,
         method,
@@ -3660,8 +3662,18 @@ export default function FrontOffice() {
         itemIds: itemIds && itemIds.length > 0 ? itemIds : undefined,
         coversCount: coversToDeduct > 0 ? coversToDeduct : undefined,
         partial: isSplitPay || undefined,
-      } as never
-    });
+        } as never
+      });
+    } catch (e) {
+      addLog("error", `Pagamento FALLITO: ${e instanceof Error ? e.message : String(e)}`);
+      toast({
+        title: "Pagamento NON registrato",
+        description: `${e instanceof Error ? e.message : String(e)} — l'ordine resta aperto, riprova.`,
+        variant: "destructive",
+      });
+      refresh();
+      return;
+    }
     // Mostra risultato RT
     const fiscal = (paymentRes as never as { fiscal?: { rtOk?: boolean; rtError?: string; rtIp?: string; receiptId?: number; nonFiscale?: boolean } }).fiscal;
     if (fiscal) {
@@ -3698,23 +3710,44 @@ export default function FrontOffice() {
         const iva = imponibile * 0.22;
         const nParsed = parseInt(invoiceNumero, 10);
         const aParsed = parseInt(invoiceAnno, 10);
-        const invRes = await fetch(`${API}/invoices`, {
+        const invoicePayload = {
+          customerId: invoiceCustomerId,
+          orderId: activeOrderId,
+          tipoDocumento: "TD01",
+          imponibile: imponibile.toFixed(2),
+          aliquotaIva: "22",
+          iva: iva.toFixed(2),
+          totale: (imponibile + iva).toFixed(2),
+          righe,
+        };
+        let invRes = await fetch(`${API}/invoices`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            customerId: invoiceCustomerId,
-            orderId: activeOrderId,
-            tipoDocumento: "TD01",
-            imponibile: imponibile.toFixed(2),
-            aliquotaIva: "22",
-            iva: iva.toFixed(2),
-            totale: (imponibile + iva).toFixed(2),
-            righe,
+            ...invoicePayload,
             ...(!isNaN(nParsed) && invoiceNumero ? { numero: nParsed } : {}),
             ...(!isNaN(aParsed) && invoiceAnno ? { anno: aParsed } : {}),
           }),
         });
-        if (invRes.ok) {
+        if (invRes.status === 409 && !isNaN(nParsed)) {
+          // Numero manuale già usato: riprova con numerazione automatica
+          addLog("error", `Numero fattura ${nParsed} già usato — riprovo con numerazione automatica`);
+          invRes = await fetch(`${API}/invoices`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(invoicePayload),
+          });
+        }
+        if (!invRes.ok) {
+          const err = await invRes.json().catch(() => ({} as { error?: string }));
+          const msg = (err as { error?: string }).error ?? `Errore server (${invRes.status})`;
+          addLog("error", `Fattura NON creata: ${msg}`);
+          toast({
+            title: "Fattura NON creata",
+            description: `${msg} — il pagamento è registrato. Crea la fattura da Backoffice → Fatture.`,
+            variant: "destructive",
+          });
+        } else {
           const inv = await invRes.json();
           const emitRes = await fetch(`${API}/invoices/${inv.id}/emit`, { method: "POST" });
           if (emitRes.ok) {
@@ -3730,14 +3763,29 @@ export default function FrontOffice() {
               document.body.removeChild(a);
               URL.revokeObjectURL(url);
             }
+            toast({ title: "Fattura emessa", description: `N. ${inv.numero}/${inv.anno} — XML scaricato` });
+          } else {
+            addLog("error", `Fattura ${inv.numero}/${inv.anno} salvata ma emissione fallita (${emitRes.status})`);
+            toast({
+              title: "Fattura salvata ma non emessa",
+              description: `N. ${inv.numero}/${inv.anno} — scarica l'XML da Backoffice → Fatture.`,
+              variant: "destructive",
+            });
           }
-          toast({ title: "Fattura emessa", description: `N. ${inv.numero}/${inv.anno}` });
-          setInvoiceNumero("");
-          setInvoiceAnno(String(new Date().getFullYear()));
-          setInvoiceCustomer(null);
         }
-      } catch {
-        toast({ title: "Pagamento OK — errore fattura", variant: "destructive" });
+      } catch (e) {
+        addLog("error", `Errore fattura: ${e instanceof Error ? e.message : String(e)}`);
+        toast({
+          title: "Pagamento OK — errore fattura",
+          description: `${e instanceof Error ? e.message : String(e)} — crea la fattura da Backoffice → Fatture.`,
+          variant: "destructive",
+        });
+      } finally {
+        // Reset SEMPRE i campi fattura (anche su errore): un numero manuale
+        // obsoleto non deve propagarsi al pagamento successivo.
+        setInvoiceNumero("");
+        setInvoiceAnno(String(new Date().getFullYear()));
+        setInvoiceCustomer(null);
       }
     } else if (isSplitPay) {
       // Elimina articoli pagati nel conto separato
