@@ -5,6 +5,7 @@ import { CreatePaymentBody, GetPaymentParams } from "@workspace/api-zod";
 import { getFiscalPrinter, emettiFiscalReceipt, emettiDocumentoNonFiscale } from "../lib/fiscal-printer";
 import { getSettings } from "../lib/settings";
 import { logAudit } from "../lib/audit";
+import { createInvoiceRecord, emitInvoice, type CreateInvoiceInput } from "../lib/invoice-service";
 
 const router = Router();
 
@@ -43,6 +44,15 @@ router.post("/", async (req, res) => {
   const partialFlag: boolean = req.body?.partial === true;
   const isPartialPayment = !!splitItemIdsPre || coversCountPre > 0 || partialFlag;
 
+  // ── Dati fattura (opzionali, letti PRIMA del parse Zod) ──────────────────
+  // Se presenti, la fattura viene creata NELLA STESSA transazione del
+  // pagamento: così non può andare persa se il client si blocca dopo il
+  // pagamento (il vecchio flusso a due chiamate separate lo permetteva).
+  const invoiceInput: CreateInvoiceInput | undefined =
+    req.body?.invoice && Number(req.body.invoice.customerId) > 0
+      ? (req.body.invoice as CreateInvoiceInput)
+      : undefined;
+
   // ── Validazione server-side: coversCount <= coperti correnti dell'ordine ──
   if (coversCountPre > 0) {
     const [ordCheck] = await db.select({ covers: ordersTable.covers })
@@ -65,7 +75,7 @@ router.post("/", async (req, res) => {
   // transazione. Evita lo stato incoerente in cui un pagamento risulta inserito
   // ma l'ordine non viene chiuso (o viceversa) se il processo crasha tra le due
   // query. La chiamata di rete alla RT resta FUORI dalla transaction (lenta).
-  const { payment, order, isSplitWithRemainder } = await db.transaction(async (tx) => {
+  const { payment, order, isSplitWithRemainder, invoice, invoiceNumeroFallback } = await db.transaction(async (tx) => {
     const [pay] = await tx.insert(paymentsTable).values({
       orderId: body.orderId,
       method: body.method,
@@ -99,12 +109,56 @@ router.post("/", async (req, res) => {
       ? await tx.select().from(ordersTable).where(eq(ordersTable.id, body.orderId)).limit(1)
       : await tx.update(ordersTable).set({ status: "paid" }).where(eq(ordersTable.id, body.orderId)).returning();
 
-    return { payment: pay, order: ord, isSplitWithRemainder: remainder };
+    // ── Fattura nella STESSA transazione del pagamento ────────────────────
+    // Se l'insert fattura fallisce, fallisce anche il pagamento: mai lo stato
+    // "pagato ma senza fattura". Numero manuale già usato → fallback automatico
+    // (gestito da createInvoiceRecord) invece di perdere la fattura.
+    let inv: Awaited<ReturnType<typeof createInvoiceRecord>>["invoice"] | undefined;
+    let invNumFallback = false;
+    if (invoiceInput) {
+      const created = await createInvoiceRecord(tx, { ...invoiceInput, orderId: invoiceInput.orderId ?? body.orderId });
+      inv = created.invoice;
+      invNumFallback = created.numeroFallback;
+    }
+
+    return { payment: pay, order: ord, isSplitWithRemainder: remainder, invoice: inv, invoiceNumeroFallback: invNumFallback };
   });
 
   // Free the table only when the order is fully paid (atomico)
   if (!isSplitWithRemainder && order?.tableId) {
     await freeTableIfEmpty(order.tableId);
+  }
+
+  // ── Emissione fattura (XML + stampa cortesia RT) FUORI transazione ───────
+  // La fattura è già salvata (bozza): anche se XML/RT falliscono resta
+  // recuperabile da Backoffice → Fatture (GET /:id/xml la genera on-demand).
+  let invoiceResult:
+    | { id: number; numero: number; anno: number; xml?: string; fileName?: string; rtOk?: boolean; rtError?: string; emitError?: string; numeroFallback?: boolean }
+    | undefined;
+  if (invoice) {
+    try {
+      const emitted = await emitInvoice(invoice);
+      invoiceResult = {
+        id: invoice.id,
+        numero: invoice.numero,
+        anno: invoice.anno,
+        xml: emitted.xml,
+        fileName: emitted.fileName,
+        rtOk: emitted.rtOk,
+        rtError: emitted.rtError,
+        numeroFallback: invoiceNumeroFallback || undefined,
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`[INVOICE] Emissione fallita per fattura ${invoice.numero}/${invoice.anno}: ${msg}`);
+      invoiceResult = {
+        id: invoice.id,
+        numero: invoice.numero,
+        anno: invoice.anno,
+        emitError: msg,
+        numeroFallback: invoiceNumeroFallback || undefined,
+      };
+    }
   }
 
   // Audit
@@ -113,7 +167,7 @@ router.post("/", async (req, res) => {
     action: "payment.create",
     entityType: "order",
     entityId: body.orderId,
-    details: { amount: body.amount, method: body.method, isSplit: isPartialPayment, isSplitWithRemainder, coversCount: coversCountPre },
+    details: { amount: body.amount, method: body.method, isSplit: isPartialPayment, isSplitWithRemainder, coversCount: coversCountPre, invoiceId: invoice?.id },
   });
 
   // ── Emetti documento sulla RT (fiscale o non-fiscale) ────────────────────
@@ -209,7 +263,7 @@ router.post("/", async (req, res) => {
     fiscalResult = { rtOk: false, rtError: `Errore emissione documento: ${msg}` };
   }
 
-  res.status(201).json({ ...payment, fiscal: fiscalResult });
+  res.status(201).json({ ...payment, fiscal: fiscalResult, invoice: invoiceResult });
 });
 
 router.get("/:id", async (req, res) => {

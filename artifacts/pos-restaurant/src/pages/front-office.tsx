@@ -3645,6 +3645,37 @@ export default function FrontOffice() {
     // dove non passa per handleExitOrder).
     const lotteriaOneShot = lotteriaCodice || undefined;
     if (lotteriaOneShot) { setLotteriaCodice(""); setLotteriaInput(""); }
+
+    // ── Payload fattura: inviato INSIEME al pagamento ─────────────────────
+    // Il server crea pagamento + fattura nella stessa transazione: la fattura
+    // non può più andare persa se il browser si blocca dopo il pagamento.
+    let invoicePayload: Record<string, unknown> | undefined;
+    if (invoiceCustomerId && items.length > 0) {
+      const righe = items.map(i => ({
+        descrizione: (i as never as { productName: string }).productName,
+        quantita: (i as never as { quantity: number }).quantity,
+        prezzoUnitario: (i as never as { unitPrice: string }).unitPrice,
+        aliquotaIva: "22",
+        imponibile: (i as never as { subtotal: string }).subtotal,
+      }));
+      const imponibile = righe.reduce((s, r) => s + parseFloat(r.imponibile || "0"), 0);
+      const iva = imponibile * 0.22;
+      const nParsed = parseInt(invoiceNumero, 10);
+      const aParsed = parseInt(invoiceAnno, 10);
+      invoicePayload = {
+        customerId: invoiceCustomerId,
+        orderId: activeOrderId,
+        tipoDocumento: "TD01",
+        imponibile: imponibile.toFixed(2),
+        aliquotaIva: "22",
+        iva: iva.toFixed(2),
+        totale: (imponibile + iva).toFixed(2),
+        righe,
+        ...(!isNaN(nParsed) && invoiceNumero ? { numero: nParsed } : {}),
+        ...(!isNaN(aParsed) && invoiceAnno ? { anno: aParsed } : {}),
+      };
+    }
+
     let paymentRes: unknown;
     try {
       paymentRes = await createPayment.mutateAsync({
@@ -3662,6 +3693,7 @@ export default function FrontOffice() {
         itemIds: itemIds && itemIds.length > 0 ? itemIds : undefined,
         coversCount: coversToDeduct > 0 ? coversToDeduct : undefined,
         partial: isSplitPay || undefined,
+        invoice: invoicePayload,
         } as never
       });
     } catch (e) {
@@ -3697,96 +3729,53 @@ export default function FrontOffice() {
       addLog("info", `Pagamento €${payAmount.toFixed(2)} — ${method} — ${orderLabel}`);
     }
     setInvoiceCustomer(null);
-    if (invoiceCustomerId && items.length > 0) {
-      try {
-        const righe = items.map(i => ({
-          descrizione: (i as never as { productName: string }).productName,
-          quantita: (i as never as { quantity: number }).quantity,
-          prezzoUnitario: (i as never as { unitPrice: string }).unitPrice,
-          aliquotaIva: "22",
-          imponibile: (i as never as { subtotal: string }).subtotal,
-        }));
-        const imponibile = righe.reduce((s, r) => s + parseFloat(r.imponibile || "0"), 0);
-        const iva = imponibile * 0.22;
-        const nParsed = parseInt(invoiceNumero, 10);
-        const aParsed = parseInt(invoiceAnno, 10);
-        const invoicePayload = {
-          customerId: invoiceCustomerId,
-          orderId: activeOrderId,
-          tipoDocumento: "TD01",
-          imponibile: imponibile.toFixed(2),
-          aliquotaIva: "22",
-          iva: iva.toFixed(2),
-          totale: (imponibile + iva).toFixed(2),
-          righe,
-        };
-        let invRes = await fetch(`${API}/invoices`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...invoicePayload,
-            ...(!isNaN(nParsed) && invoiceNumero ? { numero: nParsed } : {}),
-            ...(!isNaN(aParsed) && invoiceAnno ? { anno: aParsed } : {}),
-          }),
-        });
-        if (invRes.status === 409 && !isNaN(nParsed)) {
-          // Numero manuale già usato: riprova con numerazione automatica
-          addLog("error", `Numero fattura ${nParsed} già usato — riprovo con numerazione automatica`);
-          invRes = await fetch(`${API}/invoices`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(invoicePayload),
-          });
+    if (invoicePayload) {
+      // ── Fattura creata dal server insieme al pagamento ──────────────────
+      // Qui gestiamo solo il download dell'XML: la fattura è GIÀ salvata sul
+      // server (stessa transazione del pagamento), quindi anche se il download
+      // fallisce resta recuperabile da Backoffice → Fatture.
+      const invData = (paymentRes as never as {
+        invoice?: { id: number; numero: number; anno: number; xml?: string; fileName?: string; emitError?: string; numeroFallback?: boolean };
+      }).invoice;
+      if (invData) {
+        if (invData.numeroFallback) {
+          addLog("error", `Numero fattura manuale già usato — assegnato automaticamente ${invData.numero}/${invData.anno}`);
         }
-        if (!invRes.ok) {
-          const err = await invRes.json().catch(() => ({} as { error?: string }));
-          const msg = (err as { error?: string }).error ?? `Errore server (${invRes.status})`;
-          addLog("error", `Fattura NON creata: ${msg}`);
+        if (invData.xml && invData.fileName) {
+          try {
+            const blob = new Blob([invData.xml], { type: "application/xml" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = invData.fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          } catch { /* download fallito: XML comunque recuperabile dal Backoffice */ }
+          toast({ title: "Fattura emessa", description: `N. ${invData.numero}/${invData.anno} — XML scaricato` });
+        } else {
+          addLog("error", `Fattura ${invData.numero}/${invData.anno} salvata ma XML non generato${invData.emitError ? ` (${invData.emitError})` : ""}`);
           toast({
-            title: "Fattura NON creata",
-            description: `${msg} — il pagamento è registrato. Crea la fattura da Backoffice → Fatture.`,
+            title: "Fattura salvata ma non emessa",
+            description: `N. ${invData.numero}/${invData.anno} — scarica l'XML da Backoffice → Fatture.`,
             variant: "destructive",
           });
-        } else {
-          const inv = await invRes.json();
-          const emitRes = await fetch(`${API}/invoices/${inv.id}/emit`, { method: "POST" });
-          if (emitRes.ok) {
-            const emitData = await emitRes.json() as { xml?: string; fileName?: string };
-            if (emitData.xml && emitData.fileName) {
-              const blob = new Blob([emitData.xml], { type: "application/xml" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = emitData.fileName;
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-              URL.revokeObjectURL(url);
-            }
-            toast({ title: "Fattura emessa", description: `N. ${inv.numero}/${inv.anno} — XML scaricato` });
-          } else {
-            addLog("error", `Fattura ${inv.numero}/${inv.anno} salvata ma emissione fallita (${emitRes.status})`);
-            toast({
-              title: "Fattura salvata ma non emessa",
-              description: `N. ${inv.numero}/${inv.anno} — scarica l'XML da Backoffice → Fatture.`,
-              variant: "destructive",
-            });
-          }
         }
-      } catch (e) {
-        addLog("error", `Errore fattura: ${e instanceof Error ? e.message : String(e)}`);
+      } else {
+        // Non dovrebbe succedere: il server avrebbe fallito l'intero pagamento
+        addLog("error", "Risposta pagamento senza dati fattura — verifica in Backoffice → Fatture");
         toast({
-          title: "Pagamento OK — errore fattura",
-          description: `${e instanceof Error ? e.message : String(e)} — crea la fattura da Backoffice → Fatture.`,
+          title: "Verifica fattura",
+          description: "Controlla in Backoffice → Fatture che la fattura sia presente.",
           variant: "destructive",
         });
-      } finally {
-        // Reset SEMPRE i campi fattura (anche su errore): un numero manuale
-        // obsoleto non deve propagarsi al pagamento successivo.
-        setInvoiceNumero("");
-        setInvoiceAnno(String(new Date().getFullYear()));
-        setInvoiceCustomer(null);
       }
+      // Reset SEMPRE i campi fattura: un numero manuale obsoleto non deve
+      // propagarsi al pagamento successivo.
+      setInvoiceNumero("");
+      setInvoiceAnno(String(new Date().getFullYear()));
+      setInvoiceCustomer(null);
     } else if (isSplitPay) {
       // Elimina articoli pagati nel conto separato
       if (itemIds?.length) {
