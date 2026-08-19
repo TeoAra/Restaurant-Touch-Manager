@@ -2669,50 +2669,24 @@ function CategoryButton({ cat, onClick }: { cat: PosCategory; onClick: () => voi
 }
 
 // ─── Product Card ──────────────────────────────────────────────────────────────
-type PosProduct = { id: number; name: string; price: string; price2?: string; price3?: string; price4?: string; available: boolean; visibleInFrontOffice?: boolean; allergeni?: string | null };
-function ProductCard({ product, onAdd, activePriceList, onToggleEsaurito }: {
+type PosProduct = { id: number; name: string; price: string; price2?: string; price3?: string; price4?: string; visibleInFrontOffice?: boolean; allergeni?: string | null };
+function ProductCard({ product, onAdd, activePriceList }: {
   product: PosProduct;
   activePriceList: number;
   onAdd: (id: number, unitPrice: string) => void;
-  onToggleEsaurito?: (id: number, available: boolean) => void;
 }) {
   const priceFields = ["price", "price2", "price3", "price4"] as const;
   const fieldVal = product[priceFields[activePriceList]];
   const rawPrice = (fieldVal && parseFloat(fieldVal) > 0) ? fieldVal : product.price;
   const displayPrice = parseFloat(rawPrice || "0");
-  const isAvailable = (product as unknown as { available?: boolean }).available !== false;
-
-  // Long-press per toggle Esaurito
-  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressed = useRef(false);
-  const startPress = () => {
-    longPressed.current = false;
-    if (!onToggleEsaurito) return;
-    pressTimer.current = setTimeout(() => {
-      longPressed.current = true;
-      onToggleEsaurito(product.id, !isAvailable);
-    }, 600);
-  };
-  const cancelPress = () => {
-    if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
-  };
-
   return (
     <button
-      onClick={() => { if (!longPressed.current && isAvailable) onAdd(product.id, rawPrice); }}
-      onPointerDown={startPress}
-      onPointerUp={cancelPress}
-      onPointerLeave={cancelPress}
-      onContextMenu={(e) => { e.preventDefault(); onToggleEsaurito?.(product.id, !isAvailable); }}
+      onClick={() => onAdd(product.id, rawPrice)}
       className={cn(
         "relative bg-[#22263a] rounded-xl border-2 p-3 text-left hover:shadow-lg hover:shadow-primary/10 active:scale-95 transition-all group min-h-[88px] flex flex-col justify-between",
-        isAvailable ? "border-[#2d3044] hover:border-primary" : "border-red-900 opacity-60 grayscale"
+        "border-[#2d3044] hover:border-primary"
       )}
-      title={isAvailable ? "Tocca a lungo per segnare come Esaurito" : "Esaurito — tocca a lungo per ripristinare"}
     >
-      {!isAvailable && (
-        <span className="absolute top-1 right-1 px-1.5 py-0.5 rounded-md bg-red-700 text-white text-[9px] font-bold uppercase tracking-wide">Esaurito</span>
-      )}
       {product.allergeni && product.allergeni.trim() && (
         <span
           className="absolute top-1 left-1 h-4 w-4 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center shadow-md ring-1 ring-red-300"
@@ -3874,10 +3848,9 @@ export default function FrontOffice() {
     : (selectedCategoryId != null
         ? products.filter(p => (p as unknown as { categoryId?: number }).categoryId === selectedCategoryId)
         : products)
-  ).filter(p => p.available !== false && p.visibleInFrontOffice !== false);
+  ).filter(p => p.visibleInFrontOffice !== false);
   const visibleCategories = categories.filter(category => products.some(product =>
     (product as unknown as { categoryId?: number }).categoryId === category.id
-    && product.available !== false
     && product.visibleInFrontOffice !== false,
   ));
 
@@ -4540,20 +4513,6 @@ export default function FrontOffice() {
                     product={p as PosProduct}
                     activePriceList={activePriceList}
                     onAdd={handleAddProduct}
-                    onToggleEsaurito={async (id, available) => {
-                      try {
-                        await fetch(`${API}/products/${id}`, {
-                          method: "PATCH",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ available }),
-                        });
-                        addLog("info", `${available ? "Disponibile" : "Esaurito"}: ${p.name}`);
-                        toast({ title: available ? "Prodotto disponibile" : "Prodotto segnato Esaurito" });
-                        await refresh();
-                      } catch {
-                        toast({ title: "Errore aggiornamento prodotto", variant: "destructive" });
-                      }
-                    }}
                   />
                 ))}
                 {visibleProducts.length === 0 && (
