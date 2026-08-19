@@ -1093,6 +1093,17 @@ components:
         - available
         - sortOrder
 
+    ProductVariation:
+      type: object
+      properties:
+        id: { type: integer }
+        productId: { type: integer }
+        name: { type: string }
+        options: { type: string }
+        required: { type: boolean }
+        sortOrder: { type: integer }
+      required: [id, productId, name, options, required, sortOrder]
+
     Table:
       type: object
       properties:
@@ -1621,11 +1632,12 @@ components:
         documentReference: { type: string }
     MarginCatalog:
       type: object
-      required: [ingredients, categories, products, recipes, recipeItems, configurations, utilityTypes, utilityBills]
+      required: [ingredients, categories, products, productVariations, recipes, recipeItems, configurations, utilityTypes, utilityBills]
       properties:
         ingredients: { type: array, items: { $ref: "#/components/schemas/MarginIngredient" } }
         categories: { type: array, items: { $ref: "#/components/schemas/Category" } }
         products: { type: array, items: { $ref: "#/components/schemas/Product" } }
+        productVariations: { type: array, items: { $ref: "#/components/schemas/ProductVariation" } }
         recipes: { type: array, items: { $ref: "#/components/schemas/MarginRecipe" } }
         recipeItems: { type: array, items: { type: object, additionalProperties: true } }
         configurations: { type: array, items: { $ref: "#/components/schemas/MarginCostConfiguration" } }

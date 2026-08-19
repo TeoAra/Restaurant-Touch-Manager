@@ -51,6 +51,15 @@ export interface CreateProductBody {
   sortOrder: number;
 }
 
+export interface ProductVariation {
+  id: number;
+  productId: number;
+  name: string;
+  options: string;
+  required: boolean;
+  sortOrder: number;
+}
+
 export type TableStatusProperty =
   (typeof TableStatusProperty)[keyof typeof TableStatusProperty];
 
@@ -509,6 +518,7 @@ export interface MarginCatalog {
   ingredients: MarginIngredient[];
   categories: Category[];
   products: Product[];
+  productVariations: ProductVariation[];
   recipes: MarginRecipe[];
   recipeItems: MarginCatalogRecipeItemsItem[];
   configurations: MarginCostConfiguration[];

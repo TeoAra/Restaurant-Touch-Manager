@@ -30,10 +30,12 @@ type Ingredient = { id: number; name: string; baseUnit: string; currentUnitCost:
 type RecipeProduct = { id: number; name: string; price: string; categoryId?: number | null; sortOrder: number };
 type RecipeCategory = { id: number; name: string; sortOrder: number };
 type RecipeProductGroup = { id: number | null; name: string; products: RecipeProduct[] };
+type MenuVariation = { id: number; productId: number; name: string; options: string | Array<{ name: string; priceExtra?: string }>; required: boolean; sortOrder: number };
 type Catalog = {
   ingredients: Ingredient[];
   categories: RecipeCategory[];
   products: RecipeProduct[];
+  productVariations: MenuVariation[];
   recipes: Array<{ id: number; productId: number; yieldQuantity: string; preparationMinutes: number; validFrom: string; version: number }>;
   recipeItems: Array<{ recipeId: number; ingredientId: number; quantity: string; wastePercentage: string }>;
   configurations: Array<{ id: number; validFrom: string; electricityCostPerKwh: string; fixedCostsMonthly: string; productiveHoursMonthly: string; ownerHourlyCost: string }>;
@@ -96,6 +98,18 @@ function groupMenuProducts(products: RecipeProduct[], categories: RecipeCategory
 
   if (uncategorized.length) groups.push({ id: null, name: "Senza categoria", products: sortProducts(uncategorized) });
   return groups;
+}
+
+function variationOptions(value: MenuVariation["options"]): Array<{ name: string; priceExtra?: string }> {
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((option): option is { name: string; priceExtra?: string } => typeof option === "object" && option !== null && typeof (option as { name?: unknown }).name === "string")
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 export default function MarginalitaPage() {
@@ -326,6 +340,10 @@ export default function MarginalitaPage() {
               <h2 className="font-bold">Ingredienti attivi</h2>
               <div className="mt-3 divide-y divide-slate-100">{(catalog.data?.ingredients ?? []).map(item => <div key={item.id} className="flex justify-between gap-4 py-2 text-sm"><span>{item.name}<small className="ml-2 text-slate-400">/{item.baseUnit}</small></span><b>{euro(item.currentUnitCost)}</b></div>) || <span />}</div>
               {!catalog.data?.ingredients.length && <p className="mt-4 text-sm text-slate-400">Nessun ingrediente inserito.</p>}
+              <MenuVariationIngredients
+                products={menuProducts}
+                variations={catalog.data?.productVariations ?? []}
+              />
             </section>
           </TabsContent>
 
@@ -398,6 +416,48 @@ export default function MarginalitaPage() {
         </Tabs>
       </div>
     </BackofficeShell>
+  );
+}
+
+function MenuVariationIngredients({ products, variations }: { products: RecipeProduct[]; variations: MenuVariation[] }) {
+  const productById = new Map(products.map(product => [product.id, product]));
+  const variationsByProduct = new Map<number, MenuVariation[]>();
+  for (const variation of variations) {
+    if (!productById.has(variation.productId)) continue;
+    variationsByProduct.set(variation.productId, [...(variationsByProduct.get(variation.productId) ?? []), variation]);
+  }
+  const rows = [...variationsByProduct.entries()]
+    .map(([productId, productVariations]) => ({ product: productById.get(productId)!, variations: productVariations }))
+    .sort((left, right) => left.product.sortOrder - right.product.sortOrder || left.product.name.localeCompare(right.product.name, "it"));
+
+  return (
+    <div className="mt-6 border-t border-slate-100 pt-5">
+      <h3 className="flex items-center gap-2 font-bold text-slate-800"><Utensils className="h-4 w-4 text-primary" /> Prodotti già nelle variazioni</h3>
+      <p className="mt-1 text-xs text-slate-500">Queste variazioni arrivano direttamente da Menu. Gli ingredienti della ricetta generano invece le variazioni automatiche “Senza …” e i relativi costi.</p>
+      {rows.length === 0 ? (
+        <p className="mt-3 rounded-lg bg-slate-50 px-3 py-3 text-sm text-slate-400">Nessun prodotto ha ancora variazioni configurate nel Menu.</p>
+      ) : (
+        <div className="mt-3 space-y-3">
+          {rows.map(({ product, variations: productVariations }) => (
+            <div key={product.id} className="rounded-lg border border-slate-100 px-3 py-2.5">
+              <div className="font-semibold text-sm text-slate-800">{product.name}</div>
+              <div className="mt-2 space-y-1.5">
+                {productVariations.map(variation => {
+                  const options = variationOptions(variation.options);
+                  return (
+                    <div key={variation.id} className="text-xs text-slate-600">
+                      <span className="font-semibold">{variation.name}</span>
+                      {variation.required && <span className="ml-1.5 text-slate-400">(obbligatoria)</span>}
+                      <span className="ml-2 text-slate-500">{options.length ? options.map(option => option.name).join(" · ") : "Nessuna opzione"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -7,6 +7,7 @@ import {
   ingredientCostHistoryTable,
   marginCalculationJobsTable,
   productsTable,
+  productVariationsTable,
   recipeItemsTable,
   recipesTable,
   utilityBillsTable,
@@ -85,17 +86,18 @@ router.post("/orders/:orderId/recalculate", async (req, res): Promise<void> => {
 });
 
 router.get("/catalog", async (_req, res): Promise<void> => {
-  const [ingredients, categories, products, recipes, recipeItems, configurations, utilityTypes, utilityBills] = await Promise.all([
+  const [ingredients, categories, products, productVariations, recipes, recipeItems, configurations, utilityTypes, utilityBills] = await Promise.all([
     db.select().from(ingredientsTable).orderBy(ingredientsTable.name),
     db.select().from(categoriesTable).orderBy(categoriesTable.sortOrder, categoriesTable.name),
     db.select().from(productsTable).orderBy(productsTable.categoryId, productsTable.sortOrder, productsTable.name),
+    db.select().from(productVariationsTable).orderBy(productVariationsTable.productId, productVariationsTable.sortOrder),
     db.select().from(recipesTable).orderBy(desc(recipesTable.validFrom), desc(recipesTable.version)),
     db.select().from(recipeItemsTable),
     db.select().from(costConfigurationsTable).orderBy(desc(costConfigurationsTable.validFrom)),
     db.select().from(utilityTypesTable).orderBy(utilityTypesTable.name),
     db.select().from(utilityBillsTable).orderBy(desc(utilityBillsTable.periodStart)),
   ]);
-  res.json({ ingredients, categories, products, recipes, recipeItems, configurations, utilityTypes, utilityBills });
+  res.json({ ingredients, categories, products, productVariations, recipes, recipeItems, configurations, utilityTypes, utilityBills });
 });
 
 router.post("/ingredients", async (req, res): Promise<void> => {
