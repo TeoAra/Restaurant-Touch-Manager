@@ -178,6 +178,72 @@ export type EmitResult = {
   rtError?: string;
 };
 
+export type CourtesyPrintResult = {
+  rtOk: boolean;
+  rtError?: string;
+};
+
+/**
+ * Invia di nuovo alla RT la copia di cortesia di una fattura già emessa.
+ * Non modifica XML, stato o dati contabili della fattura.
+ */
+export async function printInvoiceCourtesy(
+  inv: typeof invoicesTable.$inferSelect,
+): Promise<CourtesyPrintResult> {
+  let rtOk = false;
+  let rtError: string | undefined;
+  try {
+    const printer = await getFiscalPrinter();
+    if (!printer) {
+      return { rtOk: false, rtError: "Nessuna stampante fiscale configurata" };
+    }
+
+    let customer = null;
+    if (inv.customerId) {
+      const [c] = await db.select().from(customersTable).where(eq(customersTable.id, inv.customerId));
+      customer = c ?? null;
+    }
+
+    let righe: Array<{ descrizione: string; quantita: string; prezzoUnitario: string }> = [];
+    try { righe = JSON.parse(inv.righe ?? "[]"); } catch { righe = []; }
+    if (righe.length === 0) {
+      righe = [{ descrizione: "Servizi ristorazione", quantita: "1", prezzoUnitario: inv.imponibile ?? "0" }];
+    }
+
+    const denominazione = customer?.ragioneSociale
+      ?? ([customer?.nome, customer?.cognome].filter(Boolean).join(" ") || undefined);
+    const rt = await emettiFatturaCortesia({
+      numero: `${inv.anno}/${String(inv.numero).padStart(4, "0")}`,
+      data: inv.data,
+      cliente: customer ? {
+        denominazione,
+        partitaIva: customer.partitaIva,
+        codiceFiscale: customer.codiceFiscale,
+        indirizzo: customer.indirizzo,
+        cap: customer.cap,
+        comune: customer.comune,
+        provincia: customer.provincia,
+      } : null,
+      righe: righe.map(r => ({
+        desc: r.descrizione,
+        qta: parseFloat(String(r.quantita)) || 1,
+        prezzoUnitario: r.prezzoUnitario,
+      })),
+      imponibile: inv.imponibile,
+      aliquotaIva: inv.aliquotaIva,
+      iva: inv.iva,
+      totale: inv.totale ?? "0",
+      printer,
+    });
+    rtOk = rt.ok;
+    rtError = rt.error;
+  } catch (e) {
+    rtError = e instanceof Error ? e.message : String(e);
+  }
+
+  return { rtOk, rtError };
+}
+
 /**
  * Emette una fattura già inserita: genera l'XML, marca "emessa" e stampa la
  * copia di cortesia sulla RT (best-effort, mai bloccante).
@@ -191,54 +257,7 @@ export async function emitInvoice(inv: typeof invoicesTable.$inferSelect): Promi
     .where(eq(invoicesTable.id, inv.id))
     .returning();
 
-  // ── Stampa gestionale RT (best-effort, non blocca la risposta) ────────────
-  let rtOk = false;
-  let rtError: string | undefined;
-  try {
-    const printer = await getFiscalPrinter();
-    if (printer) {
-      let customer = null;
-      if (inv.customerId) {
-        const [c] = await db.select().from(customersTable).where(eq(customersTable.id, inv.customerId));
-        customer = c ?? null;
-      }
-      let righe: Array<{ descrizione: string; quantita: string; prezzoUnitario: string }> = [];
-      try { righe = JSON.parse(inv.righe ?? "[]"); } catch { righe = []; }
-      if (righe.length === 0) {
-        righe = [{ descrizione: "Servizi ristorazione", quantita: "1", prezzoUnitario: inv.imponibile ?? "0" }];
-      }
-      // Denominazione cliente: ragione sociale (azienda) oppure nome+cognome (privato)
-      const denominazione = customer?.ragioneSociale
-        ?? ([customer?.nome, customer?.cognome].filter(Boolean).join(" ") || undefined);
-      const rt = await emettiFatturaCortesia({
-        numero: `${inv.anno}/${String(inv.numero).padStart(4, "0")}`,
-        data: inv.data,
-        cliente: customer ? {
-          denominazione,
-          partitaIva: customer.partitaIva,
-          codiceFiscale: customer.codiceFiscale,
-          indirizzo: customer.indirizzo,
-          cap: customer.cap,
-          comune: customer.comune,
-          provincia: customer.provincia,
-        } : null,
-        righe: righe.map(r => ({
-          desc: r.descrizione,
-          qta: parseFloat(String(r.quantita)) || 1,
-          prezzoUnitario: r.prezzoUnitario,
-        })),
-        imponibile: inv.imponibile,
-        aliquotaIva: inv.aliquotaIva,
-        iva: inv.iva,
-        totale: inv.totale ?? "0",
-        printer,
-      });
-      rtOk = rt.ok;
-      rtError = rt.error;
-    }
-  } catch (e) {
-    rtError = e instanceof Error ? e.message : String(e);
-  }
+  const { rtOk, rtError } = await printInvoiceCourtesy(updated ?? inv);
 
   const fileName = invoiceFileName(inv, settings["partita_iva"]);
   return { invoice: updated ?? inv, xml, fileName, rtOk, rtError };

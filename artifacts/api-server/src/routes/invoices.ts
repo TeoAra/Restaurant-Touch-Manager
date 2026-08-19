@@ -2,7 +2,13 @@ import { Router } from "express";
 import { db, invoicesTable, customersTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { sql } from "drizzle-orm";
-import { buildInvoiceXml, emitInvoice, invoiceFileName, createInvoiceRecord } from "../lib/invoice-service.js";
+import {
+  buildInvoiceXml,
+  emitInvoice,
+  invoiceFileName,
+  createInvoiceRecord,
+  printInvoiceCourtesy,
+} from "../lib/invoice-service.js";
 import { getSettings } from "../lib/settings.js";
 
 const router = Router();
@@ -86,6 +92,18 @@ router.post("/:id/emit", async (req, res) => {
   const { invoice: updated, xml, rtOk, rtError, fileName } = await emitInvoice(inv);
 
   return res.json({ ...updated, xml, rtOk, rtError, fileName });
+});
+
+router.post("/:id/courtesy-print", async (req, res) => {
+  const id = Number(req.params.id);
+  const [inv] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
+  if (!inv) return res.status(404).json({ error: "Fattura non trovata" });
+  if (inv.stato !== "emessa") {
+    return res.status(409).json({ error: "Emetti la fattura prima di ristampare la copia di cortesia" });
+  }
+
+  const { rtOk, rtError } = await printInvoiceCourtesy(inv);
+  return res.json({ rtOk, rtError });
 });
 
 router.delete("/:id", async (req, res) => {
