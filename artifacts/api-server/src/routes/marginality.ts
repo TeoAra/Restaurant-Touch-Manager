@@ -106,9 +106,12 @@ router.post("/ingredients", async (req, res): Promise<void> => {
     const baseUnit = typeof req.body?.baseUnit === "string" ? req.body.baseUnit.trim() : "";
     if (!name || !baseUnit) throw new Error("Nome e unità base sono obbligatori");
     const currentUnitCost = decimal(req.body.currentUnitCost);
+    const unitSizeG = req.body?.unitSizeG == null || req.body.unitSizeG === "" ? null : strictlyPositiveDecimal(req.body.unitSizeG, "Il peso dell'unità in grammi");
+    const sliceWeightG = req.body?.sliceWeightG == null || req.body.sliceWeightG === "" ? null : strictlyPositiveDecimal(req.body.sliceWeightG, "Il peso della fetta in grammi");
+    if (sliceWeightG != null && unitSizeG == null) throw new Error("Il peso della fetta richiede anche il peso dell'unità in grammi");
     const [ingredient] = await db.transaction(async (tx) => {
       const [created] = await tx.insert(ingredientsTable).values({
-        name, baseUnit, currentUnitCost, vatRate: decimal(req.body.vatRate, "0"),
+        name, baseUnit, currentUnitCost, vatRate: decimal(req.body.vatRate, "0"), unitSizeG, sliceWeightG,
       }).returning();
       await tx.insert(ingredientCostHistoryTable).values({
         ingredientId: created.id,
@@ -136,6 +139,8 @@ router.patch("/ingredients/:id", async (req, res): Promise<void> => {
     if (typeof req.body?.baseUnit === "string" && req.body.baseUnit.trim()) updates.baseUnit = req.body.baseUnit.trim();
     if (req.body?.currentUnitCost != null) updates.currentUnitCost = decimal(req.body.currentUnitCost);
     if (req.body?.vatRate != null) updates.vatRate = decimal(req.body.vatRate);
+    if ("unitSizeG" in (req.body ?? {})) updates.unitSizeG = req.body.unitSizeG == null || req.body.unitSizeG === "" ? null : strictlyPositiveDecimal(req.body.unitSizeG, "Il peso dell'unità in grammi");
+    if ("sliceWeightG" in (req.body ?? {})) updates.sliceWeightG = req.body.sliceWeightG == null || req.body.sliceWeightG === "" ? null : strictlyPositiveDecimal(req.body.sliceWeightG, "Il peso della fetta in grammi");
     if (typeof req.body?.active === "boolean") updates.active = req.body.active;
     const [ingredient] = await db.transaction(async (tx) => {
       const [updated] = await tx.update(ingredientsTable).set(updates).where(eq(ingredientsTable.id, id)).returning();
@@ -164,9 +169,12 @@ router.post("/recipes", async (req, res): Promise<void> => {
     const productId = positiveId(req.body?.productId);
     const validFrom = validDate(req.body?.validFrom);
     if (!productId || !validFrom) throw new Error("Prodotto e data di validità sono obbligatori");
+    // I dati produttivi non vengono più chiesti alla creazione: la ricetta è
+    // per porzione (yield = 1), i minuti reali arrivano dalla cucina e il
+    // packaging del coperto è gestito nei costi fissi/utenze.
     const [recipe] = await db.insert(recipesTable).values({
       productId,
-      yieldQuantity: strictlyPositiveDecimal(req.body.yieldQuantity, "La resa della ricetta"),
+      yieldQuantity: req.body?.yieldQuantity == null || req.body.yieldQuantity === "" ? "1" : strictlyPositiveDecimal(req.body.yieldQuantity, "La resa della ricetta"),
       preparationMinutes: Math.max(0, Math.trunc(Number(req.body.preparationMinutes ?? 0))),
       packagingCostPerUnit: decimal(req.body.packagingCostPerUnit, "0"),
       usesFryer: req.body?.usesFryer === true,

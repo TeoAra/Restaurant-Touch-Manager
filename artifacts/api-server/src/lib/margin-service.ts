@@ -299,10 +299,21 @@ async function buildCalculation(orderId: number): Promise<{
           localMissing.push(`INGREDIENT_COST_${row.ingredientId}_MISSING`);
           continue;
         }
+        // La quantità in ricetta è contestuale al modello dell'ingrediente:
+        // - sliceWeightG configurato → quantità in fette: costo = fette × peso fetta × (costo unità / grammi unità)
+        // - solo unitSizeG configurato → quantità in grammi: costo = grammi × (costo unità / grammi unità)
+        // - nessun peso → quantità nell'unità base (comportamento storico)
+        let effectiveUnitCost = amount(unitCost);
+        const unitSizeG = ingredient.unitSizeG != null ? amount(ingredient.unitSizeG) : null;
+        if (unitSizeG?.isPositive()) {
+          const costPerGram = effectiveUnitCost.div(unitSizeG);
+          const sliceWeightG = ingredient.sliceWeightG != null ? amount(ingredient.sliceWeightG) : null;
+          effectiveUnitCost = sliceWeightG?.isPositive() ? costPerGram.mul(sliceWeightG) : costPerGram;
+        }
         const wasteMultiplier = HUNDRED.add(amount(row.wastePercentage)).div(HUNDRED);
         ingredientCost = ingredientCost.add(
           amount(recipe.yieldQuantity).isPositive()
-            ? amount(row.quantity).mul(wasteMultiplier).mul(amount(unitCost)).div(amount(recipe.yieldQuantity))
+            ? amount(row.quantity).mul(wasteMultiplier).mul(effectiveUnitCost).div(amount(recipe.yieldQuantity))
             : ZERO,
         );
       }

@@ -24,6 +24,12 @@ export const ingredientsTable = pgTable(
     baseUnit: text("base_unit").notNull(),
     currentUnitCost: numeric("current_unit_cost", { precision: 18, scale: 6 }).notNull(),
     vatRate: numeric("vat_rate", { precision: 18, scale: 6 }).notNull(),
+    // Peso dell'unità d'acquisto in grammi (es. 1000 per 1 kg).
+    // Null = l'unità non è espressa in grammi (es. litri, pezzi).
+    unitSizeG: numeric("unit_size_g", { precision: 18, scale: 6 }),
+    // Peso di una singola fetta/pezzo in grammi (es. 20 per una fetta di edamer).
+    // Significativo solo se unitSizeG è valorizzato.
+    sliceWeightG: numeric("slice_weight_g", { precision: 18, scale: 6 }),
     active: boolean("active").notNull().default(true),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
   },

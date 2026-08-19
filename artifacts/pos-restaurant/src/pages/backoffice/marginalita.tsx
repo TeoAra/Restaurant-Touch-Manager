@@ -26,7 +26,7 @@ type Overview = {
   lossMakingProducts: ProductMargin[];
   incomplete: Array<{ orderId: number; calculatedAt?: string; missingData: string[] }>;
 };
-type Ingredient = { id: number; name: string; baseUnit: string; currentUnitCost: string; vatRate: string; active: boolean };
+type Ingredient = { id: number; name: string; baseUnit: string; currentUnitCost: string; vatRate: string; unitSizeG?: string | null; sliceWeightG?: string | null; active: boolean };
 type RecipeProduct = { id: number; name: string; price: string; categoryId?: number | null; sortOrder: number };
 type RecipeCategory = { id: number; name: string; sortOrder: number };
 type RecipeProductGroup = { id: number | null; name: string; products: RecipeProduct[] };
@@ -36,7 +36,7 @@ type Catalog = {
   categories: RecipeCategory[];
   products: RecipeProduct[];
   productVariations: MenuVariation[];
-  recipes: Array<{ id: number; productId: number; yieldQuantity: string; preparationMinutes: number; validFrom: string; version: number }>;
+  recipes: Array<{ id: number; productId: number; validFrom: string; version: number }>;
   recipeItems: Array<{ recipeId: number; ingredientId: number; quantity: string; wastePercentage: string }>;
   configurations: Array<{ id: number; validFrom: string; electricityCostPerKwh: string; fixedCostsMonthly: string; productiveHoursMonthly: string; ownerHourlyCost: string }>;
   utilityTypes: Array<{ id: number; code: string; name: string; measurementUnit: string; active: boolean }>;
@@ -98,6 +98,29 @@ function groupMenuProducts(products: RecipeProduct[], categories: RecipeCategory
 
   if (uncategorized.length) groups.push({ id: null, name: "Senza categoria", products: sortProducts(uncategorized) });
   return groups;
+}
+
+// Costo per grammo e per fetta calcolati dal prezzo d'acquisto:
+// currentUnitCost è il prezzo dell'unità (es. €/kg), unitSizeG il peso di
+// quell'unità in grammi, sliceWeightG il peso di una fetta.
+function ingredientCostDetail(item: Ingredient): string | null {
+  const unitSize = Number(item.unitSizeG ?? 0);
+  if (!(unitSize > 0)) return null;
+  const costPerGram = Number(item.currentUnitCost) / unitSize;
+  const sliceWeight = Number(item.sliceWeightG ?? 0);
+  if (sliceWeight > 0) {
+    const costPerSlice = costPerGram * sliceWeight;
+    return `${costPerSlice.toLocaleString("it-IT", { style: "currency", currency: "EUR", minimumFractionDigits: 3 })}/fetta (${sliceWeight} g)`;
+  }
+  return `${(costPerGram * 100).toLocaleString("it-IT", { style: "currency", currency: "EUR", minimumFractionDigits: 3 })}/hg`;
+}
+
+// Unità di misura contestuale per la quantità in ricetta.
+function ingredientQuantityUnit(item: Ingredient | undefined): string {
+  if (!item) return "Q.tà";
+  if (Number(item.sliceWeightG ?? 0) > 0) return "fette";
+  if (Number(item.unitSizeG ?? 0) > 0) return "g";
+  return item.baseUnit;
 }
 
 function variationOptions(value: MenuVariation["options"]): Array<{ name: string; priceExtra?: string }> {
@@ -334,11 +357,16 @@ export default function MarginalitaPage() {
               <SimpleInput label="Nome" name="name" required placeholder="es. Mozzarella fior di latte" />
               <div className="grid grid-cols-2 gap-3"><SimpleInput label="Unità base" name="baseUnit" required placeholder="kg, l, pz" /><SimpleInput label="Costo per unità (€)" name="currentUnitCost" inputMode="decimal" required placeholder="0.000000" /></div>
               <SimpleInput label="IVA acquisto %" name="vatRate" inputMode="decimal" defaultValue="0" />
+              <div className="grid grid-cols-2 gap-3"><SimpleInput label="Peso confezione in grammi (opz.)" name="unitSizeG" inputMode="decimal" placeholder="es. 1000 per 1 kg" /><SimpleInput label="Peso fetta/pezzo in grammi (opz.)" name="sliceWeightG" inputMode="decimal" placeholder="es. 20" /></div>
+              <p className="text-xs text-slate-500">Con questi pesi il costo per grammo e per fetta si calcola da solo: in ricetta basterà indicare quante fette usi.</p>
               <SubmitButton>Salva ingrediente</SubmitButton>
             </form>
             <section className="rounded-xl border border-slate-200 bg-white p-4">
               <h2 className="font-bold">Ingredienti attivi</h2>
-              <div className="mt-3 divide-y divide-slate-100">{(catalog.data?.ingredients ?? []).map(item => <div key={item.id} className="flex justify-between gap-4 py-2 text-sm"><span>{item.name}<small className="ml-2 text-slate-400">/{item.baseUnit}</small></span><b>{euro(item.currentUnitCost)}</b></div>) || <span />}</div>
+              <div className="mt-3 divide-y divide-slate-100">{(catalog.data?.ingredients ?? []).map(item => {
+                const detail = ingredientCostDetail(item);
+                return <div key={item.id} className="flex justify-between gap-4 py-2 text-sm"><span>{item.name}<small className="ml-2 text-slate-400">/{item.baseUnit}</small>{detail && <small className="ml-2 text-emerald-700">{detail}</small>}</span><b>{euro(item.currentUnitCost)}</b></div>;
+              }) || <span />}</div>
               {!catalog.data?.ingredients.length && <p className="mt-4 text-sm text-slate-400">Nessun ingrediente inserito.</p>}
               <MenuVariationIngredients
                 products={menuProducts}
@@ -357,7 +385,7 @@ export default function MarginalitaPage() {
                   <h3 className="border-b border-slate-100 pb-1 text-xs font-bold uppercase tracking-wide text-slate-500">{group.name}</h3>
                   <div className="mt-2 space-y-2">{group.products.map(product => {
                     const recipe = recipesByProduct.get(product.id);
-                    return <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 px-3 py-2 text-sm"><span>{product.name}</span>{recipe ? <span className="shrink-0 text-emerald-700 font-semibold">Ricetta v{recipe.version} · {recipe.preparationMinutes} min</span> : <span className="shrink-0 text-amber-600">Ricetta mancante</span>}</div>;
+                    return <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 px-3 py-2 text-sm"><span>{product.name}</span>{recipe ? <span className="shrink-0 text-emerald-700 font-semibold">Ricetta v{recipe.version}</span> : <span className="shrink-0 text-amber-600">Ricetta mancante</span>}</div>;
                   })}</div>
                 </div>
               ))}</div>
@@ -469,7 +497,7 @@ function RecipeForm({ productGroups, ingredients, onSave }: { productGroups: Rec
   const [items, setItems] = useState<Array<{ ingredientId: string; quantity: string; wastePercentage: string }>>([{ ingredientId: "", quantity: "", wastePercentage: "0" }]);
   return <form onSubmit={async event => {
     event.preventDefault(); const form = new FormData(event.currentTarget);
-    const saved = await onSave({ ...Object.fromEntries(form), preparationMinutes: Number(form.get("preparationMinutes")), items: items.map(item => ({ ...item, ingredientId: Number(item.ingredientId) })) });
+    const saved = await onSave({ ...Object.fromEntries(form), items: items.map(item => ({ ...item, ingredientId: Number(item.ingredientId) })) });
     if (saved) { event.currentTarget.reset(); setItems([{ ingredientId: "", quantity: "", wastePercentage: "0" }]); }
   }} className="rounded-xl border border-slate-200 bg-white p-4">
     <h2 className="flex items-center gap-2 font-bold"><Utensils className="h-4 w-4 text-primary" /> Nuova ricetta</h2>
@@ -477,11 +505,8 @@ function RecipeForm({ productGroups, ingredients, onSave }: { productGroups: Rec
     <div className="mt-3 grid gap-3 sm:grid-cols-2">
       <label className="block text-xs font-semibold text-slate-600">Prodotto del Menu<select required name="productId" className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="">Seleziona…</option>{productGroups.map(group => <optgroup key={group.id ?? "uncategorized"} label={group.name}>{group.products.map(product => <option value={product.id} key={product.id}>{product.name}</option>)}</optgroup>)}</select></label>
       <SimpleInput label="Valida dal" name="validFrom" type="date" defaultValue={today} required />
-      <SimpleInput label="Porzioni prodotte" name="yieldQuantity" defaultValue="1" inputMode="decimal" required />
-      <SimpleInput label="Minuti preparazione/porzione" name="preparationMinutes" defaultValue="0" inputMode="numeric" required />
-      <SimpleInput label="Packaging/porzione (€)" name="packagingCostPerUnit" defaultValue="0" inputMode="decimal" />
     </div>
-    <div className="mt-4"><div className="text-xs font-bold uppercase tracking-wide text-slate-500">Ingredienti e variazioni</div><p className="mt-1 text-xs text-slate-500">Ogni ingrediente selezionato sarà proposto alla cassa come “Senza nome ingrediente”.</p>{items.map((item, index) => <div key={index} className="mt-2 grid grid-cols-[1fr_.5fr_.45fr_auto] gap-2"><select value={item.ingredientId} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, ingredientId: event.target.value } : row))} required className="rounded-lg border border-slate-200 bg-white px-2 text-sm"><option value="">Ingrediente / variazione…</option>{ingredients.map(ingredient => <option value={ingredient.id} key={ingredient.id}>{ingredient.name} — Senza {ingredient.name}</option>)}</select><input value={item.quantity} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, quantity: event.target.value } : row))} placeholder="Q.tà" required className="rounded-lg border border-slate-200 px-2 text-sm" /><input value={item.wastePercentage} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, wastePercentage: event.target.value } : row))} placeholder="Scarto %" className="rounded-lg border border-slate-200 px-2 text-sm" /><button type="button" onClick={() => setItems(current => current.length > 1 ? current.filter((_, i) => i !== index) : current)} className="text-xs text-red-500">Rimuovi</button></div>)}
+    <div className="mt-4"><div className="text-xs font-bold uppercase tracking-wide text-slate-500">Ingredienti e variazioni</div><p className="mt-1 text-xs text-slate-500">Ogni ingrediente selezionato sarà proposto alla cassa come “Senza nome ingrediente”.</p>{items.map((item, index) => <div key={index} className="mt-2 grid grid-cols-[1fr_.5fr_.45fr_auto] gap-2"><select value={item.ingredientId} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, ingredientId: event.target.value } : row))} required className="rounded-lg border border-slate-200 bg-white px-2 text-sm"><option value="">Ingrediente / variazione…</option>{ingredients.map(ingredient => <option value={ingredient.id} key={ingredient.id}>{ingredient.name} — Senza {ingredient.name}</option>)}</select><input value={item.quantity} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, quantity: event.target.value } : row))} placeholder={ingredientQuantityUnit(ingredients.find(ingredient => String(ingredient.id) === item.ingredientId))} required className="rounded-lg border border-slate-200 px-2 text-sm" /><input value={item.wastePercentage} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, wastePercentage: event.target.value } : row))} placeholder="Scarto %" className="rounded-lg border border-slate-200 px-2 text-sm" /><button type="button" onClick={() => setItems(current => current.length > 1 ? current.filter((_, i) => i !== index) : current)} className="text-xs text-red-500">Rimuovi</button></div>)}
       <button type="button" onClick={() => setItems(current => [...current, { ingredientId: "", quantity: "", wastePercentage: "0" }])} className="mt-2 text-xs font-semibold text-primary">+ Aggiungi ingrediente</button></div>
     <div className="mt-4"><SubmitButton>Salva ricetta</SubmitButton></div>
   </form>;

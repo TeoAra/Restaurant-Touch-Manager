@@ -597,6 +597,14 @@ export const GetMarginCatalogResponse = zod.object({
       baseUnit: zod.string(),
       currentUnitCost: zod.string(),
       vatRate: zod.string(),
+      unitSizeG: zod
+        .string()
+        .nullish()
+        .describe("Peso dell'unità d'acquisto in grammi (es. 1000 per 1 kg)"),
+      sliceWeightG: zod
+        .string()
+        .nullish()
+        .describe("Peso di una fetta\/pezzo in grammi (es. 20 per una fetta)"),
       active: zod.boolean(),
     }),
   ),
@@ -680,6 +688,8 @@ export const CreateMarginIngredientBody = zod.object({
   baseUnit: zod.string().min(1),
   currentUnitCost: zod.string(),
   vatRate: zod.string().default(createMarginIngredientBodyVatRateDefault),
+  unitSizeG: zod.string().nullish(),
+  sliceWeightG: zod.string().nullish(),
 });
 
 /**
@@ -694,6 +704,8 @@ export const UpdateMarginIngredientBody = zod.object({
   baseUnit: zod.string().optional(),
   currentUnitCost: zod.string().optional(),
   vatRate: zod.string().optional(),
+  unitSizeG: zod.string().nullish(),
+  sliceWeightG: zod.string().nullish(),
   active: zod.boolean().optional(),
 });
 
@@ -703,12 +715,22 @@ export const UpdateMarginIngredientResponse = zod.object({
   baseUnit: zod.string(),
   currentUnitCost: zod.string(),
   vatRate: zod.string(),
+  unitSizeG: zod
+    .string()
+    .nullish()
+    .describe("Peso dell'unità d'acquisto in grammi (es. 1000 per 1 kg)"),
+  sliceWeightG: zod
+    .string()
+    .nullish()
+    .describe("Peso di una fetta\/pezzo in grammi (es. 20 per una fetta)"),
   active: zod.boolean(),
 });
 
 /**
  * @summary Create a versioned recipe
  */
+export const createMarginRecipeBodyYieldQuantityDefault = `1`;
+export const createMarginRecipeBodyPreparationMinutesDefault = 0;
 export const createMarginRecipeBodyPackagingCostPerUnitDefault = `0`;
 export const createMarginRecipeBodyUsesFryerDefault = false;
 export const createMarginRecipeBodyVersionDefault = 1;
@@ -716,8 +738,12 @@ export const createMarginRecipeBodyItemsItemWastePercentageDefault = `0`;
 
 export const CreateMarginRecipeBody = zod.object({
   productId: zod.number(),
-  yieldQuantity: zod.string(),
-  preparationMinutes: zod.number(),
+  yieldQuantity: zod
+    .string()
+    .default(createMarginRecipeBodyYieldQuantityDefault),
+  preparationMinutes: zod
+    .number()
+    .default(createMarginRecipeBodyPreparationMinutesDefault),
   packagingCostPerUnit: zod
     .string()
     .default(createMarginRecipeBodyPackagingCostPerUnitDefault),

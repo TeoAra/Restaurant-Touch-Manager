@@ -1507,6 +1507,8 @@ components:
         baseUnit: { type: string }
         currentUnitCost: { type: string }
         vatRate: { type: string }
+        unitSizeG: { type: ["string", "null"], description: "Peso dell'unità d'acquisto in grammi (es. 1000 per 1 kg)" }
+        sliceWeightG: { type: ["string", "null"], description: "Peso di una fetta/pezzo in grammi (es. 20 per una fetta)" }
         active: { type: boolean }
     MarginIngredientInput:
       type: object
@@ -1516,6 +1518,8 @@ components:
         baseUnit: { type: string, minLength: 1 }
         currentUnitCost: { type: string }
         vatRate: { type: string, default: "0" }
+        unitSizeG: { type: ["string", "null"] }
+        sliceWeightG: { type: ["string", "null"] }
     MarginIngredientUpdate:
       type: object
       properties:
@@ -1523,6 +1527,8 @@ components:
         baseUnit: { type: string }
         currentUnitCost: { type: string }
         vatRate: { type: string }
+        unitSizeG: { type: ["string", "null"] }
+        sliceWeightG: { type: ["string", "null"] }
         active: { type: boolean }
     MarginRecipe:
       type: object
@@ -1546,11 +1552,11 @@ components:
         wastePercentage: { type: string, default: "0" }
     MarginRecipeInput:
       type: object
-      required: [productId, yieldQuantity, preparationMinutes, validFrom]
+      required: [productId, validFrom]
       properties:
         productId: { type: integer }
-        yieldQuantity: { type: string }
-        preparationMinutes: { type: integer }
+        yieldQuantity: { type: string, default: "1" }
+        preparationMinutes: { type: integer, default: 0 }
         packagingCostPerUnit: { type: string, default: "0" }
         usesFryer: { type: boolean, default: false }
         fryerPortionsPerYield: { type: ["string", "null"] }

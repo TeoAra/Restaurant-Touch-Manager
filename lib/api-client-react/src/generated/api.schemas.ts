@@ -392,6 +392,16 @@ export interface MarginIngredient {
   baseUnit: string;
   currentUnitCost: string;
   vatRate: string;
+  /**
+   * Peso dell'unità d'acquisto in grammi (es. 1000 per 1 kg)
+   * @nullable
+   */
+  unitSizeG?: string | null;
+  /**
+   * Peso di una fetta/pezzo in grammi (es. 20 per una fetta)
+   * @nullable
+   */
+  sliceWeightG?: string | null;
   active: boolean;
 }
 
@@ -402,6 +412,10 @@ export interface MarginIngredientInput {
   baseUnit: string;
   currentUnitCost: string;
   vatRate?: string;
+  /** @nullable */
+  unitSizeG?: string | null;
+  /** @nullable */
+  sliceWeightG?: string | null;
 }
 
 export interface MarginIngredientUpdate {
@@ -409,6 +423,10 @@ export interface MarginIngredientUpdate {
   baseUnit?: string;
   currentUnitCost?: string;
   vatRate?: string;
+  /** @nullable */
+  unitSizeG?: string | null;
+  /** @nullable */
+  sliceWeightG?: string | null;
   active?: boolean;
 }
 
@@ -432,8 +450,8 @@ export interface MarginRecipeItemInput {
 
 export interface MarginRecipeInput {
   productId: number;
-  yieldQuantity: string;
-  preparationMinutes: number;
+  yieldQuantity?: string;
+  preparationMinutes?: number;
   packagingCostPerUnit?: string;
   usesFryer?: boolean;
   /** @nullable */
