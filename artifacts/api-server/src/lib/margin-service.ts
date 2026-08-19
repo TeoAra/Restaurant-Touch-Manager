@@ -1,6 +1,7 @@
 import {
   db,
   costConfigurationsTable,
+  coverCostItemsTable,
   equipmentTable,
   fryerOilCyclesTable,
   ingredientCostHistoryTable,
@@ -28,6 +29,7 @@ import { logger } from "./logger.js";
 const ZERO = FixedDecimal.zero();
 const HUNDRED = FixedDecimal.from("100");
 const SIXTY = FixedDecimal.from("60");
+const TWELVE = FixedDecimal.from("12");
 const CALCULATION_VERSION = 1;
 
 // Drizzle espone un tipo transazione distinto dal client principale; entrambe
@@ -208,7 +210,7 @@ async function buildCalculation(orderId: number): Promise<{
   if (!order) throw new Error(`Order ${orderId} not found`);
 
   const at = dateKey(order.createdAt);
-  const [facts, products, recipes, recipeItems, ingredients, costHistory, equipment, productEquipment, oilCycles, configurations, payments, indirectAllocations, utilityBills, utilityTypes, paidOrders] = await Promise.all([
+  const [facts, products, recipes, recipeItems, ingredients, costHistory, equipment, productEquipment, oilCycles, configurations, coverCostItems, payments, indirectAllocations, utilityBills, utilityTypes, paidOrders] = await Promise.all([
     db.select().from(marginOrderItemFactsTable).where(eq(marginOrderItemFactsTable.orderId, orderId)),
     db.select().from(productsTable),
     db.select().from(recipesTable),
@@ -219,12 +221,13 @@ async function buildCalculation(orderId: number): Promise<{
     db.select().from(productEquipmentTable),
     db.select().from(fryerOilCyclesTable),
     db.select().from(costConfigurationsTable),
+    db.select().from(coverCostItemsTable),
     db.select().from(paymentsTable).where(eq(paymentsTable.orderId, orderId)),
     db.select().from(orderIndirectCostAllocationsTable)
       .where(and(eq(orderIndirectCostAllocationsTable.orderId, orderId), eq(orderIndirectCostAllocationsTable.calculationVersion, CALCULATION_VERSION))),
     db.select().from(utilityBillsTable),
     db.select().from(utilityTypesTable),
-    db.select({ createdAt: ordersTable.createdAt }).from(ordersTable).where(eq(ordersTable.status, "paid")),
+    db.select({ createdAt: ordersTable.createdAt, covers: ordersTable.covers }).from(ordersTable).where(eq(ordersTable.status, "paid")),
   ]);
 
   const config = configurations
@@ -239,6 +242,23 @@ async function buildCalculation(orderId: number): Promise<{
   const activeOilCycle = oilCycles
     .filter((cycle) => cycle.openedAt <= order.createdAt && cycle.portionsProduced > 0)
     .sort((a, b) => b.openedAt.getTime() - a.openedAt.getTime())[0];
+  const utilityTypeById = new Map(utilityTypes.map((utilityType) => [utilityType.id, utilityType]));
+  const electricityBill = utilityBills
+    .filter((bill) => {
+      const type = utilityTypeById.get(bill.utilityTypeId);
+      return at >= bill.periodStart
+        && at <= bill.periodEnd
+        && type?.measurementUnit.trim().toLowerCase() === "kwh"
+        && amount(bill.consumptionQuantity).isPositive();
+    })
+    .sort((a, b) => b.periodStart.localeCompare(a.periodStart))[0];
+  // Una bolletta valida è il consuntivo dell'utenza e viene allocata per
+  // coperto: non la sommiamo alla stima tecnica delle apparecchiature, per non
+  // conteggiare due volte la stessa energia. La stima €/kWh resta il fallback.
+  const useBilledElectricity = Boolean(electricityBill);
+  const electricityCostPerKwh = electricityBill
+    ? amount(electricityBill.variableCost).div(amount(electricityBill.consumptionQuantity))
+    : (config ? amount(config.electricityCostPerKwh) : ZERO);
 
   const lines: MarginProductLine[] = facts.map((fact) => {
     if (fact.productId === 0) {
@@ -326,13 +346,15 @@ async function buildCalculation(orderId: number): Promise<{
           localMissing.push(`ENERGY_COST_${fact.productId}_MISSING`);
           continue;
         }
-        const unitEnergy = amount(machine.powerKw)
-          .mul(amount(usage.usageMinutes))
-          .div(SIXTY)
-          .mul(amount(machine.averageUtilizationPercentage))
-          .div(HUNDRED)
-          .mul(amount(config.electricityCostPerKwh));
-        energyCost = energyCost.add(unitEnergy);
+        if (!useBilledElectricity) {
+          const unitEnergy = amount(machine.powerKw)
+            .mul(amount(usage.usageMinutes))
+            .div(SIXTY)
+            .mul(amount(machine.averageUtilizationPercentage))
+            .div(HUNDRED)
+            .mul(electricityCostPerKwh);
+          energyCost = energyCost.add(unitEnergy);
+        }
       }
 
       if (recipe.usesFryer) {
@@ -378,19 +400,18 @@ async function buildCalculation(orderId: number): Promise<{
       };
     })
     : [];
-  const utilityTypeById = new Map(utilityTypes.map((utilityType) => [utilityType.id, utilityType]));
   const utilityCosts = utilityBills.flatMap((bill) => {
     if (at < bill.periodStart || at > bill.periodEnd) return [];
-    const ordersInPeriod = paidOrders.filter((paid) => {
+    const coversInPeriod = paidOrders.filter((paid) => {
       const paidDate = dateKey(paid.createdAt);
       return paidDate >= bill.periodStart && paidDate <= bill.periodEnd;
-    }).length;
-    if (!ordersInPeriod) return [];
+    }).reduce((total, paid) => total.add(amount(paid.covers)), ZERO);
+    if (!coversInPeriod.isPositive() || order.covers <= 0) return [];
     const utilityType = utilityTypeById.get(bill.utilityTypeId);
     return [{
       code: `utility:${bill.id}`,
-      amount: amount(bill.totalCost).div(amount(ordersInPeriod)).toString(),
-      source: `Bolletta ${utilityType?.name ?? bill.utilityTypeId}, ripartita per comanda`,
+      amount: amount(bill.totalCost).div(coversInPeriod).mul(amount(order.covers)).toString(),
+      source: `Bolletta ${utilityType?.name ?? bill.utilityTypeId}, ripartita per coperto`,
       reliabilityLevel: "estimated" as const,
     }];
   });
@@ -401,15 +422,31 @@ async function buildCalculation(orderId: number): Promise<{
     reliabilityLevel: allocation.reliabilityLevel as "exact" | "estimated" | "approximate",
   })), ...utilityCosts];
 
-  const preparationMinutes = lines.reduce((total, line) => total.add(
-    amount(line.preparationMinutesPerUnit ?? 0).mul(amount(line.quantity)),
-  ), ZERO);
-  const fixedCostAllocation = config && amount(config.productiveHoursMonthly).isPositive()
+  const paidCoversInMonth = paidOrders
+    .filter((paid) => dateKey(paid.createdAt).slice(0, 7) === at.slice(0, 7))
+    .reduce((total, paid) => total.add(amount(paid.covers)), ZERO);
+  const monthlyFixedCosts = config
     ? amount(config.fixedCostsMonthly)
-      .div(amount(config.productiveHoursMonthly))
-      .mul(preparationMinutes.div(SIXTY))
+      .add(amount(config.rentMonthly))
+      .add(amount(config.taxRegisterAnnual).div(TWELVE))
+      .add(amount(config.chamberFeeAnnual).div(TWELVE))
     : ZERO;
-  if (config && !amount(config.productiveHoursMonthly).isPositive()) missingData.push("PRODUCTIVE_HOURS_INVALID");
+  const activeCoverItems = coverCostItems.filter((item) => item.active);
+  const componentCoverCost = activeCoverItems.reduce(
+    (total, item) => total.add(amount(item.purchasePrice).div(amount(item.purchaseQuantity)).mul(amount(item.quantityPerCover))),
+    ZERO,
+  );
+  // Il vecchio valore manuale resta solo per gli snapshot/assetti che non hanno
+  // ancora componenti del coperto configurati.
+  const coverCostPerCover = activeCoverItems.length
+    ? componentCoverCost
+    : (config ? amount(config.coverCostPerCover) : ZERO);
+  const fixedCostAllocation = config && paidCoversInMonth.isPositive() && order.covers > 0
+    ? monthlyFixedCosts.div(paidCoversInMonth)
+      .mul(amount(order.covers))
+      .add(coverCostPerCover.mul(amount(order.covers)))
+    : ZERO;
+  if (config && (!paidCoversInMonth.isPositive() || order.covers <= 0)) missingData.push("COVERS_MISSING");
 
   return {
     actualGrossRevenue,
@@ -565,6 +602,57 @@ export async function getMarginOverview(from?: string, to?: string) {
     contribution: product.contribution.toFixed(2),
     contributionPercent: product.grossRevenue.isZero() ? "0.00" : product.contribution.mul(HUNDRED).div(product.grossRevenue).toFixed(2),
   })).sort((a, b) => amount(b.contribution).raw > amount(a.contribution).raw ? 1 : -1);
+  const recommendations: Array<{ tone: "critical" | "attention" | "opportunity"; title: string; explanation: string; action: string }> = [];
+  const lossMakingProducts = productRows.filter((product) => product.productId !== 0 && amount(product.contribution).isNegative()).slice(0, 8);
+  if (!snapshots.length) {
+    recommendations.push({
+      tone: "attention",
+      title: "Non ci sono ancora comande calcolate",
+      explanation: "Senza comande pagate e snapshot di costo non è possibile stimare la marginalità netta.",
+      action: "Completa ricette e costi, poi ricalcola una comanda pagata.",
+    });
+  }
+  if (incompleteOrders) {
+    recommendations.push({
+      tone: "critical",
+      title: `${incompleteOrders} comande hanno dati incompleti`,
+      explanation: "Un margine incompleto può sembrare migliore del reale perché uno o più costi non sono stati inclusi.",
+      action: "Apri le comande segnalate, completa ricette, coperti o costi mancanti e ricalcola.",
+    });
+  }
+  if (totals.managementResult.isNegative()) {
+    recommendations.push({
+      tone: "critical",
+      title: "Il risultato gestionale netto è negativo",
+      explanation: `Nel periodo i ricavi non coprono tutti i costi: il risultato è ${totals.managementResult.toFixed(2)} € dopo ingredienti, commissioni, utenze e quote fisse.`,
+      action: "Intervieni prima sui prodotti in perdita e sulle voci di costo più alte, senza tagliare prezzi o porzioni alla cieca.",
+    });
+  }
+  if (lossMakingProducts.length) {
+    const names = lossMakingProducts.slice(0, 3).map((product) => product.productName).join(", ");
+    recommendations.push({
+      tone: "attention",
+      title: `Prodotti da rivedere: ${names}`,
+      explanation: "Questi prodotti hanno un margine di contribuzione negativo nel periodo: ogni vendita riduce il risultato prima ancora delle quote fisse.",
+      action: "Verifica prezzo di vendita, grammature, ingredienti e variazioni; valuta una nuova ricetta o un prezzo corretto.",
+    });
+  }
+  if (totals.netRevenue.isPositive() && totals.ingredientCost.mul(HUNDRED).div(totals.netRevenue).greaterThan(FixedDecimal.from("35"))) {
+    recommendations.push({
+      tone: "attention",
+      title: "Il costo ingredienti supera il 35% del ricavo netto",
+      explanation: `Gli ingredienti incidono per ${totals.ingredientCost.mul(HUNDRED).div(totals.netRevenue).toFixed(2)}% del ricavo netto nel periodo.`,
+      action: "Confronta i prezzi d'acquisto, gli scarti e le quantità in ricetta dei prodotti più venduti prima di modificare il listino.",
+    });
+  }
+  if (!recommendations.length) {
+    recommendations.push({
+      tone: "opportunity",
+      title: "Marginalità sotto controllo nel periodo",
+      explanation: "Le comande disponibili non mostrano perdite né dati mancanti rilevanti.",
+      action: "Mantieni aggiornati acquisti, bollette e ricette: i consigli si aggiornano con ogni nuovo snapshot.",
+    });
+  }
 
   return {
     from: from ?? null,
@@ -573,7 +661,8 @@ export async function getMarginOverview(from?: string, to?: string) {
     incompleteOrders,
     totals: Object.fromEntries(Object.entries(totals).map(([key, value]) => [key, value.toFixed(2)])),
     mostProfitableProducts: productRows.slice(0, 8),
-    lossMakingProducts: productRows.filter((product) => amount(product.contribution).isNegative()).slice(0, 8),
+    lossMakingProducts,
+    recommendations,
     incomplete: snapshots.filter(({ snapshot }) => snapshot.completenessStatus !== "complete").map(({ snapshot }) => ({
       orderId: snapshot.orderId,
       calculatedAt: snapshot.calculatedAt,

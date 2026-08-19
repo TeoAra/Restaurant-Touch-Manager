@@ -169,9 +169,18 @@ export const costConfigurationsTable = pgTable(
   "cost_configurations",
   {
     id: serial("id").primaryKey(),
-    electricityCostPerKwh: numeric("electricity_cost_per_kwh", { precision: 18, scale: 6 }).notNull(),
-    fixedCostsMonthly: numeric("fixed_costs_monthly", { precision: 18, scale: 6 }).notNull(),
-    productiveHoursMonthly: numeric("productive_hours_monthly", { precision: 18, scale: 6 }).notNull(),
+    // Prezzo di emergenza da usare soltanto quando non è disponibile una bolletta
+    // valida per il periodo. Il prezzo effettivo viene calcolato dalla bolletta.
+    electricityCostPerKwh: numeric("electricity_cost_per_kwh", { precision: 18, scale: 6 }).notNull().default("0"),
+    // Altri costi fissi mensili non coperti dalle voci dedicate qui sotto.
+    fixedCostsMonthly: numeric("fixed_costs_monthly", { precision: 18, scale: 6 }).notNull().default("0"),
+    rentMonthly: numeric("rent_monthly", { precision: 18, scale: 6 }).notNull().default("0"),
+    taxRegisterAnnual: numeric("tax_register_annual", { precision: 18, scale: 6 }).notNull().default("0"),
+    chamberFeeAnnual: numeric("chamber_fee_annual", { precision: 18, scale: 6 }).notNull().default("0"),
+    // Materiale legato a ciascun coperto: tovaglietta, tovaglioli e busta posate.
+    coverCostPerCover: numeric("cover_cost_per_cover", { precision: 18, scale: 6 }).notNull().default("0"),
+    // Campo storico: non viene più chiesto né usato nell'allocazione.
+    productiveHoursMonthly: numeric("productive_hours_monthly", { precision: 18, scale: 6 }).notNull().default("0"),
     ownerHourlyCost: numeric("owner_hourly_cost", { precision: 18, scale: 6 }).notNull(),
     taxReservePercentage: numeric("tax_reserve_percentage", { precision: 18, scale: 6 }).notNull(),
     cashFeePercentage: numeric("cash_fee_percentage", { precision: 18, scale: 6 }).notNull().default("0"),
@@ -189,6 +198,30 @@ export const costConfigurationsTable = pgTable(
 export const insertCostConfigurationSchema = createInsertSchema(costConfigurationsTable).omit({ id: true, createdAt: true });
 export type InsertCostConfiguration = z.infer<typeof insertCostConfigurationSchema>;
 export type CostConfiguration = typeof costConfigurationsTable.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// coverCostItems
+// ---------------------------------------------------------------------------
+export const coverCostItemsTable = pgTable(
+  "cover_cost_items",
+  {
+    id: serial("id").primaryKey(),
+    name: text("name").notNull(),
+    // Esempio: 100 tovaglioli, 50 porta-posate o 250 bustine di salsa.
+    purchaseQuantity: numeric("purchase_quantity", { precision: 18, scale: 6 }).notNull(),
+    purchaseUnit: text("purchase_unit").notNull().default("pz"),
+    purchasePrice: numeric("purchase_price", { precision: 18, scale: 6 }).notNull(),
+    // Consumo di questa voce per ogni persona seduta.
+    quantityPerCover: numeric("quantity_per_cover", { precision: 18, scale: 6 }).notNull().default("1"),
+    active: boolean("active").notNull().default(true),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (t) => [uniqueIndex("cover_cost_items_name_unique").on(t.name)],
+);
+
+export const insertCoverCostItemSchema = createInsertSchema(coverCostItemsTable).omit({ id: true, updatedAt: true });
+export type InsertCoverCostItem = z.infer<typeof insertCoverCostItemSchema>;
+export type CoverCostItem = typeof coverCostItemsTable.$inferSelect;
 
 // ---------------------------------------------------------------------------
 // equipment

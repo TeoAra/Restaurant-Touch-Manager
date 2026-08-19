@@ -25,6 +25,7 @@ type Overview = {
   mostProfitableProducts: ProductMargin[];
   lossMakingProducts: ProductMargin[];
   incomplete: Array<{ orderId: number; calculatedAt?: string; missingData: string[] }>;
+  recommendations: Array<{ tone: "critical" | "attention" | "opportunity"; title: string; explanation: string; action: string }>;
 };
 type Ingredient = { id: number; name: string; baseUnit: string; currentUnitCost: string; vatRate: string; unitSizeG?: string | null; sliceWeightG?: string | null; active: boolean };
 type RecipeProduct = { id: number; name: string; price: string; categoryId?: number | null; sortOrder: number };
@@ -38,9 +39,10 @@ type Catalog = {
   productVariations: MenuVariation[];
   recipes: Array<{ id: number; productId: number; validFrom: string; version: number }>;
   recipeItems: Array<{ recipeId: number; ingredientId: number; quantity: string; wastePercentage: string }>;
-  configurations: Array<{ id: number; validFrom: string; electricityCostPerKwh: string; fixedCostsMonthly: string; productiveHoursMonthly: string; ownerHourlyCost: string }>;
+  configurations: Array<{ id: number; validFrom: string; electricityCostPerKwh: string; fixedCostsMonthly: string; rentMonthly: string; taxRegisterAnnual: string; chamberFeeAnnual: string; coverCostPerCover: string; ownerHourlyCost: string }>;
+  coverCostItems: Array<{ id: number; name: string; purchaseQuantity: string; purchaseUnit: string; purchasePrice: string; quantityPerCover: string; active: boolean }>;
   utilityTypes: Array<{ id: number; code: string; name: string; measurementUnit: string; active: boolean }>;
-  utilityBills: Array<{ id: number; utilityTypeId: number; periodStart: string; periodEnd: string; totalCost: string; consumptionQuantity: string }>;
+  utilityBills: Array<{ id: number; utilityTypeId: number; periodStart: string; periodEnd: string; consumptionQuantity: string; variableCost: string; fixedCost: string; taxesAndFees: string; totalCost: string; variableUnitCost: string | null; totalUnitCost: string | null }>;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -53,7 +55,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
-function euro(value?: string): string {
+function euro(value?: string | number): string {
   return new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(Number(value ?? 0));
 }
 
@@ -121,6 +123,11 @@ function ingredientQuantityUnit(item: Ingredient | undefined): string {
   if (Number(item.sliceWeightG ?? 0) > 0) return "fette";
   if (Number(item.unitSizeG ?? 0) > 0) return "g";
   return item.baseUnit;
+}
+
+function coverCostDetail(item: Catalog["coverCostItems"][number]): { unitCost: number; coverCost: number } {
+  const unitCost = Number(item.purchasePrice) / Number(item.purchaseQuantity);
+  return { unitCost, coverCost: unitCost * Number(item.quantityPerCover) };
 }
 
 function variationOptions(value: MenuVariation["options"]): Array<{ name: string; priceExtra?: string }> {
@@ -225,6 +232,16 @@ export default function MarginalitaPage() {
                   <div className="flex gap-2 font-bold text-slate-800"><ChartNoAxesCombined className="h-4 w-4 text-primary" /> Come leggere il risultato</div>
                   <p className="mt-2">Margine di contribuzione = ricavi netti IVA − ingredienti − packaging − olio/energia − commissioni. Il risultato gestionale sottrae anche manodopera, costi indiretti e quota costi fissi.</p>
                 </div>
+                <section className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+                  <h3 className="flex items-center gap-2 font-bold text-slate-800"><BadgeEuro className="h-4 w-4 text-primary" /> Assistente marginalità locale</h3>
+                  <p className="mt-1 text-xs text-slate-600">Suggerimenti calcolati sui tuoi ricavi, costi e snapshot: ogni indicazione riporta il motivo e l’azione consigliata.</p>
+                  <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                    {(overview.data?.recommendations ?? []).map((recommendation, index) => {
+                      const tone = recommendation.tone === "critical" ? "border-red-200 bg-red-50 text-red-950" : recommendation.tone === "attention" ? "border-amber-200 bg-amber-50 text-amber-950" : "border-emerald-200 bg-emerald-50 text-emerald-950";
+                      return <div key={`${recommendation.title}-${index}`} className={`rounded-xl border p-3 text-sm ${tone}`}><b>{recommendation.title}</b><p className="mt-1 opacity-90">{recommendation.explanation}</p><p className="mt-2 font-semibold">Cosa fare: {recommendation.action}</p></div>;
+                    })}
+                  </div>
+                </section>
                 <div className="grid gap-5 lg:grid-cols-2">
                   <ProductList title="Più redditizi" icon={<TrendingUp className="h-4 w-4 text-emerald-600" />} rows={overview.data?.mostProfitableProducts ?? []} empty="Aggiungi ricette e completa i primi calcoli per vedere i prodotti migliori." />
                   <ProductList title="In perdita" icon={<TrendingDown className="h-4 w-4 text-red-600" />} rows={overview.data?.lossMakingProducts ?? []} empty="Nessun prodotto in perdita nel periodo calcolato." danger />
@@ -392,7 +409,7 @@ export default function MarginalitaPage() {
             </section>
           </TabsContent>
 
-          <TabsContent value="costs">
+          <TabsContent value="costs" className="space-y-5">
             <form onSubmit={async event => {
               event.preventDefault(); const form = new FormData(event.currentTarget);
               if (await submit("/configurations", Object.fromEntries(form), "Configurazione costi salvata")) event.currentTarget.reset();
@@ -401,10 +418,12 @@ export default function MarginalitaPage() {
               <p className="mt-1 text-xs text-slate-500">Valori validi dalla data indicata: i nuovi calcoli conserveranno la configurazione usata nello snapshot.</p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <SimpleInput label="Valida dal" name="validFrom" type="date" defaultValue={today} required />
-                <SimpleInput label="Energia €/kWh" name="electricityCostPerKwh" defaultValue="0.30" inputMode="decimal" required />
-                <SimpleInput label="Costi fissi mensili (€)" name="fixedCostsMonthly" defaultValue="0" inputMode="decimal" required />
-                <SimpleInput label="Ore produttive mensili" name="productiveHoursMonthly" defaultValue="160" inputMode="decimal" required />
-                <SimpleInput label="Costo orario manodopera (€)" name="ownerHourlyCost" defaultValue="0" inputMode="decimal" required />
+                <SimpleInput label="Affitto mensile (€)" name="rentMonthly" defaultValue="0" inputMode="decimal" />
+                <SimpleInput label="Registro imposte annuale (€)" name="taxRegisterAnnual" defaultValue="0" inputMode="decimal" />
+                <SimpleInput label="Diritto camerale annuale (€)" name="chamberFeeAnnual" defaultValue="0" inputMode="decimal" />
+                <SimpleInput label="Altri costi fissi mensili (€)" name="fixedCostsMonthly" defaultValue="0" inputMode="decimal" />
+                <SimpleInput label="Energia €/kWh senza bolletta (fallback)" name="electricityCostPerKwh" defaultValue="0" inputMode="decimal" />
+                <SimpleInput label="Costo orario manodopera (€)" name="ownerHourlyCost" defaultValue="0" inputMode="decimal" />
                 <SimpleInput label="Riserva imposte %" name="taxReservePercentage" defaultValue="0" inputMode="decimal" />
                 <SimpleInput label="Commissione carta %" name="cardFeePercentage" defaultValue="0" inputMode="decimal" />
                 <SimpleInput label="Commissione contanti %" name="cashFeePercentage" defaultValue="0" inputMode="decimal" />
@@ -412,8 +431,33 @@ export default function MarginalitaPage() {
                 <SimpleInput label="Commissione altri %" name="otherFeePercentage" defaultValue="0" inputMode="decimal" />
                 <SimpleInput label="Commissione fissa/transazione (€)" name="paymentFixedFee" defaultValue="0" inputMode="decimal" />
               </div>
+              <p className="mt-3 text-xs text-slate-500">Affitto, registro imposte, diritto camerale e altri fissi sono ripartiti sui coperti effettivamente serviti. Le ore produttive mensili non vengono più richieste.</p>
               <div className="mt-4"><SubmitButton>Salva configurazione</SubmitButton></div>
             </form>
+            <section className="grid gap-5 lg:grid-cols-[.9fr_1.1fr]">
+              <form onSubmit={async event => {
+                event.preventDefault(); const form = new FormData(event.currentTarget);
+                if (await submit("/cover-cost-items", Object.fromEntries(form), "Componente del coperto salvato")) event.currentTarget.reset();
+              }} className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+                <h2 className="flex items-center gap-2 font-bold"><PackagePlus className="h-4 w-4 text-primary" /> Componenti del coperto</h2>
+                <p className="text-xs text-slate-500">Il costo per persona viene calcolato da prezzo confezione ÷ quantità acquistata × quantità usata per coperto.</p>
+                <SimpleInput label="Componente" name="name" required placeholder="Tovaglietta, Tovagliolo, Maionese…" list="cover-item-presets" />
+                <datalist id="cover-item-presets"><option value="Tovaglietta" /><option value="Tovagliolo" /><option value="Porta posate" /><option value="Maionese" /><option value="Ketchup" /><option value="Senape" /><option value="Salsa BBQ" /></datalist>
+                <div className="grid grid-cols-2 gap-3"><SimpleInput label="Quantità confezione" name="purchaseQuantity" inputMode="decimal" required placeholder="es. 100" /><SimpleInput label="Unità" name="purchaseUnit" required defaultValue="pz" placeholder="pz, ml…" /></div>
+                <div className="grid grid-cols-2 gap-3"><SimpleInput label="Prezzo confezione (€)" name="purchasePrice" inputMode="decimal" required placeholder="0,00" /><SimpleInput label="Quantità per coperto" name="quantityPerCover" inputMode="decimal" required defaultValue="1" /></div>
+                <p className="text-xs text-slate-500">Regola del locale: Maionese, Ketchup, Senape e Salsa BBQ vengono salvate automaticamente come <b>2 porzioni per coperto</b>.</p>
+                <SubmitButton>Aggiungi componente</SubmitButton>
+              </form>
+              <section className="rounded-xl border border-slate-200 bg-white p-4">
+                <h2 className="font-bold">Costo coperto calcolato</h2>
+                <p className="mt-1 text-xs text-slate-500">Quando viene registrato il numero di persone al tavolo, ogni voce qui sotto viene moltiplicata automaticamente per i coperti.</p>
+                <div className="mt-3 divide-y divide-slate-100">{(catalog.data?.coverCostItems ?? []).map(item => {
+                  const detail = coverCostDetail(item);
+                  return <div key={item.id} className="flex justify-between gap-4 py-2 text-sm"><span><b>{item.name}</b><small className="ml-2 text-slate-500">{item.quantityPerCover} {item.purchaseUnit}/coperto · {euro(detail.unitCost)}/{item.purchaseUnit}</small></span><b>{euro(detail.coverCost)}/coperto</b></div>;
+                })}</div>
+                {!catalog.data?.coverCostItems.length && <p className="mt-4 text-sm text-slate-400">Aggiungi tovaglietta, tovaglioli, porta posate e salse per calcolare il coperto.</p>}
+              </section>
+            </section>
           </TabsContent>
 
           <TabsContent value="utilities" className="grid gap-5 lg:grid-cols-2">
@@ -435,11 +479,21 @@ export default function MarginalitaPage() {
               <h2 className="flex items-center gap-2 font-bold"><ReceiptText className="h-4 w-4 text-primary" /> Registra bolletta</h2>
               <label className="block text-xs font-semibold text-slate-600">Utenza<select required name="utilityTypeId" className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="">Seleziona…</option>{(catalog.data?.utilityTypes ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
               <div className="grid grid-cols-2 gap-3"><SimpleInput label="Dal" name="periodStart" type="date" required /><SimpleInput label="Al" name="periodEnd" type="date" required /></div>
-              <div className="grid grid-cols-2 gap-3"><SimpleInput label="Consumo" name="consumptionQuantity" inputMode="decimal" required /><SimpleInput label="Costo variabile (€)" name="variableCost" inputMode="decimal" required /></div>
+               <div className="grid grid-cols-2 gap-3"><SimpleInput label="Consumo (kWh, m³, …)" name="consumptionQuantity" inputMode="decimal" required /><SimpleInput label="Costo variabile (€)" name="variableCost" inputMode="decimal" required /></div>
               <div className="grid grid-cols-2 gap-3"><SimpleInput label="Costo fisso (€)" name="fixedCost" defaultValue="0" inputMode="decimal" required /><SimpleInput label="Tasse/oneri (€)" name="taxesAndFees" defaultValue="0" inputMode="decimal" /></div>
-              <SimpleInput label="Totale bolletta (€)" name="totalCost" inputMode="decimal" required />
+               <p className="text-xs text-slate-500">Il totale e il prezzo per kWh/m³ sono calcolati automaticamente dalle voci inserite, per evitare errori di trascrizione.</p>
               <SubmitButton>Registra bolletta</SubmitButton>
             </form>
+             <section className="rounded-xl border border-slate-200 bg-white p-4 lg:col-span-2">
+               <h2 className="font-bold">Prezzi calcolati dalle bollette</h2>
+               <p className="mt-1 text-xs text-slate-500">Il costo variabile serve per confrontare i consumi; il costo totale include quota fissa e oneri. Le bollette valide sono ripartite per coperto.</p>
+               <div className="mt-3 divide-y divide-slate-100">{(catalog.data?.utilityBills ?? []).map(bill => {
+                 const utility = (catalog.data?.utilityTypes ?? []).find(item => item.id === bill.utilityTypeId);
+                 const unit = utility?.measurementUnit ?? "unità";
+                 return <div key={bill.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm"><span><b>{utility?.name ?? "Utenza"}</b><small className="ml-2 text-slate-400">{bill.periodStart} → {bill.periodEnd} · {bill.consumptionQuantity} {unit}</small></span><span className="text-right"><b>{bill.variableUnitCost == null ? "—" : `${euro(bill.variableUnitCost)}/${unit}`}</b><small className="ml-2 text-slate-500">variabile · {bill.totalUnitCost == null ? "—" : `${euro(bill.totalUnitCost)}/${unit}`} totale</small></span></div>;
+               })}</div>
+               {!catalog.data?.utilityBills.length && <p className="mt-3 text-sm text-slate-400">Nessuna bolletta registrata.</p>}
+             </section>
           </TabsContent>
         </Tabs>
       </div>

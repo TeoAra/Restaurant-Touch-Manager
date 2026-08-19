@@ -556,6 +556,14 @@ export const GetMarginOverviewResponse = zod.object({
       missingData: zod.array(zod.string()),
     }),
   ),
+  recommendations: zod.array(
+    zod.object({
+      tone: zod.enum(["critical", "attention", "opportunity"]),
+      title: zod.string(),
+      explanation: zod.string(),
+      action: zod.string(),
+    }),
+  ),
 });
 
 /**
@@ -659,9 +667,23 @@ export const GetMarginCatalogResponse = zod.object({
       id: zod.number(),
       electricityCostPerKwh: zod.string(),
       fixedCostsMonthly: zod.string(),
-      productiveHoursMonthly: zod.string(),
+      rentMonthly: zod.string(),
+      taxRegisterAnnual: zod.string(),
+      chamberFeeAnnual: zod.string(),
+      coverCostPerCover: zod.string(),
       ownerHourlyCost: zod.string(),
       validFrom: zod.coerce.date(),
+    }),
+  ),
+  coverCostItems: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+      purchaseQuantity: zod.string(),
+      purchaseUnit: zod.string(),
+      purchasePrice: zod.string(),
+      quantityPerCover: zod.string(),
+      active: zod.boolean(),
     }),
   ),
   utilityTypes: zod.array(zod.record(zod.string(), zod.unknown())),
@@ -672,7 +694,18 @@ export const GetMarginCatalogResponse = zod.object({
       periodStart: zod.coerce.date(),
       periodEnd: zod.coerce.date(),
       consumptionQuantity: zod.string(),
+      variableCost: zod.string(),
+      fixedCost: zod.string(),
+      taxesAndFees: zod.string(),
       totalCost: zod.string(),
+      variableUnitCost: zod
+        .string()
+        .nullable()
+        .describe("Costo variabile calcolato per kWh, m³ o altra unità"),
+      totalUnitCost: zod
+        .string()
+        .nullable()
+        .describe("Totale bolletta calcolato per kWh, m³ o altra unità"),
     }),
   ),
 });
@@ -768,6 +801,13 @@ export const CreateMarginRecipeBody = zod.object({
 /**
  * @summary Create a dated cost configuration
  */
+export const createMarginConfigurationBodyElectricityCostPerKwhDefault = `0`;
+export const createMarginConfigurationBodyFixedCostsMonthlyDefault = `0`;
+export const createMarginConfigurationBodyRentMonthlyDefault = `0`;
+export const createMarginConfigurationBodyTaxRegisterAnnualDefault = `0`;
+export const createMarginConfigurationBodyChamberFeeAnnualDefault = `0`;
+export const createMarginConfigurationBodyCoverCostPerCoverDefault = `0`;
+export const createMarginConfigurationBodyOwnerHourlyCostDefault = `0`;
 export const createMarginConfigurationBodyTaxReservePercentageDefault = `0`;
 export const createMarginConfigurationBodyCashFeePercentageDefault = `0`;
 export const createMarginConfigurationBodyCardFeePercentageDefault = `0`;
@@ -776,10 +816,29 @@ export const createMarginConfigurationBodyOtherFeePercentageDefault = `0`;
 export const createMarginConfigurationBodyPaymentFixedFeeDefault = `0`;
 
 export const CreateMarginConfigurationBody = zod.object({
-  electricityCostPerKwh: zod.string(),
-  fixedCostsMonthly: zod.string(),
-  productiveHoursMonthly: zod.string(),
-  ownerHourlyCost: zod.string(),
+  electricityCostPerKwh: zod
+    .string()
+    .default(createMarginConfigurationBodyElectricityCostPerKwhDefault)
+    .describe("Fallback senza bolletta valida"),
+  fixedCostsMonthly: zod
+    .string()
+    .default(createMarginConfigurationBodyFixedCostsMonthlyDefault)
+    .describe("Altri costi fissi mensili"),
+  rentMonthly: zod
+    .string()
+    .default(createMarginConfigurationBodyRentMonthlyDefault),
+  taxRegisterAnnual: zod
+    .string()
+    .default(createMarginConfigurationBodyTaxRegisterAnnualDefault),
+  chamberFeeAnnual: zod
+    .string()
+    .default(createMarginConfigurationBodyChamberFeeAnnualDefault),
+  coverCostPerCover: zod
+    .string()
+    .default(createMarginConfigurationBodyCoverCostPerCoverDefault),
+  ownerHourlyCost: zod
+    .string()
+    .default(createMarginConfigurationBodyOwnerHourlyCostDefault),
   taxReservePercentage: zod
     .string()
     .default(createMarginConfigurationBodyTaxReservePercentageDefault),
@@ -803,6 +862,21 @@ export const CreateMarginConfigurationBody = zod.object({
 });
 
 /**
+ * @summary Record a cover component such as placemat, napkin, cutlery holder or sauce
+ */
+export const CreateMarginCoverCostItemBody = zod.object({
+  name: zod.string(),
+  purchaseQuantity: zod
+    .string()
+    .describe("Quantità contenuta nella confezione acquistata"),
+  purchaseUnit: zod.string(),
+  purchasePrice: zod.string().describe("Prezzo pagato per la confezione"),
+  quantityPerCover: zod
+    .string()
+    .describe("Quantità consumata da una persona seduta"),
+});
+
+/**
  * @summary Record a utility bill
  */
 export const createMarginUtilityBillBodyTaxesAndFeesDefault = `0`;
@@ -818,7 +892,6 @@ export const CreateMarginUtilityBillBody = zod.object({
   taxesAndFees: zod
     .string()
     .default(createMarginUtilityBillBodyTaxesAndFeesDefault),
-  totalCost: zod.string(),
   documentReference: zod.string().optional(),
 });
 

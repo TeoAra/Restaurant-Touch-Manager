@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   costConfigurationsTable,
+  coverCostItemsTable,
   db,
   categoriesTable,
   ingredientsTable,
@@ -21,6 +22,7 @@ import {
   processMarginJob,
   processPendingMarginJobs,
 } from "../lib/margin-service.js";
+import { FixedDecimal } from "../lib/fixed-decimal.js";
 import { requireAdminSession } from "../lib/session-auth.js";
 
 const router = Router();
@@ -45,6 +47,15 @@ function strictlyPositiveDecimal(value: unknown, label: string): string {
   const parsed = decimal(value);
   if (/^-?0(?:\.0+)?$/.test(parsed) || parsed.startsWith("-")) throw new Error(`${label} deve essere maggiore di zero`);
   return parsed;
+}
+
+function withUtilityRates<T extends { consumptionQuantity: string; variableCost: string; totalCost: string }>(bill: T) {
+  const consumption = FixedDecimal.from(bill.consumptionQuantity);
+  return {
+    ...bill,
+    variableUnitCost: consumption.isPositive() ? FixedDecimal.from(bill.variableCost).div(consumption).toString() : null,
+    totalUnitCost: consumption.isPositive() ? FixedDecimal.from(bill.totalCost).div(consumption).toString() : null,
+  };
 }
 
 router.get("/overview", async (req, res): Promise<void> => {
@@ -86,7 +97,7 @@ router.post("/orders/:orderId/recalculate", async (req, res): Promise<void> => {
 });
 
 router.get("/catalog", async (_req, res): Promise<void> => {
-  const [ingredients, categories, products, productVariations, recipes, recipeItems, configurations, utilityTypes, utilityBills] = await Promise.all([
+  const [ingredients, categories, products, productVariations, recipes, recipeItems, configurations, coverCostItems, utilityTypes, utilityBills] = await Promise.all([
     db.select().from(ingredientsTable).orderBy(ingredientsTable.name),
     db.select().from(categoriesTable).orderBy(categoriesTable.sortOrder, categoriesTable.name),
     db.select().from(productsTable).orderBy(productsTable.categoryId, productsTable.sortOrder, productsTable.name),
@@ -94,10 +105,45 @@ router.get("/catalog", async (_req, res): Promise<void> => {
     db.select().from(recipesTable).orderBy(desc(recipesTable.validFrom), desc(recipesTable.version)),
     db.select().from(recipeItemsTable),
     db.select().from(costConfigurationsTable).orderBy(desc(costConfigurationsTable.validFrom)),
+    db.select().from(coverCostItemsTable).orderBy(coverCostItemsTable.name),
     db.select().from(utilityTypesTable).orderBy(utilityTypesTable.name),
     db.select().from(utilityBillsTable).orderBy(desc(utilityBillsTable.periodStart)),
   ]);
-  res.json({ ingredients, categories, products, productVariations, recipes, recipeItems, configurations, utilityTypes, utilityBills });
+  res.json({
+    ingredients,
+    categories,
+    products,
+    productVariations,
+    recipes,
+    recipeItems,
+    configurations,
+    coverCostItems,
+    utilityTypes,
+    utilityBills: utilityBills.map(withUtilityRates),
+  });
+});
+
+router.post("/cover-cost-items", async (req, res): Promise<void> => {
+  try {
+    const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+    const purchaseUnit = typeof req.body?.purchaseUnit === "string" ? req.body.purchaseUnit.trim() : "";
+    if (!name || !purchaseUnit) throw new Error("Nome e unità di acquisto sono obbligatori");
+    const normalizedName = name.toLocaleLowerCase("it");
+    const isStandardIncludedSauce = ["maionese", "ketchup", "senape", "bbq", "salsa bbq"]
+      .some((sauce) => normalizedName === sauce || normalizedName.includes(sauce));
+    const [item] = await db.insert(coverCostItemsTable).values({
+      name,
+      purchaseUnit,
+      purchaseQuantity: strictlyPositiveDecimal(req.body.purchaseQuantity, "La quantità acquistata"),
+      purchasePrice: strictlyPositiveDecimal(req.body.purchasePrice, "Il prezzo d'acquisto"),
+      // Regola concordata per il locale: due bustine/porzioni per ogni salsa
+      // standard sono incluse in ogni coperto.
+      quantityPerCover: isStandardIncludedSauce ? "2" : strictlyPositiveDecimal(req.body.quantityPerCover, "La quantità per coperto"),
+    }).returning();
+    res.status(201).json(item);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Componente coperto non valido" });
+  }
 });
 
 router.post("/ingredients", async (req, res): Promise<void> => {
@@ -202,10 +248,15 @@ router.post("/configurations", async (req, res): Promise<void> => {
     const validFrom = validDate(req.body?.validFrom);
     if (!validFrom) throw new Error("La data di validità è obbligatoria");
     const [configuration] = await db.insert(costConfigurationsTable).values({
-      electricityCostPerKwh: decimal(req.body.electricityCostPerKwh),
-      fixedCostsMonthly: decimal(req.body.fixedCostsMonthly),
-      productiveHoursMonthly: strictlyPositiveDecimal(req.body.productiveHoursMonthly, "Le ore produttive mensili"),
-      ownerHourlyCost: decimal(req.body.ownerHourlyCost),
+      electricityCostPerKwh: decimal(req.body.electricityCostPerKwh, "0"),
+      fixedCostsMonthly: decimal(req.body.fixedCostsMonthly, "0"),
+      rentMonthly: decimal(req.body.rentMonthly, "0"),
+      taxRegisterAnnual: decimal(req.body.taxRegisterAnnual, "0"),
+      chamberFeeAnnual: decimal(req.body.chamberFeeAnnual, "0"),
+      coverCostPerCover: decimal(req.body.coverCostPerCover, "0"),
+      // Dato legacy: i costi fissi ora sono allocati sui coperti effettivi.
+      productiveHoursMonthly: "0",
+      ownerHourlyCost: decimal(req.body.ownerHourlyCost, "0"),
       taxReservePercentage: decimal(req.body.taxReservePercentage, "0"),
       cashFeePercentage: decimal(req.body.cashFeePercentage, "0"),
       cardFeePercentage: decimal(req.body.cardFeePercentage, "0"),
@@ -227,17 +278,27 @@ router.post("/utility-bills", async (req, res): Promise<void> => {
     const periodStart = validDate(req.body?.periodStart);
     const periodEnd = validDate(req.body?.periodEnd);
     if (!utilityTypeId || !periodStart || !periodEnd) throw new Error("Tipo utenza e periodo sono obbligatori");
+    const consumptionQuantity = strictlyPositiveDecimal(req.body.consumptionQuantity, "Il consumo");
+    const variableCost = decimal(req.body.variableCost, "0");
+    const fixedCost = decimal(req.body.fixedCost, "0");
+    const taxesAndFees = decimal(req.body.taxesAndFees, "0");
+    // Il totale non è più un numero da copiare manualmente: deriva dalle voci
+    // della bolletta, così il prezzo per kWh/m³ è verificabile.
+    const totalCost = FixedDecimal.from(variableCost)
+      .add(FixedDecimal.from(fixedCost))
+      .add(FixedDecimal.from(taxesAndFees))
+      .toString();
     const [bill] = await db.insert(utilityBillsTable).values({
       utilityTypeId, supplier: typeof req.body?.supplier === "string" ? req.body.supplier.trim() || null : null,
       periodStart, periodEnd,
-      consumptionQuantity: decimal(req.body.consumptionQuantity),
-      variableCost: decimal(req.body.variableCost),
-      fixedCost: decimal(req.body.fixedCost),
-      taxesAndFees: decimal(req.body.taxesAndFees, "0"),
-      totalCost: decimal(req.body.totalCost),
+      consumptionQuantity,
+      variableCost,
+      fixedCost,
+      taxesAndFees,
+      totalCost,
       documentReference: typeof req.body?.documentReference === "string" ? req.body.documentReference.trim() || null : null,
     }).returning();
-    res.status(201).json(bill);
+    res.status(201).json(withUtilityRates(bill));
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Bolletta non valida" });
   }

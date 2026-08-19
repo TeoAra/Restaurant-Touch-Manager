@@ -341,6 +341,22 @@ export type MarginOverviewIncompleteItem = {
   missingData: string[];
 };
 
+export type MarginOverviewRecommendationsItemTone =
+  (typeof MarginOverviewRecommendationsItemTone)[keyof typeof MarginOverviewRecommendationsItemTone];
+
+export const MarginOverviewRecommendationsItemTone = {
+  critical: "critical",
+  attention: "attention",
+  opportunity: "opportunity",
+} as const;
+
+export type MarginOverviewRecommendationsItem = {
+  tone: MarginOverviewRecommendationsItemTone;
+  title: string;
+  explanation: string;
+  action: string;
+};
+
 export interface MarginOverview {
   /** @nullable */
   from?: string | null;
@@ -352,6 +368,7 @@ export interface MarginOverview {
   mostProfitableProducts: MarginProductResult[];
   lossMakingProducts: MarginProductResult[];
   incomplete: MarginOverviewIncompleteItem[];
+  recommendations: MarginOverviewRecommendationsItem[];
 }
 
 export type MarginOrderSnapshotCompletenessStatus =
@@ -467,16 +484,24 @@ export interface MarginCostConfiguration {
   id: number;
   electricityCostPerKwh: string;
   fixedCostsMonthly: string;
-  productiveHoursMonthly: string;
+  rentMonthly: string;
+  taxRegisterAnnual: string;
+  chamberFeeAnnual: string;
+  coverCostPerCover: string;
   ownerHourlyCost: string;
   validFrom: string;
 }
 
 export interface MarginCostConfigurationInput {
-  electricityCostPerKwh: string;
-  fixedCostsMonthly: string;
-  productiveHoursMonthly: string;
-  ownerHourlyCost: string;
+  /** Fallback senza bolletta valida */
+  electricityCostPerKwh?: string;
+  /** Altri costi fissi mensili */
+  fixedCostsMonthly?: string;
+  rentMonthly?: string;
+  taxRegisterAnnual?: string;
+  chamberFeeAnnual?: string;
+  coverCostPerCover?: string;
+  ownerHourlyCost?: string;
   taxReservePercentage?: string;
   cashFeePercentage?: string;
   cardFeePercentage?: string;
@@ -488,13 +513,47 @@ export interface MarginCostConfigurationInput {
   validTo?: string | null;
 }
 
+export interface MarginCoverCostItem {
+  id: number;
+  name: string;
+  purchaseQuantity: string;
+  purchaseUnit: string;
+  purchasePrice: string;
+  quantityPerCover: string;
+  active: boolean;
+}
+
+export interface MarginCoverCostItemInput {
+  name: string;
+  /** Quantità contenuta nella confezione acquistata */
+  purchaseQuantity: string;
+  purchaseUnit: string;
+  /** Prezzo pagato per la confezione */
+  purchasePrice: string;
+  /** Quantità consumata da una persona seduta */
+  quantityPerCover: string;
+}
+
 export interface MarginUtilityBill {
   id: number;
   utilityTypeId: number;
   periodStart: string;
   periodEnd: string;
   consumptionQuantity: string;
+  variableCost: string;
+  fixedCost: string;
+  taxesAndFees: string;
   totalCost: string;
+  /**
+   * Costo variabile calcolato per kWh, m³ o altra unità
+   * @nullable
+   */
+  variableUnitCost: string | null;
+  /**
+   * Totale bolletta calcolato per kWh, m³ o altra unità
+   * @nullable
+   */
+  totalUnitCost: string | null;
 }
 
 export interface MarginUtilityType {
@@ -524,7 +583,6 @@ export interface MarginUtilityBillInput {
   variableCost: string;
   fixedCost: string;
   taxesAndFees?: string;
-  totalCost: string;
   documentReference?: string;
 }
 
@@ -540,6 +598,7 @@ export interface MarginCatalog {
   recipes: MarginRecipe[];
   recipeItems: MarginCatalogRecipeItemsItem[];
   configurations: MarginCostConfiguration[];
+  coverCostItems: MarginCoverCostItem[];
   utilityTypes: MarginCatalogUtilityTypesItem[];
   utilityBills: MarginUtilityBill[];
 }

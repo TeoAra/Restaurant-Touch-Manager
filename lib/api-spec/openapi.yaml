@@ -785,6 +785,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/MarginCostConfiguration"
 
+  /marginality/cover-cost-items:
+    post:
+      operationId: createMarginCoverCostItem
+      tags: [marginality]
+      summary: Record a cover component such as placemat, napkin, cutlery holder or sauce
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarginCoverCostItemInput"
+      responses:
+        "201":
+          description: Cover component created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarginCoverCostItem"
+
   /marginality/utility-bills:
     post:
       operationId: createMarginUtilityBill
@@ -1452,7 +1471,7 @@ components:
         contributionPercent: { type: string }
     MarginOverview:
       type: object
-      required: [orderCount, incompleteOrders, totals, mostProfitableProducts, lossMakingProducts, incomplete]
+      required: [orderCount, incompleteOrders, totals, mostProfitableProducts, lossMakingProducts, incomplete, recommendations]
       properties:
         from: { type: ["string", "null"] }
         to: { type: ["string", "null"] }
@@ -1476,6 +1495,16 @@ components:
               orderId: { type: integer }
               calculatedAt: { type: string }
               missingData: { type: array, items: { type: string } }
+        recommendations:
+          type: array
+          items:
+            type: object
+            required: [tone, title, explanation, action]
+            properties:
+              tone: { type: string, enum: [critical, attention, opportunity] }
+              title: { type: string }
+              explanation: { type: string }
+              action: { type: string }
     MarginOrderSnapshot:
       type: object
       required: [id, orderId, calculationVersion, grossRevenue, netRevenue, contributionMargin, estimatedManagementResult, completenessStatus]
@@ -1568,22 +1597,28 @@ components:
           items: { $ref: "#/components/schemas/MarginRecipeItemInput" }
     MarginCostConfiguration:
       type: object
-      required: [id, electricityCostPerKwh, fixedCostsMonthly, productiveHoursMonthly, ownerHourlyCost, validFrom]
+      required: [id, electricityCostPerKwh, fixedCostsMonthly, rentMonthly, taxRegisterAnnual, chamberFeeAnnual, coverCostPerCover, ownerHourlyCost, validFrom]
       properties:
         id: { type: integer }
         electricityCostPerKwh: { type: string }
         fixedCostsMonthly: { type: string }
-        productiveHoursMonthly: { type: string }
+        rentMonthly: { type: string }
+        taxRegisterAnnual: { type: string }
+        chamberFeeAnnual: { type: string }
+        coverCostPerCover: { type: string }
         ownerHourlyCost: { type: string }
         validFrom: { type: string, format: date }
     MarginCostConfigurationInput:
       type: object
-      required: [electricityCostPerKwh, fixedCostsMonthly, productiveHoursMonthly, ownerHourlyCost, validFrom]
+      required: [validFrom]
       properties:
-        electricityCostPerKwh: { type: string }
-        fixedCostsMonthly: { type: string }
-        productiveHoursMonthly: { type: string }
-        ownerHourlyCost: { type: string }
+        electricityCostPerKwh: { type: string, default: "0", description: "Fallback senza bolletta valida" }
+        fixedCostsMonthly: { type: string, default: "0", description: "Altri costi fissi mensili" }
+        rentMonthly: { type: string, default: "0" }
+        taxRegisterAnnual: { type: string, default: "0" }
+        chamberFeeAnnual: { type: string, default: "0" }
+        coverCostPerCover: { type: string, default: "0" }
+        ownerHourlyCost: { type: string, default: "0" }
         taxReservePercentage: { type: string, default: "0" }
         cashFeePercentage: { type: string, default: "0" }
         cardFeePercentage: { type: string, default: "0" }
@@ -1592,16 +1627,41 @@ components:
         paymentFixedFee: { type: string, default: "0" }
         validFrom: { type: string, format: date }
         validTo: { type: ["string", "null"], format: date }
+    MarginCoverCostItem:
+      type: object
+      required: [id, name, purchaseQuantity, purchaseUnit, purchasePrice, quantityPerCover, active]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        purchaseQuantity: { type: string }
+        purchaseUnit: { type: string }
+        purchasePrice: { type: string }
+        quantityPerCover: { type: string }
+        active: { type: boolean }
+    MarginCoverCostItemInput:
+      type: object
+      required: [name, purchaseQuantity, purchaseUnit, purchasePrice, quantityPerCover]
+      properties:
+        name: { type: string }
+        purchaseQuantity: { type: string, description: "Quantità contenuta nella confezione acquistata" }
+        purchaseUnit: { type: string, example: "pz" }
+        purchasePrice: { type: string, description: "Prezzo pagato per la confezione" }
+        quantityPerCover: { type: string, description: "Quantità consumata da una persona seduta" }
     MarginUtilityBill:
       type: object
-      required: [id, utilityTypeId, periodStart, periodEnd, consumptionQuantity, totalCost]
+      required: [id, utilityTypeId, periodStart, periodEnd, consumptionQuantity, variableCost, fixedCost, taxesAndFees, totalCost, variableUnitCost, totalUnitCost]
       properties:
         id: { type: integer }
         utilityTypeId: { type: integer }
         periodStart: { type: string, format: date }
         periodEnd: { type: string, format: date }
         consumptionQuantity: { type: string }
+        variableCost: { type: string }
+        fixedCost: { type: string }
+        taxesAndFees: { type: string }
         totalCost: { type: string }
+        variableUnitCost: { type: ["string", "null"], description: "Costo variabile calcolato per kWh, m³ o altra unità" }
+        totalUnitCost: { type: ["string", "null"], description: "Totale bolletta calcolato per kWh, m³ o altra unità" }
     MarginUtilityType:
       type: object
       required: [id, code, name, measurementUnit, allocationMethod, reliabilityLevel, active]
@@ -1624,7 +1684,7 @@ components:
         reliabilityLevel: { type: string, default: estimated }
     MarginUtilityBillInput:
       type: object
-      required: [utilityTypeId, periodStart, periodEnd, consumptionQuantity, variableCost, fixedCost, totalCost]
+      required: [utilityTypeId, periodStart, periodEnd, consumptionQuantity, variableCost, fixedCost]
       properties:
         utilityTypeId: { type: integer }
         supplier: { type: string }
@@ -1634,11 +1694,10 @@ components:
         variableCost: { type: string }
         fixedCost: { type: string }
         taxesAndFees: { type: string, default: "0" }
-        totalCost: { type: string }
         documentReference: { type: string }
     MarginCatalog:
       type: object
-      required: [ingredients, categories, products, productVariations, recipes, recipeItems, configurations, utilityTypes, utilityBills]
+      required: [ingredients, categories, products, productVariations, recipes, recipeItems, configurations, coverCostItems, utilityTypes, utilityBills]
       properties:
         ingredients: { type: array, items: { $ref: "#/components/schemas/MarginIngredient" } }
         categories: { type: array, items: { $ref: "#/components/schemas/Category" } }
@@ -1647,6 +1706,7 @@ components:
         recipes: { type: array, items: { $ref: "#/components/schemas/MarginRecipe" } }
         recipeItems: { type: array, items: { type: object, additionalProperties: true } }
         configurations: { type: array, items: { $ref: "#/components/schemas/MarginCostConfiguration" } }
+        coverCostItems: { type: array, items: { $ref: "#/components/schemas/MarginCoverCostItem" } }
         utilityTypes: { type: array, items: { type: object, additionalProperties: true } }
         utilityBills: { type: array, items: { $ref: "#/components/schemas/MarginUtilityBill" } }
 

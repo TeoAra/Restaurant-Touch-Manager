@@ -43,6 +43,8 @@ import type {
   MarginCatalog,
   MarginCostConfiguration,
   MarginCostConfigurationInput,
+  MarginCoverCostItem,
+  MarginCoverCostItemInput,
   MarginIngredient,
   MarginIngredientInput,
   MarginIngredientUpdate,
@@ -3489,6 +3491,93 @@ export const useCreateMarginConfiguration = <
   TContext
 > => {
   return useMutation(getCreateMarginConfigurationMutationOptions(options));
+};
+
+/**
+ * @summary Record a cover component such as placemat, napkin, cutlery holder or sauce
+ */
+export const getCreateMarginCoverCostItemUrl = () => {
+  return `/api/marginality/cover-cost-items`;
+};
+
+export const createMarginCoverCostItem = async (
+  marginCoverCostItemInput: MarginCoverCostItemInput,
+  options?: RequestInit,
+): Promise<MarginCoverCostItem> => {
+  return customFetch<MarginCoverCostItem>(getCreateMarginCoverCostItemUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(marginCoverCostItemInput),
+  });
+};
+
+export const getCreateMarginCoverCostItemMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createMarginCoverCostItem>>,
+    TError,
+    { data: BodyType<MarginCoverCostItemInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createMarginCoverCostItem>>,
+  TError,
+  { data: BodyType<MarginCoverCostItemInput> },
+  TContext
+> => {
+  const mutationKey = ["createMarginCoverCostItem"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createMarginCoverCostItem>>,
+    { data: BodyType<MarginCoverCostItemInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createMarginCoverCostItem(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateMarginCoverCostItemMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createMarginCoverCostItem>>
+>;
+export type CreateMarginCoverCostItemMutationBody =
+  BodyType<MarginCoverCostItemInput>;
+export type CreateMarginCoverCostItemMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Record a cover component such as placemat, napkin, cutlery holder or sauce
+ */
+export const useCreateMarginCoverCostItem = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createMarginCoverCostItem>>,
+    TError,
+    { data: BodyType<MarginCoverCostItemInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createMarginCoverCostItem>>,
+  TError,
+  { data: BodyType<MarginCoverCostItemInput> },
+  TContext
+> => {
+  return useMutation(getCreateMarginCoverCostItemMutationOptions(options));
 };
 
 /**
