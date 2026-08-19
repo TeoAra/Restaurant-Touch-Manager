@@ -600,6 +600,16 @@ export const GetMarginCatalogResponse = zod.object({
       active: zod.boolean(),
     }),
   ),
+  categories: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+      color: zod.string(),
+      icon: zod.string().nullish(),
+      sortOrder: zod.number(),
+      createdAt: zod.string(),
+    }),
+  ),
   products: zod.array(
     zod.object({
       id: zod.number(),

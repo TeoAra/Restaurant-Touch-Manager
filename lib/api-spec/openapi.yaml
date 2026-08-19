@@ -1621,9 +1621,10 @@ components:
         documentReference: { type: string }
     MarginCatalog:
       type: object
-      required: [ingredients, products, recipes, recipeItems, configurations, utilityTypes, utilityBills]
+      required: [ingredients, categories, products, recipes, recipeItems, configurations, utilityTypes, utilityBills]
       properties:
         ingredients: { type: array, items: { $ref: "#/components/schemas/MarginIngredient" } }
+        categories: { type: array, items: { $ref: "#/components/schemas/Category" } }
         products: { type: array, items: { $ref: "#/components/schemas/Product" } }
         recipes: { type: array, items: { $ref: "#/components/schemas/MarginRecipe" } }
         recipeItems: { type: array, items: { type: object, additionalProperties: true } }

@@ -507,6 +507,7 @@ export type MarginCatalogUtilityTypesItem = { [key: string]: unknown };
 
 export interface MarginCatalog {
   ingredients: MarginIngredient[];
+  categories: Category[];
   products: Product[];
   recipes: MarginRecipe[];
   recipeItems: MarginCatalogRecipeItemsItem[];

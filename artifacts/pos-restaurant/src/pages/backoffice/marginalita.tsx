@@ -27,9 +27,13 @@ type Overview = {
   incomplete: Array<{ orderId: number; calculatedAt?: string; missingData: string[] }>;
 };
 type Ingredient = { id: number; name: string; baseUnit: string; currentUnitCost: string; vatRate: string; active: boolean };
+type RecipeProduct = { id: number; name: string; price: string; categoryId: number | null; sortOrder: number };
+type RecipeCategory = { id: number; name: string; sortOrder: number };
+type RecipeProductGroup = { id: number | null; name: string; products: RecipeProduct[] };
 type Catalog = {
   ingredients: Ingredient[];
-  products: Array<{ id: number; name: string; price: string }>;
+  categories: RecipeCategory[];
+  products: RecipeProduct[];
   recipes: Array<{ id: number; productId: number; yieldQuantity: string; preparationMinutes: number; validFrom: string; version: number }>;
   recipeItems: Array<{ recipeId: number; ingredientId: number; quantity: string; wastePercentage: string }>;
   configurations: Array<{ id: number; validFrom: string; electricityCostPerKwh: string; fixedCostsMonthly: string; productiveHoursMonthly: string; ownerHourlyCost: string }>;
@@ -70,6 +74,30 @@ function SubmitButton({ children }: { children: React.ReactNode }) {
   return <button type="submit" className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary/90"><CirclePlus className="h-4 w-4" />{children}</button>;
 }
 
+function groupMenuProducts(products: RecipeProduct[], categories: RecipeCategory[]): RecipeProductGroup[] {
+  const productsByCategory = new Map<number, RecipeProduct[]>();
+  const uncategorized: RecipeProduct[] = [];
+
+  for (const product of products) {
+    if (product.categoryId == null) {
+      uncategorized.push(product);
+      continue;
+    }
+    productsByCategory.set(product.categoryId, [...(productsByCategory.get(product.categoryId) ?? []), product]);
+  }
+
+  const sortProducts = (rows: RecipeProduct[]) => [...rows].sort(
+    (left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "it"),
+  );
+  const groups: RecipeProductGroup[] = [...categories]
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "it"))
+    .map(category => ({ id: category.id, name: category.name, products: sortProducts(productsByCategory.get(category.id) ?? []) }))
+    .filter(group => group.products.length > 0);
+
+  if (uncategorized.length) groups.push({ id: null, name: "Senza categoria", products: sortProducts(uncategorized) });
+  return groups;
+}
+
 export default function MarginalitaPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -108,7 +136,17 @@ export default function MarginalitaPage() {
   const totals = overview.data?.totals ?? {};
   const contribution = Number(totals.contributionMargin ?? 0);
   const management = Number(totals.managementResult ?? 0);
-  const recipesByProduct = useMemo(() => new Map(catalog.data?.recipes.map(recipe => [recipe.productId, recipe]) ?? []), [catalog.data?.recipes]);
+  const recipesByProduct = useMemo(() => {
+    const latestByProduct = new Map<number, Catalog["recipes"][number]>();
+    for (const recipe of catalog.data?.recipes ?? []) {
+      if (!latestByProduct.has(recipe.productId)) latestByProduct.set(recipe.productId, recipe);
+    }
+    return latestByProduct;
+  }, [catalog.data?.recipes]);
+  const recipeProductGroups = useMemo(
+    () => groupMenuProducts(catalog.data?.products ?? [], catalog.data?.categories ?? []),
+    [catalog.data?.products, catalog.data?.categories],
+  );
 
   return (
     <BackofficeShell
@@ -288,13 +326,19 @@ export default function MarginalitaPage() {
           </TabsContent>
 
           <TabsContent value="recipes" className="grid gap-5 lg:grid-cols-[.9fr_1.1fr]">
-            <RecipeForm products={catalog.data?.products ?? []} ingredients={catalog.data?.ingredients ?? []} onSave={async data => submit("/recipes", data, "Ricetta salvata")} />
+            <RecipeForm productGroups={recipeProductGroups} ingredients={catalog.data?.ingredients ?? []} onSave={async data => submit("/recipes", data, "Ricetta salvata")} />
             <section className="rounded-xl border border-slate-200 bg-white p-4">
               <h2 className="flex items-center gap-2 font-bold"><Utensils className="h-4 w-4 text-primary" /> Copertura del menu</h2>
-              <div className="mt-3 space-y-2">{(catalog.data?.products ?? []).map(product => {
-                const recipe = recipesByProduct.get(product.id);
-                return <div key={product.id} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm"><span>{product.name}</span>{recipe ? <span className="text-emerald-700 font-semibold">Ricetta v{recipe.version} · {recipe.preparationMinutes} min</span> : <span className="text-amber-600">Ricetta mancante</span>}</div>;
-              })}</div>
+              <p className="mt-1 text-xs text-slate-500">Prodotti del Menu raggruppati con lo stesso ordine delle categorie.</p>
+              <div className="mt-3 space-y-4">{recipeProductGroups.length === 0 ? <p className="py-4 text-sm text-slate-400">Nessun prodotto disponibile nel Menu.</p> : recipeProductGroups.map(group => (
+                <div key={group.id ?? "uncategorized"}>
+                  <h3 className="border-b border-slate-100 pb-1 text-xs font-bold uppercase tracking-wide text-slate-500">{group.name}</h3>
+                  <div className="mt-2 space-y-2">{group.products.map(product => {
+                    const recipe = recipesByProduct.get(product.id);
+                    return <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 px-3 py-2 text-sm"><span>{product.name}</span>{recipe ? <span className="shrink-0 text-emerald-700 font-semibold">Ricetta v{recipe.version} · {recipe.preparationMinutes} min</span> : <span className="shrink-0 text-amber-600">Ricetta mancante</span>}</div>;
+                  })}</div>
+                </div>
+              ))}</div>
             </section>
           </TabsContent>
 
@@ -357,7 +401,7 @@ function ProductList({ title, icon, rows, empty, danger = false }: { title: stri
   return <section className="rounded-xl border border-slate-200 bg-white p-4"><h3 className="flex items-center gap-2 font-bold text-slate-800">{icon}{title}</h3><div className="mt-3 space-y-2">{rows.length === 0 ? <p className="py-4 text-sm text-slate-400">{empty}</p> : rows.map(row => <div key={row.productId} className="flex items-center justify-between border-b border-slate-100 pb-2 text-sm last:border-0"><div><b>{row.productName}</b><span className="ml-2 text-xs text-slate-400">{row.quantity} pz · {euro(row.grossRevenue)} ricavi</span></div><div className={danger || Number(row.contribution) < 0 ? "font-bold text-red-600" : "font-bold text-emerald-700"}>{euro(row.contribution)} <small>({row.contributionPercent}%)</small></div></div>)}</div></section>;
 }
 
-function RecipeForm({ products, ingredients, onSave }: { products: Catalog["products"]; ingredients: Ingredient[]; onSave: (data: unknown) => Promise<boolean> }) {
+function RecipeForm({ productGroups, ingredients, onSave }: { productGroups: RecipeProductGroup[]; ingredients: Ingredient[]; onSave: (data: unknown) => Promise<boolean> }) {
   const [items, setItems] = useState<Array<{ ingredientId: string; quantity: string; wastePercentage: string }>>([{ ingredientId: "", quantity: "", wastePercentage: "0" }]);
   return <form onSubmit={async event => {
     event.preventDefault(); const form = new FormData(event.currentTarget);
@@ -365,14 +409,15 @@ function RecipeForm({ products, ingredients, onSave }: { products: Catalog["prod
     if (saved) { event.currentTarget.reset(); setItems([{ ingredientId: "", quantity: "", wastePercentage: "0" }]); }
   }} className="rounded-xl border border-slate-200 bg-white p-4">
     <h2 className="flex items-center gap-2 font-bold"><Utensils className="h-4 w-4 text-primary" /> Nuova ricetta</h2>
+    <p className="mt-1 text-xs text-slate-500">Scegli un prodotto dal Menu: gli ingredienti inseriti qui diventano anche le variazioni automatiche “Senza …” in cassa.</p>
     <div className="mt-3 grid gap-3 sm:grid-cols-2">
-      <label className="block text-xs font-semibold text-slate-600">Prodotto<select required name="productId" className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="">Seleziona…</option>{products.map(product => <option value={product.id} key={product.id}>{product.name}</option>)}</select></label>
+      <label className="block text-xs font-semibold text-slate-600">Prodotto del Menu<select required name="productId" className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="">Seleziona…</option>{productGroups.map(group => <optgroup key={group.id ?? "uncategorized"} label={group.name}>{group.products.map(product => <option value={product.id} key={product.id}>{product.name}</option>)}</optgroup>)}</select></label>
       <SimpleInput label="Valida dal" name="validFrom" type="date" defaultValue={today} required />
       <SimpleInput label="Porzioni prodotte" name="yieldQuantity" defaultValue="1" inputMode="decimal" required />
       <SimpleInput label="Minuti preparazione/porzione" name="preparationMinutes" defaultValue="0" inputMode="numeric" required />
       <SimpleInput label="Packaging/porzione (€)" name="packagingCostPerUnit" defaultValue="0" inputMode="decimal" />
     </div>
-    <div className="mt-4"><div className="text-xs font-bold uppercase tracking-wide text-slate-500">Ingredienti della ricetta</div>{items.map((item, index) => <div key={index} className="mt-2 grid grid-cols-[1fr_.5fr_.45fr_auto] gap-2"><select value={item.ingredientId} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, ingredientId: event.target.value } : row))} required className="rounded-lg border border-slate-200 bg-white px-2 text-sm"><option value="">Ingrediente…</option>{ingredients.map(ingredient => <option value={ingredient.id} key={ingredient.id}>{ingredient.name}</option>)}</select><input value={item.quantity} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, quantity: event.target.value } : row))} placeholder="Q.tà" required className="rounded-lg border border-slate-200 px-2 text-sm" /><input value={item.wastePercentage} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, wastePercentage: event.target.value } : row))} placeholder="Scarto %" className="rounded-lg border border-slate-200 px-2 text-sm" /><button type="button" onClick={() => setItems(current => current.length > 1 ? current.filter((_, i) => i !== index) : current)} className="text-xs text-red-500">Rimuovi</button></div>)}
+    <div className="mt-4"><div className="text-xs font-bold uppercase tracking-wide text-slate-500">Ingredienti e variazioni</div><p className="mt-1 text-xs text-slate-500">Ogni ingrediente selezionato sarà proposto alla cassa come “Senza nome ingrediente”.</p>{items.map((item, index) => <div key={index} className="mt-2 grid grid-cols-[1fr_.5fr_.45fr_auto] gap-2"><select value={item.ingredientId} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, ingredientId: event.target.value } : row))} required className="rounded-lg border border-slate-200 bg-white px-2 text-sm"><option value="">Ingrediente / variazione…</option>{ingredients.map(ingredient => <option value={ingredient.id} key={ingredient.id}>{ingredient.name} — Senza {ingredient.name}</option>)}</select><input value={item.quantity} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, quantity: event.target.value } : row))} placeholder="Q.tà" required className="rounded-lg border border-slate-200 px-2 text-sm" /><input value={item.wastePercentage} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, wastePercentage: event.target.value } : row))} placeholder="Scarto %" className="rounded-lg border border-slate-200 px-2 text-sm" /><button type="button" onClick={() => setItems(current => current.length > 1 ? current.filter((_, i) => i !== index) : current)} className="text-xs text-red-500">Rimuovi</button></div>)}
       <button type="button" onClick={() => setItems(current => [...current, { ingredientId: "", quantity: "", wastePercentage: "0" }])} className="mt-2 text-xs font-semibold text-primary">+ Aggiungi ingrediente</button></div>
     <div className="mt-4"><SubmitButton>Salva ricetta</SubmitButton></div>
   </form>;
