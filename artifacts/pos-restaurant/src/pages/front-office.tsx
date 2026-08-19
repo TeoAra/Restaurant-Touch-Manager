@@ -3656,6 +3656,8 @@ export default function FrontOffice() {
         quantita: (i as never as { quantity: number }).quantity,
         prezzoUnitario: (i as never as { unitPrice: string }).unitPrice,
         aliquotaIva: "22",
+        // `importo` è il totale riga richiesto dall'XML FatturaPA (PrezzoTotale)
+        importo: (i as never as { subtotal: string }).subtotal,
         imponibile: (i as never as { subtotal: string }).subtotal,
       }));
       const imponibile = righe.reduce((s, r) => s + parseFloat(r.imponibile || "0"), 0);

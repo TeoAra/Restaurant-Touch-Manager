@@ -88,8 +88,30 @@ export async function buildInvoiceXml(inv: typeof invoicesTable.$inferSelect): P
     customer = c ?? null;
   }
 
-  let righe: Array<{ descrizione: string; quantita: string; prezzoUnitario: string; importo: string; aliquotaIva: string }> = [];
-  try { righe = JSON.parse(inv.righe); } catch { righe = []; }
+  let righeRaw: InvoiceRiga[] = [];
+  try { righeRaw = JSON.parse(inv.righe); } catch { righeRaw = []; }
+
+  // Normalizza le righe: importo può mancare (il POS invia solo qta e prezzo);
+  // in tal caso lo calcoliamo come quantità × prezzo unitario.
+  let righe = righeRaw.map((r) => {
+    const quantita = parseFloat(String(r.quantita));
+    const prezzo = parseFloat(String(r.prezzoUnitario));
+    const qta = Number.isFinite(quantita) && quantita > 0 ? quantita : 1;
+    const pu = Number.isFinite(prezzo) ? prezzo : 0;
+    const importoParsed = parseFloat(String(r.importo ?? ""));
+    const importo = Number.isFinite(importoParsed) ? importoParsed : qta * pu;
+    const aliqParsed = parseFloat(String(r.aliquotaIva ?? ""));
+    const aliquotaIva = Number.isFinite(aliqParsed)
+      ? aliqParsed.toFixed(2)
+      : parseFloat(inv.aliquotaIva ?? "22").toFixed(2);
+    return {
+      descrizione: r.descrizione,
+      quantita: qta.toFixed(2),
+      prezzoUnitario: pu.toFixed(2),
+      importo: importo.toFixed(2),
+      aliquotaIva,
+    };
+  });
 
   if (righe.length === 0) {
     const aliq = inv.aliquotaIva ?? "22";
