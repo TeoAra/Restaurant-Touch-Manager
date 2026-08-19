@@ -1,0 +1,238 @@
+Sì, anche l’acqua va considerata, insieme a gas, detergenti, smaltimento rifiuti e altri consumabili. Però è importante distinguere ciò che può essere attribuito alla singola comanda da ciò che conviene ripartire sull’intero servizio.
+
+## Tre categorie di costi
+
+### 1. Costi diretti del prodotto
+
+Attribuibili abbastanza precisamente:
+
+- ingredienti;
+- packaging;
+- tovaglioli e materiali monouso;
+- commissioni delivery;
+- commissioni di pagamento;
+- olio assorbito o quota del ciclo di frittura.
+
+### 2. Costi del servizio
+
+Vengono generati durante l’apertura ma non da una singola comanda:
+
+- acqua per lavaggio e pulizia;
+- energia di forno, friggitrice e piastra;
+- gas;
+- lavastoviglie;
+- detergenti;
+- personale;
+- smaltimento;
+- lavanderia.
+
+### 3. Costi fissi o periodici
+
+- affitto;
+- commercialista;
+- assicurazione;
+- software;
+- internet;
+- manutenzioni;
+- licenze;
+- ammortamento delle attrezzature;
+- TARI e altri tributi;
+- consulenze.
+
+## Come calcolare l’acqua
+
+Non distribuirei il costo dell’acqua ingrediente per ingrediente, salvo l’acqua realmente utilizzata negli impasti o nelle ricette.
+
+Creerei due voci separate.
+
+### Acqua come ingrediente
+
+Per impasti, salse o altre preparazioni:
+
+```text
+Quantità utilizzata × costo al litro
+```
+
+Il suo costo economico sarà minimo, ma la registrazione rende corretta la ricetta.
+
+### Acqua come utenza
+
+Comprende:
+
+- lavaggio delle stoviglie;
+- pulizia;
+- lavaggio delle mani;
+- servizi igienici;
+- produzione;
+- eventuale fabbricatore del ghiaccio.
+
+Può essere ripartita così:
+
+```text
+Costo acqua del periodo
+÷ ore di apertura del periodo
+= costo acqua per ora
+```
+
+Durante un servizio:
+
+```text
+Costo orario acqua × durata servizio
+= costo acqua del servizio
+```
+
+Poi lo distribuisci sulle comande, preferibilmente in base al ricavo netto:
+
+```text
+Quota acqua comanda =
+costo acqua del servizio
+× ricavo netto comanda
+÷ ricavo netto totale servizio
+```
+
+## Bollette con componenti fisse
+
+La bolletta non contiene soltanto il consumo. Conviene separare:
+
+```text
+Quota variabile → costo per m³ o kWh
+Quota fissa     → costi fissi mensili
+Imposte/oneri   → ripartizione periodica
+```
+
+Se non hai dati molto dettagliati, inizialmente usa il costo totale pagato:
+
+```text
+Totale bollette acqua ultimi 12 mesi
+÷ mesi
+= costo medio mensile
+```
+
+È più semplice e spesso più attendibile di una falsa precisione sulla singola comanda.
+
+## Modifica da dare a Replit
+
+Aggiungi questo prompt:
+
+```text
+Estendi il sistema dei costi introducendo una gestione generica delle utenze
+e dei costi indiretti. Non creare un campo separato rigido per ogni possibile
+utenza.
+
+Crea le entità:
+
+UtilityType
+- id
+- code
+- name
+- measurement_unit
+- allocation_method
+- active
+
+Esempi:
+- ELECTRICITY, kWh
+- WATER, m3
+- GAS, Smc
+- WASTE, month
+- DETERGENTS, service
+- INTERNET, month
+
+UtilityBill
+- id
+- utility_type_id
+- supplier
+- period_start
+- period_end
+- consumption_quantity
+- variable_cost
+- fixed_cost
+- taxes_and_fees
+- total_cost
+- document_reference
+- imported_at
+
+ServiceSession
+- id
+- opened_at
+- closed_at
+- gross_revenue
+- net_revenue
+- order_count
+- covers
+- productive_minutes
+
+ServiceUtilityAllocation
+- id
+- service_session_id
+- utility_type_id
+- calculated_cost
+- calculation_method
+- calculation_version
+- calculated_at
+
+OrderIndirectCostAllocation
+- id
+- order_id
+- service_session_id
+- cost_type
+- allocated_amount
+- allocation_basis
+- calculation_version
+
+Supporta questi metodi di ripartizione:
+- PER_HOUR: costo per ora di apertura;
+- PER_ORDER: divisione per numero di comande;
+- PER_COVER: divisione per coperti;
+- BY_NET_REVENUE: proporzionale al ricavo netto;
+- BY_PRODUCT_USAGE: in base ai prodotti venduti;
+- FIXED_MONTHLY: ripartizione del costo mensile;
+- MEASURED: consumo proveniente da un misuratore.
+
+Per impostazione predefinita:
+- acqua utenza: PER_HOUR oppure BY_NET_REVENUE;
+- elettricità generale: PER_HOUR;
+- energia delle attrezzature: BY_PRODUCT_USAGE;
+- gas: PER_HOUR o BY_PRODUCT_USAGE;
+- detergenti: PER_ORDER;
+- rifiuti/TARI: FIXED_MONTHLY;
+- internet: FIXED_MONTHLY.
+
+Mantieni separati:
+1. costo diretto della comanda;
+2. quota dei costi indiretti del servizio;
+3. quota dei costi fissi;
+4. accantonamento imposte.
+
+Non presentare i costi indiretti stimati come misurazioni esatte.
+Ogni valore deve riportare:
+- origine;
+- metodo di calcolo;
+- periodo di riferimento;
+- livello di affidabilità;
+- reale oppure stimato.
+```
+
+## Dashboard corretta
+
+Per ogni comanda mostrerei:
+
+```text
+Ricavo netto IVA                  €27,40
+Costi diretti                     −€8,65
+────────────────────────────────────────
+Margine di contribuzione          €18,75
+
+Personale                         −€4,10
+Energia                           −€0,75
+Acqua                             −€0,12
+Gas                               −€0,18
+Olio                              −€0,36
+Detergenti e consumabili          −€0,09
+Quota costi fissi                 −€4,25
+────────────────────────────────────────
+Risultato gestionale stimato       €8,90
+```
+
+E permetterei di aprire ogni voce per vedere come è stata ottenuta.
+
+Il sistema deve anche effettuare una riconciliazione mensile: quando arriva la bolletta reale, confronta la stima con il costo effettivo e corregge il costo medio utilizzato per i calcoli futuri. In questo modo parte con stime semplici e diventa progressivamente più preciso.
