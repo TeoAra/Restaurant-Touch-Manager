@@ -68,6 +68,7 @@ import type {
   TopProduct,
   UpdateOrderBody,
   UpdateOrderItemBody,
+  UpdateProductBody,
   UpdateTableBody,
 } from "./api.schemas";
 
@@ -850,14 +851,14 @@ export const getUpdateProductUrl = (id: number) => {
 
 export const updateProduct = async (
   id: number,
-  createProductBody: CreateProductBody,
+  updateProductBody: UpdateProductBody,
   options?: RequestInit,
 ): Promise<Product> => {
   return customFetch<Product>(getUpdateProductUrl(id), {
     ...options,
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(createProductBody),
+    body: JSON.stringify(updateProductBody),
   });
 };
 
@@ -868,14 +869,14 @@ export const getUpdateProductMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof updateProduct>>,
     TError,
-    { id: number; data: BodyType<CreateProductBody> },
+    { id: number; data: BodyType<UpdateProductBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof updateProduct>>,
   TError,
-  { id: number; data: BodyType<CreateProductBody> },
+  { id: number; data: BodyType<UpdateProductBody> },
   TContext
 > => {
   const mutationKey = ["updateProduct"];
@@ -889,7 +890,7 @@ export const getUpdateProductMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof updateProduct>>,
-    { id: number; data: BodyType<CreateProductBody> }
+    { id: number; data: BodyType<UpdateProductBody> }
   > = (props) => {
     const { id, data } = props ?? {};
 
@@ -902,7 +903,7 @@ export const getUpdateProductMutationOptions = <
 export type UpdateProductMutationResult = NonNullable<
   Awaited<ReturnType<typeof updateProduct>>
 >;
-export type UpdateProductMutationBody = BodyType<CreateProductBody>;
+export type UpdateProductMutationBody = BodyType<UpdateProductBody>;
 export type UpdateProductMutationError = ErrorType<unknown>;
 
 /**
@@ -915,14 +916,14 @@ export const useUpdateProduct = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof updateProduct>>,
     TError,
-    { id: number; data: BodyType<CreateProductBody> },
+    { id: number; data: BodyType<UpdateProductBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof updateProduct>>,
   TError,
-  { id: number; data: BodyType<CreateProductBody> },
+  { id: number; data: BodyType<UpdateProductBody> },
   TContext
 > => {
   return useMutation(getUpdateProductMutationOptions(options));

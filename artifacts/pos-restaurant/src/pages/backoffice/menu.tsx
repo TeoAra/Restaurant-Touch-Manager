@@ -22,7 +22,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Pencil, Trash2, Package, Settings2, X, GripVertical, ChevronDown, ChevronUp, ChevronRight, Search, Check, Ban } from "lucide-react";
+import { Plus, Pencil, Trash2, Package, Settings2, X, GripVertical, ChevronDown, ChevronUp, ChevronRight, Search, Check, Ban, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
@@ -138,7 +138,7 @@ function ProductForm({ initial, defaultCategoryId, categories, onSave, onClose }
   initial?: Product;
   defaultCategoryId?: number | null;
   categories: Category[];
-  onSave: (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; available: boolean; sortOrder: number; sku: string | null; barcode: string | null; allergeni: string | null }) => void;
+  onSave: (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; available: boolean; visibleInFrontOffice: boolean; sortOrder: number; sku: string | null; barcode: string | null; allergeni: string | null }) => void;
   onClose: () => void
 }) {
   const ext = initial as ProductExt | undefined;
@@ -150,6 +150,7 @@ function ProductForm({ initial, defaultCategoryId, categories, onSave, onClose }
   const [categoryId, setCategoryId] = useState<number | null>(ext?.categoryId ?? defaultCategoryId ?? null);
   const [description, setDescription] = useState(ext?.description ?? "");
   const [available, setAvailable] = useState(ext?.available ?? true);
+  const [visibleInFrontOffice, setVisibleInFrontOffice] = useState(ext?.visibleInFrontOffice ?? true);
   const [sortOrder, setSortOrder] = useState(ext?.sortOrder ?? 0);
   const [sku, setSku] = useState(ext?.sku ?? "");
   const [barcode, setBarcode] = useState(ext?.barcode ?? "");
@@ -228,9 +229,16 @@ function ProductForm({ initial, defaultCategoryId, categories, onSave, onClose }
         <Switch checked={available} onCheckedChange={setAvailable} id="available" />
         <Label htmlFor="available">Disponibile</Label>
       </div>
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="flex items-center gap-2">
+          <Switch checked={visibleInFrontOffice} onCheckedChange={setVisibleInFrontOffice} id="visible-in-front-office" />
+          <Label htmlFor="visible-in-front-office">Mostra nel Front Office</Label>
+        </div>
+        <p className="mt-1 text-[11px] text-slate-500">Nascondi qui prodotti stagionali, birre sostituite o voci che non vuoi più proporre, senza cancellare prezzi, ricette o storico.</p>
+      </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Annulla</Button>
-        <Button onClick={() => onSave({ name, price, price2, price3, price4, categoryId, description: description || null, available, sortOrder, sku: sku || null, barcode: barcode || null, allergeni: allergeni.trim() || null })} disabled={!name || !price}>Salva</Button>
+        <Button onClick={() => onSave({ name, price, price2, price3, price4, categoryId, description: description || null, available, visibleInFrontOffice, sortOrder, sku: sku || null, barcode: barcode || null, allergeni: allergeni.trim() || null })} disabled={!name || !price}>Salva</Button>
       </DialogFooter>
     </div>
   );
@@ -704,7 +712,7 @@ export default function MenuPage() {
     }
   };
 
-  const handleSaveProduct = (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; available: boolean; sortOrder: number; sku: string | null; barcode: string | null; allergeni: string | null }) => {
+  const handleSaveProduct = (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; available: boolean; visibleInFrontOffice: boolean; sortOrder: number; sku: string | null; barcode: string | null; allergeni: string | null }) => {
     const opts = {
       onSuccess: () => {
         toast({ title: "Prodotto salvato" });
@@ -789,6 +797,7 @@ export default function MenuPage() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-foreground text-sm">{p.name}</span>
                         {!p.available && <Badge variant="outline" className="text-xs text-muted-foreground">Non disp.</Badge>}
+                        {p.visibleInFrontOffice === false && <Badge variant="outline" className="text-xs border-slate-300 text-slate-500">Nascosto al Front Office</Badge>}
                         {cat && (
                           <span className="text-xs px-2 py-0.5 rounded-full hidden sm:inline" style={{ backgroundColor: cat.color + "30", color: cat.color }}>
                             {cat.name}
@@ -822,6 +831,31 @@ export default function MenuPage() {
                         className={`h-8 w-8 flex items-center justify-center rounded transition-colors disabled:opacity-50 ${p.available ? "text-emerald-600 hover:bg-emerald-50" : "text-amber-600 hover:bg-amber-50"}`}
                       >
                         {p.available ? <Check className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
+                      </button>
+                      <button
+                        title={p.visibleInFrontOffice === false ? "Mostra nel Front Office" : "Nascondi dal Front Office"}
+                        disabled={togglingId === p.id}
+                        onClick={async () => {
+                          setTogglingId(p.id);
+                          try {
+                            const nextVisible = p.visibleInFrontOffice === false;
+                            const res = await fetch(`${API}/products/${p.id}`, {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ visibleInFrontOffice: nextVisible }),
+                            });
+                            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                            queryClient.invalidateQueries({ queryKey: getListProductsQueryKey() });
+                            toast({ title: nextVisible ? "Prodotto visibile nel Front Office" : "Prodotto nascosto dal Front Office" });
+                          } catch (e) {
+                            toast({ title: "Errore aggiornamento visibilità", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+                          } finally {
+                            setTogglingId(null);
+                          }
+                        }}
+                        className={`h-8 w-8 flex items-center justify-center rounded transition-colors disabled:opacity-50 ${p.visibleInFrontOffice === false ? "text-slate-400 hover:bg-slate-100" : "text-sky-600 hover:bg-sky-50"}`}
+                      >
+                        {p.visibleInFrontOffice === false ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
                       <button
                         title="Variazioni"

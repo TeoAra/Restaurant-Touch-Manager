@@ -16,6 +16,8 @@ export const productsTable = pgTable("products", {
   sku: text("sku"),
   barcode: text("barcode"),
   available: boolean("available").notNull().default(true),
+  // Visibilità editoriale nel menu operativo: separata dallo stato di stock.
+  visibleInFrontOffice: boolean("visible_in_front_office").notNull().default(true),
   // Allergeni: testo libero (lista separata da virgole), stampato in cucina
   allergeni: text("allergeni"),
   sortOrder: integer("sort_order").notNull().default(0),

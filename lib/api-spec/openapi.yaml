@@ -206,7 +206,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateProductBody"
+              $ref: "#/components/schemas/UpdateProductBody"
       responses:
         "200":
           description: Updated product
@@ -1079,6 +1079,8 @@ components:
           type: string
         available:
           type: boolean
+        visibleInFrontOffice:
+          type: boolean
         sortOrder:
           type: integer
         createdAt:
@@ -1088,6 +1090,7 @@ components:
         - name
         - price
         - available
+        - visibleInFrontOffice
         - sortOrder
         - createdAt
 
@@ -1104,6 +1107,8 @@ components:
           type: string
         available:
           type: boolean
+        visibleInFrontOffice:
+          type: boolean
         sortOrder:
           type: integer
       required:
@@ -1111,6 +1116,24 @@ components:
         - price
         - available
         - sortOrder
+
+    UpdateProductBody:
+      type: object
+      properties:
+        categoryId:
+          type: ["integer", "null"]
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        price:
+          type: string
+        available:
+          type: boolean
+        visibleInFrontOffice:
+          type: boolean
+        sortOrder:
+          type: integer
 
     ProductVariation:
       type: object

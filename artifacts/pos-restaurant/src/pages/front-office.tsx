@@ -29,7 +29,7 @@ import {
   Users, Plus, Minus, CreditCard, Banknote, Wallet,
   ShoppingBag, Truck, Clock, Send, FileText, Divide,
   ChevronLeft, ChevronRight, Search, X, UtensilsCrossed, Zap, Map as MapIcon,
-  AlertTriangle, CheckCircle2, User, LogOut, Building2, Pencil,
+   AlertTriangle, CheckCircle2, User, LogOut, Building2, Pencil, Settings2,
   ArrowRightFromLine, ArrowLeftRight, GitMerge, ReceiptText, Trash2, BadgePercent, StickyNote, Ticket,
   ScrollText, Hash, Euro, RefreshCw, CalendarClock, ArrowRight, BookOpen,
   Loader2, XCircle, Printer,
@@ -2669,7 +2669,7 @@ function CategoryButton({ cat, onClick }: { cat: PosCategory; onClick: () => voi
 }
 
 // ─── Product Card ──────────────────────────────────────────────────────────────
-type PosProduct = { id: number; name: string; price: string; price2?: string; price3?: string; price4?: string; available: boolean; allergeni?: string | null };
+type PosProduct = { id: number; name: string; price: string; price2?: string; price3?: string; price4?: string; available: boolean; visibleInFrontOffice?: boolean; allergeni?: string | null };
 function ProductCard({ product, onAdd, activePriceList, onToggleEsaurito }: {
   product: PosProduct;
   activePriceList: number;
@@ -3402,28 +3402,19 @@ export default function FrontOffice() {
     const effectivePrice = mods.reduce((acc, m) => acc + parseFloat(m.priceExtra || "0"), parseFloat(unitPrice));
     const finalPrice = effectivePrice.toFixed(2);
     const kpNote = notes?.trim() || undefined;
-    // Only merge into existing item if no modifiers and no KP note
-    const existing = (mods.length === 0 && !kpNote) ? items.find(i =>
-      i.productId === productId &&
-      (i as never as { phase: number }).phase === activePriceList &&
-      i.unitPrice === unitPrice &&
-      ((i as never as { modifiers?: string }).modifiers ?? "[]") === "[]" &&
-      !(i as never as { notes?: string }).notes &&
-      (i as never as { status: string }).status === "draft"
-    ) : null;
-    if (existing && orderId === activeOrderId && qty === 1) {
-      await updateItem.mutateAsync({ orderId: orderId!, itemId: existing.id, data: { quantity: existing.quantity + 1 } });
-    } else {
-      await addItem.mutateAsync({ orderId: orderId!, data: { productId, quantity: qty, unitPrice: finalPrice, phase: activePriceList, modifiers: modJson, notes: kpNote ?? null } as never });
-    }
+    // Ogni tocco crea una riga indipendente: le variazioni devono restare
+    // sempre collegate al singolo prodotto e non a una quantità accorpata.
+    await addItem.mutateAsync({
+      orderId: orderId!,
+      data: { productId, quantity: qty, unitPrice: finalPrice, phase: activePriceList, modifiers: modJson, notes: kpNote ?? null } as never
+    });
     refresh();
   }
 
   async function handleAddProduct(productId: number, unitPrice: string) {
-    const product = products.find(p => p.id === productId);
-    setModifierPicker({ productId, productName: product?.name || "Articolo", unitPrice });
-    setSelectedModifierIds(new Set());
-    setPickerKpNote("");
+    // Un prodotto viene aggiunto subito. Le variazioni si applicano in un
+    // secondo momento dalla sua riga nel pannello ordine a sinistra.
+    await doAddProduct(productId, unitPrice, []);
   }
 
   async function confirmModifiers(withMods: boolean) {
@@ -3883,7 +3874,12 @@ export default function FrontOffice() {
     : (selectedCategoryId != null
         ? products.filter(p => (p as unknown as { categoryId?: number }).categoryId === selectedCategoryId)
         : products)
-  ).filter(p => p.available !== false);
+  ).filter(p => p.available !== false && p.visibleInFrontOffice !== false);
+  const visibleCategories = categories.filter(category => products.some(product =>
+    (product as unknown as { categoryId?: number }).categoryId === category.id
+    && product.available !== false
+    && product.visibleInFrontOffice !== false,
+  ));
 
   // ── Keyboard shortcut: "/" focuses product search, Esc clears it ─────────────
   useEffect(() => {
@@ -4116,7 +4112,6 @@ export default function FrontOffice() {
                     <div className="flex items-center gap-1 mt-0.5">
                       <span className="text-[10px] flex-1" style={{ color: isSelected ? 'rgb(148,163,184)' : 'rgb(100,116,139)' }}>
                         €{parseFloat(item.unitPrice).toFixed(2)} × {item.quantity}
-                        {isSelected && <span className="ml-1.5 text-[9px] text-primary/70 font-semibold">↑ tap → VAR</span>}
                       </span>
                       <button
                         onClick={e => { e.stopPropagation(); setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus }); }}
@@ -4125,6 +4120,22 @@ export default function FrontOffice() {
                           isSelected ? "hover:bg-primary/30 active:bg-primary/40" : "hover:bg-[#3a3f58] active:bg-[#444a6a]"
                         )}>
                         <Pencil className={cn("h-4 w-4", isSelected ? "text-primary" : "text-slate-400")} />
+                      </button>
+                      <button
+                        title="Variazioni e note"
+                        onClick={e => {
+                          e.stopPropagation();
+                          setSelectedItemId(item.id);
+                          setNumBuffer("");
+                          setNumpadMode("qty");
+                          setRightTab("var");
+                        }}
+                        className={cn(
+                          "h-9 w-9 rounded-md flex items-center justify-center transition-colors shrink-0",
+                          isSelected ? "hover:bg-primary/30 active:bg-primary/40" : "hover:bg-[#3a3f58] active:bg-[#444a6a]"
+                        )}
+                      >
+                        <Settings2 className={cn("h-4 w-4", isSelected ? "text-primary" : "text-slate-400")} />
                       </button>
                       <div className="flex items-center gap-1 shrink-0">
                         <button onClick={e => { e.stopPropagation(); handleQty(item.id, item.quantity - 1); }}
@@ -4470,14 +4481,14 @@ export default function FrontOffice() {
         {rightTab === "grp" && (
           <ScrollArea className="flex-1 bg-[#151827]">
             <div className="p-4 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))" }}>
-              {categories.map(cat => (
+              {visibleCategories.map(cat => (
                 <CategoryButton key={cat.id} cat={cat} onClick={() => {
                   setSelectedCategoryId(cat.id);
                   setRightTab("art");
                   setProductSearch("");
                 }} />
               ))}
-              {categories.length === 0 && (
+              {visibleCategories.length === 0 && (
                 <div className="col-span-full text-center py-16 text-slate-600">
                   <UtensilsCrossed className="h-10 w-10 mx-auto mb-3 opacity-20" />
                   <div className="text-sm">Nessuna categoria nel menu</div>

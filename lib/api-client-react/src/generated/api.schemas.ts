@@ -36,6 +36,7 @@ export interface Product {
   description?: string | null;
   price: string;
   available: boolean;
+  visibleInFrontOffice: boolean;
   sortOrder: number;
   createdAt: string;
 }
@@ -48,7 +49,20 @@ export interface CreateProductBody {
   description?: string | null;
   price: string;
   available: boolean;
+  visibleInFrontOffice?: boolean;
   sortOrder: number;
+}
+
+export interface UpdateProductBody {
+  /** @nullable */
+  categoryId?: number | null;
+  name?: string;
+  /** @nullable */
+  description?: string | null;
+  price?: string;
+  available?: boolean;
+  visibleInFrontOffice?: boolean;
+  sortOrder?: number;
 }
 
 export interface ProductVariation {

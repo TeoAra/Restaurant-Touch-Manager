@@ -97,6 +97,7 @@ export const ListProductsResponseItem = zod.object({
   description: zod.string().nullish(),
   price: zod.string(),
   available: zod.boolean(),
+  visibleInFrontOffice: zod.boolean(),
   sortOrder: zod.number(),
   createdAt: zod.string(),
 });
@@ -111,6 +112,7 @@ export const CreateProductBody = zod.object({
   description: zod.string().nullish(),
   price: zod.string(),
   available: zod.boolean(),
+  visibleInFrontOffice: zod.boolean().optional(),
   sortOrder: zod.number(),
 });
 
@@ -128,6 +130,7 @@ export const GetProductResponse = zod.object({
   description: zod.string().nullish(),
   price: zod.string(),
   available: zod.boolean(),
+  visibleInFrontOffice: zod.boolean(),
   sortOrder: zod.number(),
   createdAt: zod.string(),
 });
@@ -141,11 +144,12 @@ export const UpdateProductParams = zod.object({
 
 export const UpdateProductBody = zod.object({
   categoryId: zod.number().nullish(),
-  name: zod.string(),
+  name: zod.string().optional(),
   description: zod.string().nullish(),
-  price: zod.string(),
-  available: zod.boolean(),
-  sortOrder: zod.number(),
+  price: zod.string().optional(),
+  available: zod.boolean().optional(),
+  visibleInFrontOffice: zod.boolean().optional(),
+  sortOrder: zod.number().optional(),
 });
 
 export const UpdateProductResponse = zod.object({
@@ -155,6 +159,7 @@ export const UpdateProductResponse = zod.object({
   description: zod.string().nullish(),
   price: zod.string(),
   available: zod.boolean(),
+  visibleInFrontOffice: zod.boolean(),
   sortOrder: zod.number(),
   createdAt: zod.string(),
 });
@@ -634,6 +639,7 @@ export const GetMarginCatalogResponse = zod.object({
       description: zod.string().nullish(),
       price: zod.string(),
       available: zod.boolean(),
+      visibleInFrontOffice: zod.boolean(),
       sortOrder: zod.number(),
       createdAt: zod.string(),
     }),
