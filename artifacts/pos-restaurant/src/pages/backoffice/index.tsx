@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { UtensilsCrossed, LayoutGrid, BarChart3, CreditCard, ArrowRight, BookOpen, Layers, Printer, Settings, Users, Receipt, FileText, User, Tag, Zap, Bike, Package, Sun, BadgePercent, SlidersHorizontal, CalendarDays, Sparkles, ShieldCheck, Activity, TrendingUp, TrendingDown } from "lucide-react";
+import { UtensilsCrossed, LayoutGrid, BarChart3, CreditCard, ArrowRight, BookOpen, Layers, Printer, Settings, Users, Receipt, FileText, User, Tag, Zap, Bike, Package, Sun, BadgePercent, SlidersHorizontal, CalendarDays, Sparkles, ShieldCheck, Activity, TrendingUp, TrendingDown, ChartNoAxesCombined } from "lucide-react";
 import { useGetDashboardSummary, useGetSalesByDay } from "@workspace/api-client-react";
 import { ResponsiveContainer, BarChart, Bar, Tooltip, XAxis } from "recharts";
 import { BackofficeShell } from "@/components/BackofficeShell";
@@ -49,6 +49,7 @@ const sections = [
 
   // Report e cassa
   { href: "/backoffice/reports", icon: BarChart3, label: "Report", description: "Statistiche e vendite", color: "bg-green-50 text-green-600 border-green-200" },
+  { href: "/backoffice/marginalita", icon: ChartNoAxesCombined, label: "Marginalità", description: "Costi e prodotti redditizi", color: "bg-emerald-50 text-emerald-600 border-emerald-200" },
   { href: "/backoffice/payments", icon: CreditCard, label: "Pagamenti", description: "Storico transazioni", color: "bg-purple-50 text-purple-600 border-purple-200" },
   { href: "/backoffice/fiscale", icon: Receipt, label: "Fiscale", description: "Scontrini e Z-Report", color: "bg-red-50 text-red-600 border-red-200" },
 
@@ -66,9 +67,9 @@ const sections = [
 const GROUPS = [
   { label: "Prodotti & Menu", range: [0, 4] },
   { label: "Sconti & Promozioni", range: [4, 7] },
-  { label: "Sala & Stampa", range: [7, 11] },
-  { label: "Report & Cassa", range: [11, 15] },
-  { label: "Clienti & Gestione", range: [15, 21] },
+  { label: "Sala & Stampa", range: [7, 12] },
+  { label: "Report & Cassa", range: [12, 16] },
+  { label: "Clienti & Gestione", range: [16, 22] },
 ];
 
 export default function BackOfficeIndex() {

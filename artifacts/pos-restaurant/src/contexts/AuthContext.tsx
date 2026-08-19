@@ -49,6 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     sessionStorage.removeItem(SESSION_KEY);
     setUser(null);
+    void fetch(`${API}/auth/logout`, { method: "POST" });
   }, []);
 
   return (

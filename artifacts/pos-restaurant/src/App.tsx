@@ -34,6 +34,7 @@ import VarkazioniPage from "@/pages/backoffice/variazioni";
 import PrenotazioniPage from "@/pages/backoffice/prenotazioni";
 import FunzioniPage from "@/pages/backoffice/funzioni";
 import AuditPage from "@/pages/backoffice/audit";
+import MarginalitaPage from "@/pages/backoffice/marginalita";
 
 const API_BASE = `${import.meta.env.BASE_URL?.replace(/\/$/, "") || ""}/api`;
 
@@ -109,6 +110,7 @@ function AppRouter() {
         {isAdmin && <Route path="/backoffice/variazioni" component={VarkazioniPage} />}
         {isAdmin && <Route path="/backoffice/prenotazioni" component={PrenotazioniPage} />}
         {isAdmin && <Route path="/backoffice/audit" component={AuditPage} />}
+        {isAdmin && <Route path="/backoffice/marginalita" component={MarginalitaPage} />}
         {isAdmin && <Route path="/backoffice/funzioni" component={FunzioniPage} />}
         <Route component={NotFound} />
       </Switch>

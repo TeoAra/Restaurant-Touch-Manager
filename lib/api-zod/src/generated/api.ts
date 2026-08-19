@@ -514,3 +514,282 @@ export const GetTablesStatusResponseItem = zod.object({
   activeOrderCreatedAt: zod.string().nullish(),
 });
 export const GetTablesStatusResponse = zod.array(GetTablesStatusResponseItem);
+
+/**
+ * @summary Get profitability overview for a period
+ */
+export const GetMarginOverviewQueryParams = zod.object({
+  from: zod.date().optional(),
+  to: zod.date().optional(),
+});
+
+export const GetMarginOverviewResponse = zod.object({
+  from: zod.string().nullish(),
+  to: zod.string().nullish(),
+  orderCount: zod.number(),
+  incompleteOrders: zod.number(),
+  totals: zod.record(zod.string(), zod.string()),
+  mostProfitableProducts: zod.array(
+    zod.object({
+      productId: zod.number(),
+      productName: zod.string(),
+      quantity: zod.number(),
+      grossRevenue: zod.string(),
+      contribution: zod.string(),
+      contributionPercent: zod.string(),
+    }),
+  ),
+  lossMakingProducts: zod.array(
+    zod.object({
+      productId: zod.number(),
+      productName: zod.string(),
+      quantity: zod.number(),
+      grossRevenue: zod.string(),
+      contribution: zod.string(),
+      contributionPercent: zod.string(),
+    }),
+  ),
+  incomplete: zod.array(
+    zod.object({
+      orderId: zod.number(),
+      calculatedAt: zod.string().optional(),
+      missingData: zod.array(zod.string()),
+    }),
+  ),
+});
+
+/**
+ * @summary Get the most recent immutable profitability snapshot for an order
+ */
+export const GetMarginOrderParams = zod.object({
+  orderId: zod.coerce.number(),
+});
+
+export const GetMarginOrderResponse = zod.object({
+  id: zod.number(),
+  orderId: zod.number(),
+  calculationVersion: zod.number(),
+  grossRevenue: zod.string(),
+  netRevenue: zod.string(),
+  contributionMargin: zod.string(),
+  estimatedManagementResult: zod.string(),
+  completenessStatus: zod.enum(["complete", "partial"]),
+  missingData: zod.array(zod.string()).optional(),
+  lines: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+  sources: zod.record(zod.string(), zod.unknown()).optional(),
+});
+
+/**
+ * @summary Enqueue an explicit new profitability calculation version
+ */
+export const RecalculateMarginOrderParams = zod.object({
+  orderId: zod.coerce.number(),
+});
+
+/**
+ * @summary Get costing setup data and menu products
+ */
+export const GetMarginCatalogResponse = zod.object({
+  ingredients: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+      baseUnit: zod.string(),
+      currentUnitCost: zod.string(),
+      vatRate: zod.string(),
+      active: zod.boolean(),
+    }),
+  ),
+  products: zod.array(
+    zod.object({
+      id: zod.number(),
+      categoryId: zod.number().nullish(),
+      name: zod.string(),
+      description: zod.string().nullish(),
+      price: zod.string(),
+      available: zod.boolean(),
+      sortOrder: zod.number(),
+      createdAt: zod.string(),
+    }),
+  ),
+  recipes: zod.array(
+    zod.object({
+      id: zod.number(),
+      productId: zod.number(),
+      yieldQuantity: zod.string(),
+      preparationMinutes: zod.number(),
+      packagingCostPerUnit: zod.string().optional(),
+      usesFryer: zod.boolean().optional(),
+      version: zod.number(),
+      active: zod.boolean(),
+      validFrom: zod.coerce.date(),
+    }),
+  ),
+  recipeItems: zod.array(zod.record(zod.string(), zod.unknown())),
+  configurations: zod.array(
+    zod.object({
+      id: zod.number(),
+      electricityCostPerKwh: zod.string(),
+      fixedCostsMonthly: zod.string(),
+      productiveHoursMonthly: zod.string(),
+      ownerHourlyCost: zod.string(),
+      validFrom: zod.coerce.date(),
+    }),
+  ),
+  utilityTypes: zod.array(zod.record(zod.string(), zod.unknown())),
+  utilityBills: zod.array(
+    zod.object({
+      id: zod.number(),
+      utilityTypeId: zod.number(),
+      periodStart: zod.coerce.date(),
+      periodEnd: zod.coerce.date(),
+      consumptionQuantity: zod.string(),
+      totalCost: zod.string(),
+    }),
+  ),
+});
+
+/**
+ * @summary Create an ingredient and its current cost
+ */
+
+export const createMarginIngredientBodyVatRateDefault = `0`;
+
+export const CreateMarginIngredientBody = zod.object({
+  name: zod.string().min(1),
+  baseUnit: zod.string().min(1),
+  currentUnitCost: zod.string(),
+  vatRate: zod.string().default(createMarginIngredientBodyVatRateDefault),
+});
+
+/**
+ * @summary Update an ingredient current cost or status
+ */
+export const UpdateMarginIngredientParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateMarginIngredientBody = zod.object({
+  name: zod.string().optional(),
+  baseUnit: zod.string().optional(),
+  currentUnitCost: zod.string().optional(),
+  vatRate: zod.string().optional(),
+  active: zod.boolean().optional(),
+});
+
+export const UpdateMarginIngredientResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  baseUnit: zod.string(),
+  currentUnitCost: zod.string(),
+  vatRate: zod.string(),
+  active: zod.boolean(),
+});
+
+/**
+ * @summary Create a versioned recipe
+ */
+export const createMarginRecipeBodyPackagingCostPerUnitDefault = `0`;
+export const createMarginRecipeBodyUsesFryerDefault = false;
+export const createMarginRecipeBodyVersionDefault = 1;
+export const createMarginRecipeBodyItemsItemWastePercentageDefault = `0`;
+
+export const CreateMarginRecipeBody = zod.object({
+  productId: zod.number(),
+  yieldQuantity: zod.string(),
+  preparationMinutes: zod.number(),
+  packagingCostPerUnit: zod
+    .string()
+    .default(createMarginRecipeBodyPackagingCostPerUnitDefault),
+  usesFryer: zod.boolean().default(createMarginRecipeBodyUsesFryerDefault),
+  fryerPortionsPerYield: zod.string().nullish(),
+  version: zod.number().default(createMarginRecipeBodyVersionDefault),
+  validFrom: zod.coerce.date(),
+  validTo: zod.coerce.date().nullish(),
+  items: zod
+    .array(
+      zod.object({
+        ingredientId: zod.number(),
+        quantity: zod.string(),
+        wastePercentage: zod
+          .string()
+          .default(createMarginRecipeBodyItemsItemWastePercentageDefault),
+      }),
+    )
+    .optional(),
+});
+
+/**
+ * @summary Create a dated cost configuration
+ */
+export const createMarginConfigurationBodyTaxReservePercentageDefault = `0`;
+export const createMarginConfigurationBodyCashFeePercentageDefault = `0`;
+export const createMarginConfigurationBodyCardFeePercentageDefault = `0`;
+export const createMarginConfigurationBodyTicketFeePercentageDefault = `0`;
+export const createMarginConfigurationBodyOtherFeePercentageDefault = `0`;
+export const createMarginConfigurationBodyPaymentFixedFeeDefault = `0`;
+
+export const CreateMarginConfigurationBody = zod.object({
+  electricityCostPerKwh: zod.string(),
+  fixedCostsMonthly: zod.string(),
+  productiveHoursMonthly: zod.string(),
+  ownerHourlyCost: zod.string(),
+  taxReservePercentage: zod
+    .string()
+    .default(createMarginConfigurationBodyTaxReservePercentageDefault),
+  cashFeePercentage: zod
+    .string()
+    .default(createMarginConfigurationBodyCashFeePercentageDefault),
+  cardFeePercentage: zod
+    .string()
+    .default(createMarginConfigurationBodyCardFeePercentageDefault),
+  ticketFeePercentage: zod
+    .string()
+    .default(createMarginConfigurationBodyTicketFeePercentageDefault),
+  otherFeePercentage: zod
+    .string()
+    .default(createMarginConfigurationBodyOtherFeePercentageDefault),
+  paymentFixedFee: zod
+    .string()
+    .default(createMarginConfigurationBodyPaymentFixedFeeDefault),
+  validFrom: zod.coerce.date(),
+  validTo: zod.coerce.date().nullish(),
+});
+
+/**
+ * @summary Record a utility bill
+ */
+export const createMarginUtilityBillBodyTaxesAndFeesDefault = `0`;
+
+export const CreateMarginUtilityBillBody = zod.object({
+  utilityTypeId: zod.number(),
+  supplier: zod.string().optional(),
+  periodStart: zod.coerce.date(),
+  periodEnd: zod.coerce.date(),
+  consumptionQuantity: zod.string(),
+  variableCost: zod.string(),
+  fixedCost: zod.string(),
+  taxesAndFees: zod
+    .string()
+    .default(createMarginUtilityBillBodyTaxesAndFeesDefault),
+  totalCost: zod.string(),
+  documentReference: zod.string().optional(),
+});
+
+/**
+ * @summary Create a utility type for bill tracking
+ */
+export const createMarginUtilityTypeBodyAllocationMethodDefault = `manual`;
+export const createMarginUtilityTypeBodyReliabilityLevelDefault = `estimated`;
+
+export const CreateMarginUtilityTypeBody = zod.object({
+  code: zod.string(),
+  name: zod.string(),
+  measurementUnit: zod.string(),
+  allocationMethod: zod
+    .string()
+    .default(createMarginUtilityTypeBodyAllocationMethodDefault),
+  reliabilityLevel: zod
+    .string()
+    .default(createMarginUtilityTypeBodyReliabilityLevelDefault),
+});

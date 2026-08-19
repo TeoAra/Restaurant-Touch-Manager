@@ -315,6 +315,206 @@ export interface TableStatus {
   activeOrderCreatedAt?: string | null;
 }
 
+export interface MarginProductResult {
+  productId: number;
+  productName: string;
+  quantity: number;
+  grossRevenue: string;
+  contribution: string;
+  contributionPercent: string;
+}
+
+export type MarginOverviewTotals = { [key: string]: string };
+
+export type MarginOverviewIncompleteItem = {
+  orderId: number;
+  calculatedAt?: string;
+  missingData: string[];
+};
+
+export interface MarginOverview {
+  /** @nullable */
+  from?: string | null;
+  /** @nullable */
+  to?: string | null;
+  orderCount: number;
+  incompleteOrders: number;
+  totals: MarginOverviewTotals;
+  mostProfitableProducts: MarginProductResult[];
+  lossMakingProducts: MarginProductResult[];
+  incomplete: MarginOverviewIncompleteItem[];
+}
+
+export type MarginOrderSnapshotCompletenessStatus =
+  (typeof MarginOrderSnapshotCompletenessStatus)[keyof typeof MarginOrderSnapshotCompletenessStatus];
+
+export const MarginOrderSnapshotCompletenessStatus = {
+  complete: "complete",
+  partial: "partial",
+} as const;
+
+export type MarginOrderSnapshotLinesItem = { [key: string]: unknown };
+
+export type MarginOrderSnapshotSources = { [key: string]: unknown };
+
+export interface MarginOrderSnapshot {
+  id: number;
+  orderId: number;
+  calculationVersion: number;
+  grossRevenue: string;
+  netRevenue: string;
+  contributionMargin: string;
+  estimatedManagementResult: string;
+  completenessStatus: MarginOrderSnapshotCompletenessStatus;
+  missingData?: string[];
+  lines?: MarginOrderSnapshotLinesItem[];
+  sources?: MarginOrderSnapshotSources;
+}
+
+export interface MarginRecalculation {
+  orderId: number;
+  calculationVersion: number;
+  status: string;
+}
+
+export interface MarginIngredient {
+  id: number;
+  name: string;
+  baseUnit: string;
+  currentUnitCost: string;
+  vatRate: string;
+  active: boolean;
+}
+
+export interface MarginIngredientInput {
+  /** @minLength 1 */
+  name: string;
+  /** @minLength 1 */
+  baseUnit: string;
+  currentUnitCost: string;
+  vatRate?: string;
+}
+
+export interface MarginIngredientUpdate {
+  name?: string;
+  baseUnit?: string;
+  currentUnitCost?: string;
+  vatRate?: string;
+  active?: boolean;
+}
+
+export interface MarginRecipe {
+  id: number;
+  productId: number;
+  yieldQuantity: string;
+  preparationMinutes: number;
+  packagingCostPerUnit?: string;
+  usesFryer?: boolean;
+  version: number;
+  active: boolean;
+  validFrom: string;
+}
+
+export interface MarginRecipeItemInput {
+  ingredientId: number;
+  quantity: string;
+  wastePercentage?: string;
+}
+
+export interface MarginRecipeInput {
+  productId: number;
+  yieldQuantity: string;
+  preparationMinutes: number;
+  packagingCostPerUnit?: string;
+  usesFryer?: boolean;
+  /** @nullable */
+  fryerPortionsPerYield?: string | null;
+  version?: number;
+  validFrom: string;
+  /** @nullable */
+  validTo?: string | null;
+  items?: MarginRecipeItemInput[];
+}
+
+export interface MarginCostConfiguration {
+  id: number;
+  electricityCostPerKwh: string;
+  fixedCostsMonthly: string;
+  productiveHoursMonthly: string;
+  ownerHourlyCost: string;
+  validFrom: string;
+}
+
+export interface MarginCostConfigurationInput {
+  electricityCostPerKwh: string;
+  fixedCostsMonthly: string;
+  productiveHoursMonthly: string;
+  ownerHourlyCost: string;
+  taxReservePercentage?: string;
+  cashFeePercentage?: string;
+  cardFeePercentage?: string;
+  ticketFeePercentage?: string;
+  otherFeePercentage?: string;
+  paymentFixedFee?: string;
+  validFrom: string;
+  /** @nullable */
+  validTo?: string | null;
+}
+
+export interface MarginUtilityBill {
+  id: number;
+  utilityTypeId: number;
+  periodStart: string;
+  periodEnd: string;
+  consumptionQuantity: string;
+  totalCost: string;
+}
+
+export interface MarginUtilityType {
+  id: number;
+  code: string;
+  name: string;
+  measurementUnit: string;
+  allocationMethod: string;
+  reliabilityLevel: string;
+  active: boolean;
+}
+
+export interface MarginUtilityTypeInput {
+  code: string;
+  name: string;
+  measurementUnit: string;
+  allocationMethod?: string;
+  reliabilityLevel?: string;
+}
+
+export interface MarginUtilityBillInput {
+  utilityTypeId: number;
+  supplier?: string;
+  periodStart: string;
+  periodEnd: string;
+  consumptionQuantity: string;
+  variableCost: string;
+  fixedCost: string;
+  taxesAndFees?: string;
+  totalCost: string;
+  documentReference?: string;
+}
+
+export type MarginCatalogRecipeItemsItem = { [key: string]: unknown };
+
+export type MarginCatalogUtilityTypesItem = { [key: string]: unknown };
+
+export interface MarginCatalog {
+  ingredients: MarginIngredient[];
+  products: Product[];
+  recipes: MarginRecipe[];
+  recipeItems: MarginCatalogRecipeItemsItem[];
+  configurations: MarginCostConfiguration[];
+  utilityTypes: MarginCatalogUtilityTypesItem[];
+  utilityBills: MarginUtilityBill[];
+}
+
 export type ListProductsParams = {
   /**
    * @nullable
@@ -348,6 +548,11 @@ export type GetSalesByDayParams = {
 };
 
 export type GetTopProductsParams = {
+  from?: string;
+  to?: string;
+};
+
+export type GetMarginOverviewParams = {
   from?: string;
   to?: string;
 };

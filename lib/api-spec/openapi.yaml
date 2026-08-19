@@ -23,6 +23,8 @@ tags:
     description: Payments
   - name: dashboard
     description: Dashboard and reports
+  - name: marginality
+    description: Restaurant profitability analysis and costing
 
 paths:
   /healthz:
@@ -637,7 +639,200 @@ paths:
                 items:
                   $ref: "#/components/schemas/TableStatus"
 
+  /marginality/overview:
+    get:
+      operationId: getMarginOverview
+      tags: [marginality]
+      summary: Get profitability overview for a period
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: Profitability overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarginOverview"
+
+  /marginality/orders/{orderId}:
+    get:
+      operationId: getMarginOrder
+      tags: [marginality]
+      summary: Get the most recent immutable profitability snapshot for an order
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      responses:
+        "200":
+          description: Profitability snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarginOrderSnapshot"
+        "404": { description: No calculation available }
+
+  /marginality/orders/{orderId}/recalculate:
+    post:
+      operationId: recalculateMarginOrder
+      tags: [marginality]
+      summary: Enqueue an explicit new profitability calculation version
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      responses:
+        "202":
+          description: Recalculation queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarginRecalculation"
+
+  /marginality/catalog:
+    get:
+      operationId: getMarginCatalog
+      tags: [marginality]
+      summary: Get costing setup data and menu products
+      responses:
+        "200":
+          description: Costing catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarginCatalog"
+
+  /marginality/ingredients:
+    post:
+      operationId: createMarginIngredient
+      tags: [marginality]
+      summary: Create an ingredient and its current cost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarginIngredientInput"
+      responses:
+        "201":
+          description: Ingredient created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarginIngredient"
+
+  /marginality/ingredients/{id}:
+    patch:
+      operationId: updateMarginIngredient
+      tags: [marginality]
+      summary: Update an ingredient current cost or status
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarginIngredientUpdate"
+      responses:
+        "200":
+          description: Ingredient updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarginIngredient"
+
+  /marginality/recipes:
+    post:
+      operationId: createMarginRecipe
+      tags: [marginality]
+      summary: Create a versioned recipe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarginRecipeInput"
+      responses:
+        "201":
+          description: Recipe created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarginRecipe"
+
+  /marginality/configurations:
+    post:
+      operationId: createMarginConfiguration
+      tags: [marginality]
+      summary: Create a dated cost configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarginCostConfigurationInput"
+      responses:
+        "201":
+          description: Configuration created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarginCostConfiguration"
+
+  /marginality/utility-bills:
+    post:
+      operationId: createMarginUtilityBill
+      tags: [marginality]
+      summary: Record a utility bill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarginUtilityBillInput"
+      responses:
+        "201":
+          description: Bill created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarginUtilityBill"
+
+  /marginality/utility-types:
+    post:
+      operationId: createMarginUtilityType
+      tags: [marginality]
+      summary: Create a utility type for bill tracking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarginUtilityTypeInput"
+      responses:
+        "201":
+          description: Utility type created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarginUtilityType"
+
 components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema: { type: integer }
   schemas:
     HealthStatus:
       type: object
@@ -1068,3 +1263,205 @@ components:
         - name
         - seats
         - status
+
+    MarginProductResult:
+      type: object
+      required: [productId, productName, quantity, grossRevenue, contribution, contributionPercent]
+      properties:
+        productId: { type: integer }
+        productName: { type: string }
+        quantity: { type: number }
+        grossRevenue: { type: string }
+        contribution: { type: string }
+        contributionPercent: { type: string }
+    MarginOverview:
+      type: object
+      required: [orderCount, incompleteOrders, totals, mostProfitableProducts, lossMakingProducts, incomplete]
+      properties:
+        from: { type: ["string", "null"] }
+        to: { type: ["string", "null"] }
+        orderCount: { type: integer }
+        incompleteOrders: { type: integer }
+        totals:
+          type: object
+          additionalProperties: { type: string }
+        mostProfitableProducts:
+          type: array
+          items: { $ref: "#/components/schemas/MarginProductResult" }
+        lossMakingProducts:
+          type: array
+          items: { $ref: "#/components/schemas/MarginProductResult" }
+        incomplete:
+          type: array
+          items:
+            type: object
+            required: [orderId, missingData]
+            properties:
+              orderId: { type: integer }
+              calculatedAt: { type: string }
+              missingData: { type: array, items: { type: string } }
+    MarginOrderSnapshot:
+      type: object
+      required: [id, orderId, calculationVersion, grossRevenue, netRevenue, contributionMargin, estimatedManagementResult, completenessStatus]
+      properties:
+        id: { type: integer }
+        orderId: { type: integer }
+        calculationVersion: { type: integer }
+        grossRevenue: { type: string }
+        netRevenue: { type: string }
+        contributionMargin: { type: string }
+        estimatedManagementResult: { type: string }
+        completenessStatus: { type: string, enum: [complete, partial] }
+        missingData: { type: array, items: { type: string } }
+        lines: { type: array, items: { type: object, additionalProperties: true } }
+        sources: { type: object, additionalProperties: true }
+    MarginRecalculation:
+      type: object
+      required: [orderId, calculationVersion, status]
+      properties:
+        orderId: { type: integer }
+        calculationVersion: { type: integer }
+        status: { type: string }
+    MarginIngredient:
+      type: object
+      required: [id, name, baseUnit, currentUnitCost, vatRate, active]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        baseUnit: { type: string }
+        currentUnitCost: { type: string }
+        vatRate: { type: string }
+        active: { type: boolean }
+    MarginIngredientInput:
+      type: object
+      required: [name, baseUnit, currentUnitCost]
+      properties:
+        name: { type: string, minLength: 1 }
+        baseUnit: { type: string, minLength: 1 }
+        currentUnitCost: { type: string }
+        vatRate: { type: string, default: "0" }
+    MarginIngredientUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        baseUnit: { type: string }
+        currentUnitCost: { type: string }
+        vatRate: { type: string }
+        active: { type: boolean }
+    MarginRecipe:
+      type: object
+      required: [id, productId, yieldQuantity, preparationMinutes, active, version, validFrom]
+      properties:
+        id: { type: integer }
+        productId: { type: integer }
+        yieldQuantity: { type: string }
+        preparationMinutes: { type: integer }
+        packagingCostPerUnit: { type: string }
+        usesFryer: { type: boolean }
+        version: { type: integer }
+        active: { type: boolean }
+        validFrom: { type: string, format: date }
+    MarginRecipeItemInput:
+      type: object
+      required: [ingredientId, quantity]
+      properties:
+        ingredientId: { type: integer }
+        quantity: { type: string }
+        wastePercentage: { type: string, default: "0" }
+    MarginRecipeInput:
+      type: object
+      required: [productId, yieldQuantity, preparationMinutes, validFrom]
+      properties:
+        productId: { type: integer }
+        yieldQuantity: { type: string }
+        preparationMinutes: { type: integer }
+        packagingCostPerUnit: { type: string, default: "0" }
+        usesFryer: { type: boolean, default: false }
+        fryerPortionsPerYield: { type: ["string", "null"] }
+        version: { type: integer, default: 1 }
+        validFrom: { type: string, format: date }
+        validTo: { type: ["string", "null"], format: date }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/MarginRecipeItemInput" }
+    MarginCostConfiguration:
+      type: object
+      required: [id, electricityCostPerKwh, fixedCostsMonthly, productiveHoursMonthly, ownerHourlyCost, validFrom]
+      properties:
+        id: { type: integer }
+        electricityCostPerKwh: { type: string }
+        fixedCostsMonthly: { type: string }
+        productiveHoursMonthly: { type: string }
+        ownerHourlyCost: { type: string }
+        validFrom: { type: string, format: date }
+    MarginCostConfigurationInput:
+      type: object
+      required: [electricityCostPerKwh, fixedCostsMonthly, productiveHoursMonthly, ownerHourlyCost, validFrom]
+      properties:
+        electricityCostPerKwh: { type: string }
+        fixedCostsMonthly: { type: string }
+        productiveHoursMonthly: { type: string }
+        ownerHourlyCost: { type: string }
+        taxReservePercentage: { type: string, default: "0" }
+        cashFeePercentage: { type: string, default: "0" }
+        cardFeePercentage: { type: string, default: "0" }
+        ticketFeePercentage: { type: string, default: "0" }
+        otherFeePercentage: { type: string, default: "0" }
+        paymentFixedFee: { type: string, default: "0" }
+        validFrom: { type: string, format: date }
+        validTo: { type: ["string", "null"], format: date }
+    MarginUtilityBill:
+      type: object
+      required: [id, utilityTypeId, periodStart, periodEnd, consumptionQuantity, totalCost]
+      properties:
+        id: { type: integer }
+        utilityTypeId: { type: integer }
+        periodStart: { type: string, format: date }
+        periodEnd: { type: string, format: date }
+        consumptionQuantity: { type: string }
+        totalCost: { type: string }
+    MarginUtilityType:
+      type: object
+      required: [id, code, name, measurementUnit, allocationMethod, reliabilityLevel, active]
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        name: { type: string }
+        measurementUnit: { type: string }
+        allocationMethod: { type: string }
+        reliabilityLevel: { type: string }
+        active: { type: boolean }
+    MarginUtilityTypeInput:
+      type: object
+      required: [code, name, measurementUnit]
+      properties:
+        code: { type: string }
+        name: { type: string }
+        measurementUnit: { type: string }
+        allocationMethod: { type: string, default: manual }
+        reliabilityLevel: { type: string, default: estimated }
+    MarginUtilityBillInput:
+      type: object
+      required: [utilityTypeId, periodStart, periodEnd, consumptionQuantity, variableCost, fixedCost, totalCost]
+      properties:
+        utilityTypeId: { type: integer }
+        supplier: { type: string }
+        periodStart: { type: string, format: date }
+        periodEnd: { type: string, format: date }
+        consumptionQuantity: { type: string }
+        variableCost: { type: string }
+        fixedCost: { type: string }
+        taxesAndFees: { type: string, default: "0" }
+        totalCost: { type: string }
+        documentReference: { type: string }
+    MarginCatalog:
+      type: object
+      required: [ingredients, products, recipes, recipeItems, configurations, utilityTypes, utilityBills]
+      properties:
+        ingredients: { type: array, items: { $ref: "#/components/schemas/MarginIngredient" } }
+        products: { type: array, items: { $ref: "#/components/schemas/Product" } }
+        recipes: { type: array, items: { $ref: "#/components/schemas/MarginRecipe" } }
+        recipeItems: { type: array, items: { type: object, additionalProperties: true } }
+        configurations: { type: array, items: { $ref: "#/components/schemas/MarginCostConfiguration" } }
+        utilityTypes: { type: array, items: { type: object, additionalProperties: true } }
+        utilityBills: { type: array, items: { $ref: "#/components/schemas/MarginUtilityBill" } }

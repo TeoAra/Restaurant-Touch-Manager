@@ -25,11 +25,27 @@ import type {
   CreateProductBody,
   CreateTableBody,
   DashboardSummary,
+  GetMarginOverviewParams,
   GetSalesByDayParams,
   GetTopProductsParams,
   HealthStatus,
   ListOrdersParams,
   ListProductsParams,
+  MarginCatalog,
+  MarginCostConfiguration,
+  MarginCostConfigurationInput,
+  MarginIngredient,
+  MarginIngredientInput,
+  MarginIngredientUpdate,
+  MarginOrderSnapshot,
+  MarginOverview,
+  MarginRecalculation,
+  MarginRecipe,
+  MarginRecipeInput,
+  MarginUtilityBill,
+  MarginUtilityBillInput,
+  MarginUtilityType,
+  MarginUtilityTypeInput,
   Order,
   OrderItem,
   OrderWithItems,
@@ -2768,3 +2784,874 @@ export function useGetTablesStatus<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Get profitability overview for a period
+ */
+export const getGetMarginOverviewUrl = (params?: GetMarginOverviewParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/marginality/overview?${stringifiedParams}`
+    : `/api/marginality/overview`;
+};
+
+export const getMarginOverview = async (
+  params?: GetMarginOverviewParams,
+  options?: RequestInit,
+): Promise<MarginOverview> => {
+  return customFetch<MarginOverview>(getGetMarginOverviewUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMarginOverviewQueryKey = (
+  params?: GetMarginOverviewParams,
+) => {
+  return [`/api/marginality/overview`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetMarginOverviewQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMarginOverview>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetMarginOverviewParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getMarginOverview>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetMarginOverviewQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getMarginOverview>>
+  > = ({ signal }) => getMarginOverview(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMarginOverview>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMarginOverviewQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMarginOverview>>
+>;
+export type GetMarginOverviewQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get profitability overview for a period
+ */
+
+export function useGetMarginOverview<
+  TData = Awaited<ReturnType<typeof getMarginOverview>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetMarginOverviewParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getMarginOverview>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMarginOverviewQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get the most recent immutable profitability snapshot for an order
+ */
+export const getGetMarginOrderUrl = (orderId: number) => {
+  return `/api/marginality/orders/${orderId}`;
+};
+
+export const getMarginOrder = async (
+  orderId: number,
+  options?: RequestInit,
+): Promise<MarginOrderSnapshot> => {
+  return customFetch<MarginOrderSnapshot>(getGetMarginOrderUrl(orderId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMarginOrderQueryKey = (orderId: number) => {
+  return [`/api/marginality/orders/${orderId}`] as const;
+};
+
+export const getGetMarginOrderQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMarginOrder>>,
+  TError = ErrorType<void>,
+>(
+  orderId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getMarginOrder>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMarginOrderQueryKey(orderId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMarginOrder>>> = ({
+    signal,
+  }) => getMarginOrder(orderId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!orderId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMarginOrder>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMarginOrderQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMarginOrder>>
+>;
+export type GetMarginOrderQueryError = ErrorType<void>;
+
+/**
+ * @summary Get the most recent immutable profitability snapshot for an order
+ */
+
+export function useGetMarginOrder<
+  TData = Awaited<ReturnType<typeof getMarginOrder>>,
+  TError = ErrorType<void>,
+>(
+  orderId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getMarginOrder>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMarginOrderQueryOptions(orderId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Enqueue an explicit new profitability calculation version
+ */
+export const getRecalculateMarginOrderUrl = (orderId: number) => {
+  return `/api/marginality/orders/${orderId}/recalculate`;
+};
+
+export const recalculateMarginOrder = async (
+  orderId: number,
+  options?: RequestInit,
+): Promise<MarginRecalculation> => {
+  return customFetch<MarginRecalculation>(
+    getRecalculateMarginOrderUrl(orderId),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getRecalculateMarginOrderMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recalculateMarginOrder>>,
+    TError,
+    { orderId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof recalculateMarginOrder>>,
+  TError,
+  { orderId: number },
+  TContext
+> => {
+  const mutationKey = ["recalculateMarginOrder"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof recalculateMarginOrder>>,
+    { orderId: number }
+  > = (props) => {
+    const { orderId } = props ?? {};
+
+    return recalculateMarginOrder(orderId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RecalculateMarginOrderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof recalculateMarginOrder>>
+>;
+
+export type RecalculateMarginOrderMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Enqueue an explicit new profitability calculation version
+ */
+export const useRecalculateMarginOrder = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recalculateMarginOrder>>,
+    TError,
+    { orderId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof recalculateMarginOrder>>,
+  TError,
+  { orderId: number },
+  TContext
+> => {
+  return useMutation(getRecalculateMarginOrderMutationOptions(options));
+};
+
+/**
+ * @summary Get costing setup data and menu products
+ */
+export const getGetMarginCatalogUrl = () => {
+  return `/api/marginality/catalog`;
+};
+
+export const getMarginCatalog = async (
+  options?: RequestInit,
+): Promise<MarginCatalog> => {
+  return customFetch<MarginCatalog>(getGetMarginCatalogUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMarginCatalogQueryKey = () => {
+  return [`/api/marginality/catalog`] as const;
+};
+
+export const getGetMarginCatalogQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMarginCatalog>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMarginCatalog>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMarginCatalogQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getMarginCatalog>>
+  > = ({ signal }) => getMarginCatalog({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMarginCatalog>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMarginCatalogQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMarginCatalog>>
+>;
+export type GetMarginCatalogQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get costing setup data and menu products
+ */
+
+export function useGetMarginCatalog<
+  TData = Awaited<ReturnType<typeof getMarginCatalog>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMarginCatalog>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMarginCatalogQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create an ingredient and its current cost
+ */
+export const getCreateMarginIngredientUrl = () => {
+  return `/api/marginality/ingredients`;
+};
+
+export const createMarginIngredient = async (
+  marginIngredientInput: MarginIngredientInput,
+  options?: RequestInit,
+): Promise<MarginIngredient> => {
+  return customFetch<MarginIngredient>(getCreateMarginIngredientUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(marginIngredientInput),
+  });
+};
+
+export const getCreateMarginIngredientMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createMarginIngredient>>,
+    TError,
+    { data: BodyType<MarginIngredientInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createMarginIngredient>>,
+  TError,
+  { data: BodyType<MarginIngredientInput> },
+  TContext
+> => {
+  const mutationKey = ["createMarginIngredient"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createMarginIngredient>>,
+    { data: BodyType<MarginIngredientInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createMarginIngredient(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateMarginIngredientMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createMarginIngredient>>
+>;
+export type CreateMarginIngredientMutationBody =
+  BodyType<MarginIngredientInput>;
+export type CreateMarginIngredientMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create an ingredient and its current cost
+ */
+export const useCreateMarginIngredient = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createMarginIngredient>>,
+    TError,
+    { data: BodyType<MarginIngredientInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createMarginIngredient>>,
+  TError,
+  { data: BodyType<MarginIngredientInput> },
+  TContext
+> => {
+  return useMutation(getCreateMarginIngredientMutationOptions(options));
+};
+
+/**
+ * @summary Update an ingredient current cost or status
+ */
+export const getUpdateMarginIngredientUrl = (id: number) => {
+  return `/api/marginality/ingredients/${id}`;
+};
+
+export const updateMarginIngredient = async (
+  id: number,
+  marginIngredientUpdate: MarginIngredientUpdate,
+  options?: RequestInit,
+): Promise<MarginIngredient> => {
+  return customFetch<MarginIngredient>(getUpdateMarginIngredientUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(marginIngredientUpdate),
+  });
+};
+
+export const getUpdateMarginIngredientMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateMarginIngredient>>,
+    TError,
+    { id: number; data: BodyType<MarginIngredientUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateMarginIngredient>>,
+  TError,
+  { id: number; data: BodyType<MarginIngredientUpdate> },
+  TContext
+> => {
+  const mutationKey = ["updateMarginIngredient"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateMarginIngredient>>,
+    { id: number; data: BodyType<MarginIngredientUpdate> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateMarginIngredient(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateMarginIngredientMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateMarginIngredient>>
+>;
+export type UpdateMarginIngredientMutationBody =
+  BodyType<MarginIngredientUpdate>;
+export type UpdateMarginIngredientMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update an ingredient current cost or status
+ */
+export const useUpdateMarginIngredient = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateMarginIngredient>>,
+    TError,
+    { id: number; data: BodyType<MarginIngredientUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateMarginIngredient>>,
+  TError,
+  { id: number; data: BodyType<MarginIngredientUpdate> },
+  TContext
+> => {
+  return useMutation(getUpdateMarginIngredientMutationOptions(options));
+};
+
+/**
+ * @summary Create a versioned recipe
+ */
+export const getCreateMarginRecipeUrl = () => {
+  return `/api/marginality/recipes`;
+};
+
+export const createMarginRecipe = async (
+  marginRecipeInput: MarginRecipeInput,
+  options?: RequestInit,
+): Promise<MarginRecipe> => {
+  return customFetch<MarginRecipe>(getCreateMarginRecipeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(marginRecipeInput),
+  });
+};
+
+export const getCreateMarginRecipeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createMarginRecipe>>,
+    TError,
+    { data: BodyType<MarginRecipeInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createMarginRecipe>>,
+  TError,
+  { data: BodyType<MarginRecipeInput> },
+  TContext
+> => {
+  const mutationKey = ["createMarginRecipe"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createMarginRecipe>>,
+    { data: BodyType<MarginRecipeInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createMarginRecipe(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateMarginRecipeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createMarginRecipe>>
+>;
+export type CreateMarginRecipeMutationBody = BodyType<MarginRecipeInput>;
+export type CreateMarginRecipeMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create a versioned recipe
+ */
+export const useCreateMarginRecipe = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createMarginRecipe>>,
+    TError,
+    { data: BodyType<MarginRecipeInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createMarginRecipe>>,
+  TError,
+  { data: BodyType<MarginRecipeInput> },
+  TContext
+> => {
+  return useMutation(getCreateMarginRecipeMutationOptions(options));
+};
+
+/**
+ * @summary Create a dated cost configuration
+ */
+export const getCreateMarginConfigurationUrl = () => {
+  return `/api/marginality/configurations`;
+};
+
+export const createMarginConfiguration = async (
+  marginCostConfigurationInput: MarginCostConfigurationInput,
+  options?: RequestInit,
+): Promise<MarginCostConfiguration> => {
+  return customFetch<MarginCostConfiguration>(
+    getCreateMarginConfigurationUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(marginCostConfigurationInput),
+    },
+  );
+};
+
+export const getCreateMarginConfigurationMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createMarginConfiguration>>,
+    TError,
+    { data: BodyType<MarginCostConfigurationInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createMarginConfiguration>>,
+  TError,
+  { data: BodyType<MarginCostConfigurationInput> },
+  TContext
+> => {
+  const mutationKey = ["createMarginConfiguration"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createMarginConfiguration>>,
+    { data: BodyType<MarginCostConfigurationInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createMarginConfiguration(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateMarginConfigurationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createMarginConfiguration>>
+>;
+export type CreateMarginConfigurationMutationBody =
+  BodyType<MarginCostConfigurationInput>;
+export type CreateMarginConfigurationMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create a dated cost configuration
+ */
+export const useCreateMarginConfiguration = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createMarginConfiguration>>,
+    TError,
+    { data: BodyType<MarginCostConfigurationInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createMarginConfiguration>>,
+  TError,
+  { data: BodyType<MarginCostConfigurationInput> },
+  TContext
+> => {
+  return useMutation(getCreateMarginConfigurationMutationOptions(options));
+};
+
+/**
+ * @summary Record a utility bill
+ */
+export const getCreateMarginUtilityBillUrl = () => {
+  return `/api/marginality/utility-bills`;
+};
+
+export const createMarginUtilityBill = async (
+  marginUtilityBillInput: MarginUtilityBillInput,
+  options?: RequestInit,
+): Promise<MarginUtilityBill> => {
+  return customFetch<MarginUtilityBill>(getCreateMarginUtilityBillUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(marginUtilityBillInput),
+  });
+};
+
+export const getCreateMarginUtilityBillMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createMarginUtilityBill>>,
+    TError,
+    { data: BodyType<MarginUtilityBillInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createMarginUtilityBill>>,
+  TError,
+  { data: BodyType<MarginUtilityBillInput> },
+  TContext
+> => {
+  const mutationKey = ["createMarginUtilityBill"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createMarginUtilityBill>>,
+    { data: BodyType<MarginUtilityBillInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createMarginUtilityBill(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateMarginUtilityBillMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createMarginUtilityBill>>
+>;
+export type CreateMarginUtilityBillMutationBody =
+  BodyType<MarginUtilityBillInput>;
+export type CreateMarginUtilityBillMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Record a utility bill
+ */
+export const useCreateMarginUtilityBill = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createMarginUtilityBill>>,
+    TError,
+    { data: BodyType<MarginUtilityBillInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createMarginUtilityBill>>,
+  TError,
+  { data: BodyType<MarginUtilityBillInput> },
+  TContext
+> => {
+  return useMutation(getCreateMarginUtilityBillMutationOptions(options));
+};
+
+/**
+ * @summary Create a utility type for bill tracking
+ */
+export const getCreateMarginUtilityTypeUrl = () => {
+  return `/api/marginality/utility-types`;
+};
+
+export const createMarginUtilityType = async (
+  marginUtilityTypeInput: MarginUtilityTypeInput,
+  options?: RequestInit,
+): Promise<MarginUtilityType> => {
+  return customFetch<MarginUtilityType>(getCreateMarginUtilityTypeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(marginUtilityTypeInput),
+  });
+};
+
+export const getCreateMarginUtilityTypeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createMarginUtilityType>>,
+    TError,
+    { data: BodyType<MarginUtilityTypeInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createMarginUtilityType>>,
+  TError,
+  { data: BodyType<MarginUtilityTypeInput> },
+  TContext
+> => {
+  const mutationKey = ["createMarginUtilityType"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createMarginUtilityType>>,
+    { data: BodyType<MarginUtilityTypeInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createMarginUtilityType(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateMarginUtilityTypeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createMarginUtilityType>>
+>;
+export type CreateMarginUtilityTypeMutationBody =
+  BodyType<MarginUtilityTypeInput>;
+export type CreateMarginUtilityTypeMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create a utility type for bill tracking
+ */
+export const useCreateMarginUtilityType = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createMarginUtilityType>>,
+    TError,
+    { data: BodyType<MarginUtilityTypeInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createMarginUtilityType>>,
+  TError,
+  { data: BodyType<MarginUtilityTypeInput> },
+  TContext
+> => {
+  return useMutation(getCreateMarginUtilityTypeMutationOptions(options));
+};

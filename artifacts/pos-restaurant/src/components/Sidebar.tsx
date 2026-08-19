@@ -4,7 +4,7 @@ import {
   UtensilsCrossed, LayoutGrid, Receipt, Settings,
   ChefHat, BarChart3, CreditCard, Layers, Printer,
   BookOpen, Home, Users, LogOut, User, FileText, Tag, Zap, Sun,
-  BadgePercent, SlidersHorizontal, CalendarDays, Sparkles, ShieldCheck,
+  BadgePercent, SlidersHorizontal, CalendarDays, Sparkles, ShieldCheck, ChartNoAxesCombined,
   Package, Bike, MessageSquare, ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -68,6 +68,7 @@ const adminGroups: NavGroup[] = [
     label: "Report & Cassa",
     items: [
       { href: "/backoffice/reports", icon: BarChart3, label: "Report" },
+      { href: "/backoffice/marginalita", icon: ChartNoAxesCombined, label: "Marginalità" },
       { href: "/backoffice/payments", icon: CreditCard, label: "Pagamenti" },
       { href: "/backoffice/fiscale", icon: Receipt, label: "Fiscale" },
       { href: "/backoffice/audit", icon: ShieldCheck, label: "Audit Log" },

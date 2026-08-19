@@ -26,6 +26,7 @@ import posRouter from "./pos";
 import viesRouter from "./vies";
 import auditRouter from "./audit";
 import setupStatusRouter from "./setup-status";
+import marginalityRouter from "./marginality";
 
 const router: IRouter = Router();
 
@@ -56,5 +57,6 @@ router.use("/pos", posRouter);
 router.use("/vies", viesRouter);
 router.use("/audit", auditRouter);
 router.use("/setup-status", setupStatusRouter);
+router.use("/marginality", marginalityRouter);
 
 export default router;

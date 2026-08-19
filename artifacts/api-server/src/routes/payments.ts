@@ -6,6 +6,7 @@ import { getFiscalPrinter, emettiFiscalReceipt, emettiDocumentoNonFiscale } from
 import { getSettings } from "../lib/settings";
 import { logAudit } from "../lib/audit";
 import { createInvoiceRecord, emitInvoice, type CreateInvoiceInput } from "../lib/invoice-service";
+import { captureMarginFacts, enqueueMarginCalculation, processPendingMarginJobs } from "../lib/margin-service";
 
 const router = Router();
 
@@ -68,7 +69,8 @@ router.post("/", async (req, res) => {
   // ATTENZIONE: orders.total contiene SOLO la somma degli item (recalcOrderTotal),
   // i coperti sono fuori. Per stabilire se un pagamento split chiude l'ordine
   // dobbiamo includere anche il costo dei coperti residui.
-  const settingsForDue = isPartialPayment ? await getSettings() : null;
+  const settingsForMargin = await getSettings();
+  const settingsForDue = isPartialPayment ? settingsForMargin : null;
   const coverPriceForDue = settingsForDue ? parseFloat(settingsForDue["cover_price"] ?? "0") : 0;
 
   // ── Atomico: INSERT pagamento + UPDATE ordine (status=paid) in una sola
@@ -109,6 +111,23 @@ router.post("/", async (req, res) => {
       ? await tx.select().from(ordersTable).where(eq(ordersTable.id, body.orderId)).limit(1)
       : await tx.update(ordersTable).set({ status: "paid" }).where(eq(ordersTable.id, body.orderId)).returning();
 
+    // Salva le righe prima che il client le elimini dopo un conto separato.
+    // Il job è creato solo quando l'ordine è effettivamente chiuso e non
+    // rallenta il pagamento o la stampa RT.
+    const modalitaMargin = (ord as { modalita?: string } | undefined)?.modalita ?? "tavolo";
+    const coverVatRate = settingsForMargin[`iva_${modalitaMargin}`] ?? settingsForMargin["iva_tavolo"] ?? "10";
+    const coverQuantity = isPartialPayment ? coversCountPre : (ord?.covers ?? 0);
+    await captureMarginFacts(tx, body.orderId, {
+      selectedItemIds: splitItemIdsPre,
+      cover: {
+        paymentId: pay.id,
+        quantity: coverQuantity,
+        unitPrice: settingsForMargin["cover_price"] ?? "0",
+        vatRate: coverVatRate,
+      },
+    });
+    if (!remainder) await enqueueMarginCalculation(tx, body.orderId);
+
     // ── Fattura nella STESSA transazione del pagamento ────────────────────
     // Se l'insert fattura fallisce, fallisce anche il pagamento: mai lo stato
     // "pagato ma senza fattura". Numero manuale già usato → fallback automatico
@@ -123,6 +142,10 @@ router.post("/", async (req, res) => {
 
     return { payment: pay, order: ord, isSplitWithRemainder: remainder, invoice: inv, invoiceNumeroFallback: invNumFallback };
   });
+
+  // Elaborazione best-effort: il job resta in coda anche in caso di errore.
+  // Non blocca né modifica l'esito del pagamento.
+  void processPendingMarginJobs();
 
   // Free the table only when the order is fully paid (atomico)
   if (!isSplitWithRemainder && order?.tableId) {
