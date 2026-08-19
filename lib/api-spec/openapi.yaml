@@ -789,7 +789,7 @@ paths:
     post:
       operationId: createMarginCoverCostItem
       tags: [marginality]
-      summary: Record a cover component such as placemat, napkin, cutlery holder or sauce
+      summary: Record a cover component or an included sauce for fried orders
       requestBody:
         required: true
         content:
@@ -1629,7 +1629,7 @@ components:
         validTo: { type: ["string", "null"], format: date }
     MarginCoverCostItem:
       type: object
-      required: [id, name, purchaseQuantity, purchaseUnit, purchasePrice, quantityPerCover, active]
+      required: [id, name, purchaseQuantity, purchaseUnit, purchasePrice, quantityPerCover, applicationScope, active]
       properties:
         id: { type: integer }
         name: { type: string }
@@ -1637,6 +1637,7 @@ components:
         purchaseUnit: { type: string }
         purchasePrice: { type: string }
         quantityPerCover: { type: string }
+        applicationScope: { type: string, enum: [cover, fried_order] }
         active: { type: boolean }
     MarginCoverCostItemInput:
       type: object
@@ -1646,7 +1647,7 @@ components:
         purchaseQuantity: { type: string, description: "Quantità contenuta nella confezione acquistata" }
         purchaseUnit: { type: string, example: "pz" }
         purchasePrice: { type: string, description: "Prezzo pagato per la confezione" }
-        quantityPerCover: { type: string, description: "Quantità consumata da una persona seduta" }
+        quantityPerCover: { type: string, description: "Quantità per coperto; per le quattro salse standard viene fissata a 2 per comanda con fritti" }
     MarginUtilityBill:
       type: object
       required: [id, utilityTypeId, periodStart, periodEnd, consumptionQuantity, variableCost, fixedCost, taxesAndFees, totalCost, variableUnitCost, totalUnitCost]

@@ -45,6 +45,12 @@ function asStorage(value: string | number | null | undefined): string {
   return amount(value).toFixed(6);
 }
 
+function isStandardFriedSauce(name: string): boolean {
+  const normalizedName = name.toLocaleLowerCase("it");
+  return ["maionese", "ketchup", "senape", "bbq", "salsa bbq"]
+    .some((sauce) => normalizedName === sauce || normalizedName.includes(sauce));
+}
+
 function dateKey(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
@@ -432,15 +438,38 @@ async function buildCalculation(orderId: number): Promise<{
       .add(amount(config.chamberFeeAnnual).div(TWELVE))
     : ZERO;
   const activeCoverItems = coverCostItems.filter((item) => item.active);
-  const componentCoverCost = activeCoverItems.reduce(
+  // Le voci salvate prima dell'introduzione dello scope vengono riconosciute
+  // dal nome: le quattro salse standard restano una sola fornitura per comanda.
+  const friedOrderItems = activeCoverItems.filter((item) => item.applicationScope === "fried_order" || isStandardFriedSauce(item.name));
+  const perCoverItems = activeCoverItems.filter((item) => !friedOrderItems.includes(item));
+  const componentCoverCost = perCoverItems.reduce(
     (total, item) => total.add(amount(item.purchasePrice).div(amount(item.purchaseQuantity)).mul(amount(item.quantityPerCover))),
     ZERO,
   );
   // Il vecchio valore manuale resta solo per gli snapshot/assetti che non hanno
   // ancora componenti del coperto configurati.
-  const coverCostPerCover = activeCoverItems.length
+  const coverCostPerCover = perCoverItems.length
     ? componentCoverCost
     : (config ? amount(config.coverCostPerCover) : ZERO);
+  const friedFacts = facts.filter((fact) => fact.productId !== 0 && selectRecipeForDate(recipes, fact.productId, at)?.usesFryer);
+  const friedQuantity = friedFacts.reduce((total, fact) => total.add(amount(fact.quantity)), ZERO);
+  const includedSaucesCost = friedQuantity.isPositive()
+    ? friedOrderItems.reduce(
+      (total, item) => total.add(amount(item.purchasePrice).div(amount(item.purchaseQuantity)).mul(amount(item.quantityPerCover))),
+      ZERO,
+    )
+    : ZERO;
+  // Una comanda con almeno un fritto riceve l'intera fornitura (es. 8 bustine)
+  // una sola volta. Per ottenere un costo variabile corretto, lo si distribuisce
+  // solo sulle righe fritte senza cambiarne il totale.
+  if (includedSaucesCost.isPositive() && friedQuantity.isPositive()) {
+    const sauceCostPerFriedUnit = includedSaucesCost.div(friedQuantity);
+    const friedProductIds = new Set(friedFacts.map((fact) => fact.productId));
+    for (const line of lines) {
+      if (typeof line.productId !== "number" || !friedProductIds.has(line.productId)) continue;
+      line.packagingCostPerUnit = amount(line.packagingCostPerUnit).add(sauceCostPerFriedUnit).toString();
+    }
+  }
   const fixedCostAllocation = config && paidCoversInMonth.isPositive() && order.covers > 0
     ? monthlyFixedCosts.div(paidCoversInMonth)
       .mul(amount(order.covers))

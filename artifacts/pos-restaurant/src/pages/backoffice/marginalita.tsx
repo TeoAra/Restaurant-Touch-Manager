@@ -40,7 +40,7 @@ type Catalog = {
   recipes: Array<{ id: number; productId: number; validFrom: string; version: number }>;
   recipeItems: Array<{ recipeId: number; ingredientId: number; quantity: string; wastePercentage: string }>;
   configurations: Array<{ id: number; validFrom: string; electricityCostPerKwh: string; fixedCostsMonthly: string; rentMonthly: string; taxRegisterAnnual: string; chamberFeeAnnual: string; coverCostPerCover: string; ownerHourlyCost: string }>;
-  coverCostItems: Array<{ id: number; name: string; purchaseQuantity: string; purchaseUnit: string; purchasePrice: string; quantityPerCover: string; active: boolean }>;
+  coverCostItems: Array<{ id: number; name: string; purchaseQuantity: string; purchaseUnit: string; purchasePrice: string; quantityPerCover: string; applicationScope: "cover" | "fried_order"; active: boolean }>;
   utilityTypes: Array<{ id: number; code: string; name: string; measurementUnit: string; active: boolean }>;
   utilityBills: Array<{ id: number; utilityTypeId: number; periodStart: string; periodEnd: string; consumptionQuantity: string; variableCost: string; fixedCost: string; taxesAndFees: string; totalCost: string; variableUnitCost: string | null; totalUnitCost: string | null }>;
 };
@@ -440,22 +440,23 @@ export default function MarginalitaPage() {
                 if (await submit("/cover-cost-items", Object.fromEntries(form), "Componente del coperto salvato")) event.currentTarget.reset();
               }} className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
                 <h2 className="flex items-center gap-2 font-bold"><PackagePlus className="h-4 w-4 text-primary" /> Componenti del coperto</h2>
-                <p className="text-xs text-slate-500">Il costo per persona viene calcolato da prezzo confezione ÷ quantità acquistata × quantità usata per coperto.</p>
+                <p className="text-xs text-slate-500">Tovaglietta, tovaglioli e porta posate sono per persona. Le quattro salse standard vengono applicate una sola volta alle comande con fritti.</p>
                 <SimpleInput label="Componente" name="name" required placeholder="Tovaglietta, Tovagliolo, Maionese…" list="cover-item-presets" />
                 <datalist id="cover-item-presets"><option value="Tovaglietta" /><option value="Tovagliolo" /><option value="Porta posate" /><option value="Maionese" /><option value="Ketchup" /><option value="Senape" /><option value="Salsa BBQ" /></datalist>
                 <div className="grid grid-cols-2 gap-3"><SimpleInput label="Quantità confezione" name="purchaseQuantity" inputMode="decimal" required placeholder="es. 100" /><SimpleInput label="Unità" name="purchaseUnit" required defaultValue="pz" placeholder="pz, ml…" /></div>
                 <div className="grid grid-cols-2 gap-3"><SimpleInput label="Prezzo confezione (€)" name="purchasePrice" inputMode="decimal" required placeholder="0,00" /><SimpleInput label="Quantità per coperto" name="quantityPerCover" inputMode="decimal" required defaultValue="1" /></div>
-                <p className="text-xs text-slate-500">Regola del locale: Maionese, Ketchup, Senape e Salsa BBQ vengono salvate automaticamente come <b>2 porzioni per coperto</b>.</p>
+                <p className="text-xs text-slate-500">Regola del locale: Maionese, Ketchup, Senape e Salsa BBQ vengono salvate automaticamente come <b>2 porzioni ciascuna per comanda con fritti</b>: 8 bustine totali, indipendentemente dai coperti.</p>
                 <SubmitButton>Aggiungi componente</SubmitButton>
               </form>
               <section className="rounded-xl border border-slate-200 bg-white p-4">
                 <h2 className="font-bold">Costo coperto calcolato</h2>
-                <p className="mt-1 text-xs text-slate-500">Quando viene registrato il numero di persone al tavolo, ogni voce qui sotto viene moltiplicata automaticamente per i coperti.</p>
+                <p className="mt-1 text-xs text-slate-500">Le voci per coperto seguono le persone sedute. Le salse incluse vengono aggiunte una sola volta quando una ricetta della comanda usa la friggitrice.</p>
                 <div className="mt-3 divide-y divide-slate-100">{(catalog.data?.coverCostItems ?? []).map(item => {
                   const detail = coverCostDetail(item);
-                  return <div key={item.id} className="flex justify-between gap-4 py-2 text-sm"><span><b>{item.name}</b><small className="ml-2 text-slate-500">{item.quantityPerCover} {item.purchaseUnit}/coperto · {euro(detail.unitCost)}/{item.purchaseUnit}</small></span><b>{euro(detail.coverCost)}/coperto</b></div>;
+                  const scopeLabel = item.applicationScope === "fried_order" ? "per comanda con fritti" : "per coperto";
+                  return <div key={item.id} className="flex justify-between gap-4 py-2 text-sm"><span><b>{item.name}</b><small className="ml-2 text-slate-500">{item.quantityPerCover} {item.purchaseUnit} {scopeLabel} · {euro(detail.unitCost)}/{item.purchaseUnit}</small></span><b>{euro(detail.coverCost)} {scopeLabel}</b></div>;
                 })}</div>
-                {!catalog.data?.coverCostItems.length && <p className="mt-4 text-sm text-slate-400">Aggiungi tovaglietta, tovaglioli, porta posate e salse per calcolare il coperto.</p>}
+                {!catalog.data?.coverCostItems.length && <p className="mt-4 text-sm text-slate-400">Aggiungi tovaglietta, tovaglioli, porta posate e salse per calcolare i costi del servizio.</p>}
               </section>
             </section>
           </TabsContent>

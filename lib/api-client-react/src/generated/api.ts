@@ -3494,7 +3494,7 @@ export const useCreateMarginConfiguration = <
 };
 
 /**
- * @summary Record a cover component such as placemat, napkin, cutlery holder or sauce
+ * @summary Record a cover component or an included sauce for fried orders
  */
 export const getCreateMarginCoverCostItemUrl = () => {
   return `/api/marginality/cover-cost-items`;
@@ -3558,7 +3558,7 @@ export type CreateMarginCoverCostItemMutationBody =
 export type CreateMarginCoverCostItemMutationError = ErrorType<unknown>;
 
 /**
- * @summary Record a cover component such as placemat, napkin, cutlery holder or sauce
+ * @summary Record a cover component or an included sauce for fried orders
  */
 export const useCreateMarginCoverCostItem = <
   TError = ErrorType<unknown>,

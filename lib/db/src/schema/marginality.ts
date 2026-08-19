@@ -211,8 +211,9 @@ export const coverCostItemsTable = pgTable(
     purchaseQuantity: numeric("purchase_quantity", { precision: 18, scale: 6 }).notNull(),
     purchaseUnit: text("purchase_unit").notNull().default("pz"),
     purchasePrice: numeric("purchase_price", { precision: 18, scale: 6 }).notNull(),
-    // Consumo di questa voce per ogni persona seduta.
+    // Quantità applicata per coperto oppure per comanda con fritti, in base allo scope.
     quantityPerCover: numeric("quantity_per_cover", { precision: 18, scale: 6 }).notNull().default("1"),
+    applicationScope: text("application_scope").notNull().default("cover"),
     active: boolean("active").notNull().default(true),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
   },

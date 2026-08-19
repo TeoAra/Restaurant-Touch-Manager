@@ -683,6 +683,7 @@ export const GetMarginCatalogResponse = zod.object({
       purchaseUnit: zod.string(),
       purchasePrice: zod.string(),
       quantityPerCover: zod.string(),
+      applicationScope: zod.enum(["cover", "fried_order"]),
       active: zod.boolean(),
     }),
   ),
@@ -862,7 +863,7 @@ export const CreateMarginConfigurationBody = zod.object({
 });
 
 /**
- * @summary Record a cover component such as placemat, napkin, cutlery holder or sauce
+ * @summary Record a cover component or an included sauce for fried orders
  */
 export const CreateMarginCoverCostItemBody = zod.object({
   name: zod.string(),
@@ -873,7 +874,9 @@ export const CreateMarginCoverCostItemBody = zod.object({
   purchasePrice: zod.string().describe("Prezzo pagato per la confezione"),
   quantityPerCover: zod
     .string()
-    .describe("Quantità consumata da una persona seduta"),
+    .describe(
+      "Quantità per coperto; per le quattro salse standard viene fissata a 2 per comanda con fritti",
+    ),
 });
 
 /**

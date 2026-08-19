@@ -58,6 +58,12 @@ function withUtilityRates<T extends { consumptionQuantity: string; variableCost:
   };
 }
 
+function isStandardFriedSauce(name: string): boolean {
+  const normalizedName = name.toLocaleLowerCase("it");
+  return ["maionese", "ketchup", "senape", "bbq", "salsa bbq"]
+    .some((sauce) => normalizedName === sauce || normalizedName.includes(sauce));
+}
+
 router.get("/overview", async (req, res): Promise<void> => {
   const from = validDate(req.query.from);
   const to = validDate(req.query.to);
@@ -117,7 +123,12 @@ router.get("/catalog", async (_req, res): Promise<void> => {
     recipes,
     recipeItems,
     configurations,
-    coverCostItems,
+    coverCostItems: coverCostItems.map((item) => ({
+      ...item,
+      // Anche le voci create prima dell'introduzione dello scope rispettano
+      // la nuova regola delle salse quando vengono lette dal Backoffice.
+      applicationScope: item.applicationScope === "fried_order" || isStandardFriedSauce(item.name) ? "fried_order" : "cover",
+    })),
     utilityTypes,
     utilityBills: utilityBills.map(withUtilityRates),
   });
@@ -128,17 +139,16 @@ router.post("/cover-cost-items", async (req, res): Promise<void> => {
     const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
     const purchaseUnit = typeof req.body?.purchaseUnit === "string" ? req.body.purchaseUnit.trim() : "";
     if (!name || !purchaseUnit) throw new Error("Nome e unità di acquisto sono obbligatori");
-    const normalizedName = name.toLocaleLowerCase("it");
-    const isStandardIncludedSauce = ["maionese", "ketchup", "senape", "bbq", "salsa bbq"]
-      .some((sauce) => normalizedName === sauce || normalizedName.includes(sauce));
+    const isStandardIncludedSauce = isStandardFriedSauce(name);
     const [item] = await db.insert(coverCostItemsTable).values({
       name,
       purchaseUnit,
       purchaseQuantity: strictlyPositiveDecimal(req.body.purchaseQuantity, "La quantità acquistata"),
       purchasePrice: strictlyPositiveDecimal(req.body.purchasePrice, "Il prezzo d'acquisto"),
       // Regola concordata per il locale: due bustine/porzioni per ogni salsa
-      // standard sono incluse in ogni coperto.
+      // standard sono incluse una sola volta in una comanda che contiene fritti.
       quantityPerCover: isStandardIncludedSauce ? "2" : strictlyPositiveDecimal(req.body.quantityPerCover, "La quantità per coperto"),
+      applicationScope: isStandardIncludedSauce ? "fried_order" : "cover",
     }).returning();
     res.status(201).json(item);
   } catch (error) {

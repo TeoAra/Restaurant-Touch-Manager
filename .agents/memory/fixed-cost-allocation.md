@@ -11,6 +11,12 @@ Regola: i costi fissi della marginalità vengono ripartiti sui **coperti effetti
 
 **How to apply:** per nuove spese ricorrenti, conservarne frequenza e valore in modo che il calcolo possa ottenere la quota mensile. Se nel mese non esistono coperti validi, non inventare una ripartizione: segnalare il dato mancante.
 
+Regola: tovaglietta, tovaglioli e porta posate sono costi per coperto; maionese, ketchup, senape e salsa BBQ sono una fornitura fissa di due porzioni ciascuna (otto totali) una sola volta per **comanda con fritti**, indipendentemente dal numero di coperti o di articoli fritti.
+
+**Why:** le salse vengono consegnate al tavolo con la frittura e non aumentano con ciascuna persona; attribuirle per coperto o per singolo articolo ne sovrastimerebbe il costo.
+
+**How to apply:** una comanda attiva questo costo quando almeno una ricetta venduta usa la friggitrice, inclusi panini con patatine. Ripartire il costo totale sulle righe fritte soltanto per rappresentarlo come costo variabile senza modificarne il totale.
+
 Regola: una bolletta conserva consumo, costo variabile, costo fisso e oneri; totale e prezzi per unità (€/kWh, €/m³, ecc.) sono sempre derivati, mai digitati separatamente.
 
 **Why:** separare costo variabile e quota fissa permette di confrontare bollette reali e impedisce che un totale trascritto in modo errato falsi il prezzo unitario.

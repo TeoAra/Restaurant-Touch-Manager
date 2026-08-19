@@ -513,6 +513,14 @@ export interface MarginCostConfigurationInput {
   validTo?: string | null;
 }
 
+export type MarginCoverCostItemApplicationScope =
+  (typeof MarginCoverCostItemApplicationScope)[keyof typeof MarginCoverCostItemApplicationScope];
+
+export const MarginCoverCostItemApplicationScope = {
+  cover: "cover",
+  fried_order: "fried_order",
+} as const;
+
 export interface MarginCoverCostItem {
   id: number;
   name: string;
@@ -520,6 +528,7 @@ export interface MarginCoverCostItem {
   purchaseUnit: string;
   purchasePrice: string;
   quantityPerCover: string;
+  applicationScope: MarginCoverCostItemApplicationScope;
   active: boolean;
 }
 
@@ -530,7 +539,7 @@ export interface MarginCoverCostItemInput {
   purchaseUnit: string;
   /** Prezzo pagato per la confezione */
   purchasePrice: string;
-  /** Quantità consumata da una persona seduta */
+  /** Quantità per coperto; per le quattro salse standard viene fissata a 2 per comanda con fritti */
   quantityPerCover: string;
 }
 
