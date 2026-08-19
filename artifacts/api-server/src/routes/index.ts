@@ -27,6 +27,7 @@ import viesRouter from "./vies";
 import auditRouter from "./audit";
 import setupStatusRouter from "./setup-status";
 import marginalityRouter from "./marginality";
+import kitchenRouter from "./kitchen";
 
 const router: IRouter = Router();
 
@@ -58,5 +59,6 @@ router.use("/vies", viesRouter);
 router.use("/audit", auditRouter);
 router.use("/setup-status", setupStatusRouter);
 router.use("/marginality", marginalityRouter);
+router.use("/kitchen", kitchenRouter);
 
 export default router;

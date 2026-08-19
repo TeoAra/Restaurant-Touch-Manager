@@ -25,10 +25,19 @@ import type {
   CreateProductBody,
   CreateTableBody,
   DashboardSummary,
+  GetKitchenAnalyticsParams,
   GetMarginOverviewParams,
   GetSalesByDayParams,
   GetTopProductsParams,
   HealthStatus,
+  KitchenAnalytics,
+  KitchenBoardOrder,
+  KitchenBulkPhaseInput,
+  KitchenBulkResult,
+  KitchenCategory,
+  KitchenIngredient,
+  KitchenStatusResult,
+  KitchenStatusTransition,
   ListOrdersParams,
   ListProductsParams,
   MarginCatalog,
@@ -3655,3 +3664,610 @@ export const useCreateMarginUtilityType = <
 > => {
   return useMutation(getCreateMarginUtilityTypeMutationOptions(options));
 };
+
+/**
+ * @summary Kitchen display board — active orders with items, phases, modifiers, prep minutes
+ */
+export const getGetKitchenBoardUrl = () => {
+  return `/api/kitchen/board`;
+};
+
+export const getKitchenBoard = async (
+  options?: RequestInit,
+): Promise<KitchenBoardOrder[]> => {
+  return customFetch<KitchenBoardOrder[]>(getGetKitchenBoardUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetKitchenBoardQueryKey = () => {
+  return [`/api/kitchen/board`] as const;
+};
+
+export const getGetKitchenBoardQueryOptions = <
+  TData = Awaited<ReturnType<typeof getKitchenBoard>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getKitchenBoard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetKitchenBoardQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getKitchenBoard>>> = ({
+    signal,
+  }) => getKitchenBoard({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getKitchenBoard>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetKitchenBoardQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getKitchenBoard>>
+>;
+export type GetKitchenBoardQueryError = ErrorType<void>;
+
+/**
+ * @summary Kitchen display board — active orders with items, phases, modifiers, prep minutes
+ */
+
+export function useGetKitchenBoard<
+  TData = Awaited<ReturnType<typeof getKitchenBoard>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getKitchenBoard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetKitchenBoardQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List menu categories (no cost data)
+ */
+export const getGetKitchenCategoriesUrl = () => {
+  return `/api/kitchen/categories`;
+};
+
+export const getKitchenCategories = async (
+  options?: RequestInit,
+): Promise<KitchenCategory[]> => {
+  return customFetch<KitchenCategory[]>(getGetKitchenCategoriesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetKitchenCategoriesQueryKey = () => {
+  return [`/api/kitchen/categories`] as const;
+};
+
+export const getGetKitchenCategoriesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getKitchenCategories>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getKitchenCategories>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetKitchenCategoriesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getKitchenCategories>>
+  > = ({ signal }) => getKitchenCategories({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getKitchenCategories>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetKitchenCategoriesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getKitchenCategories>>
+>;
+export type GetKitchenCategoriesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List menu categories (no cost data)
+ */
+
+export function useGetKitchenCategories<
+  TData = Awaited<ReturnType<typeof getKitchenCategories>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getKitchenCategories>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetKitchenCategoriesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get active recipe ingredients for a product (for automatic Senza modifiers)
+ */
+export const getGetProductIngredientsUrl = (productId: number) => {
+  return `/api/kitchen/products/${productId}/ingredients`;
+};
+
+export const getProductIngredients = async (
+  productId: number,
+  options?: RequestInit,
+): Promise<KitchenIngredient[]> => {
+  return customFetch<KitchenIngredient[]>(
+    getGetProductIngredientsUrl(productId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetProductIngredientsQueryKey = (productId: number) => {
+  return [`/api/kitchen/products/${productId}/ingredients`] as const;
+};
+
+export const getGetProductIngredientsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getProductIngredients>>,
+  TError = ErrorType<unknown>,
+>(
+  productId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getProductIngredients>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetProductIngredientsQueryKey(productId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getProductIngredients>>
+  > = ({ signal }) =>
+    getProductIngredients(productId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!productId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getProductIngredients>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetProductIngredientsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getProductIngredients>>
+>;
+export type GetProductIngredientsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get active recipe ingredients for a product (for automatic Senza modifiers)
+ */
+
+export function useGetProductIngredients<
+  TData = Awaited<ReturnType<typeof getProductIngredients>>,
+  TError = ErrorType<unknown>,
+>(
+  productId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getProductIngredients>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetProductIngredientsQueryOptions(productId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Transition an order item status (sent→preparing→ready→delivered)
+ */
+export const getUpdateKitchenItemStatusUrl = (itemId: number) => {
+  return `/api/kitchen/items/${itemId}/status`;
+};
+
+export const updateKitchenItemStatus = async (
+  itemId: number,
+  kitchenStatusTransition: KitchenStatusTransition,
+  options?: RequestInit,
+): Promise<KitchenStatusResult> => {
+  return customFetch<KitchenStatusResult>(
+    getUpdateKitchenItemStatusUrl(itemId),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(kitchenStatusTransition),
+    },
+  );
+};
+
+export const getUpdateKitchenItemStatusMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateKitchenItemStatus>>,
+    TError,
+    { itemId: number; data: BodyType<KitchenStatusTransition> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateKitchenItemStatus>>,
+  TError,
+  { itemId: number; data: BodyType<KitchenStatusTransition> },
+  TContext
+> => {
+  const mutationKey = ["updateKitchenItemStatus"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateKitchenItemStatus>>,
+    { itemId: number; data: BodyType<KitchenStatusTransition> }
+  > = (props) => {
+    const { itemId, data } = props ?? {};
+
+    return updateKitchenItemStatus(itemId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateKitchenItemStatusMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateKitchenItemStatus>>
+>;
+export type UpdateKitchenItemStatusMutationBody =
+  BodyType<KitchenStatusTransition>;
+export type UpdateKitchenItemStatusMutationError = ErrorType<void>;
+
+/**
+ * @summary Transition an order item status (sent→preparing→ready→delivered)
+ */
+export const useUpdateKitchenItemStatus = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateKitchenItemStatus>>,
+    TError,
+    { itemId: number; data: BodyType<KitchenStatusTransition> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateKitchenItemStatus>>,
+  TError,
+  { itemId: number; data: BodyType<KitchenStatusTransition> },
+  TContext
+> => {
+  return useMutation(getUpdateKitchenItemStatusMutationOptions(options));
+};
+
+/**
+ * @summary Bulk transition sent items to preparing for an order (optionally by phase)
+ */
+export const getKitchenBulkStartUrl = (orderId: number) => {
+  return `/api/kitchen/orders/${orderId}/start`;
+};
+
+export const kitchenBulkStart = async (
+  orderId: number,
+  kitchenBulkPhaseInput?: KitchenBulkPhaseInput,
+  options?: RequestInit,
+): Promise<KitchenBulkResult> => {
+  return customFetch<KitchenBulkResult>(getKitchenBulkStartUrl(orderId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(kitchenBulkPhaseInput),
+  });
+};
+
+export const getKitchenBulkStartMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof kitchenBulkStart>>,
+    TError,
+    { orderId: number; data: BodyType<KitchenBulkPhaseInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof kitchenBulkStart>>,
+  TError,
+  { orderId: number; data: BodyType<KitchenBulkPhaseInput> },
+  TContext
+> => {
+  const mutationKey = ["kitchenBulkStart"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof kitchenBulkStart>>,
+    { orderId: number; data: BodyType<KitchenBulkPhaseInput> }
+  > = (props) => {
+    const { orderId, data } = props ?? {};
+
+    return kitchenBulkStart(orderId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type KitchenBulkStartMutationResult = NonNullable<
+  Awaited<ReturnType<typeof kitchenBulkStart>>
+>;
+export type KitchenBulkStartMutationBody = BodyType<KitchenBulkPhaseInput>;
+export type KitchenBulkStartMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Bulk transition sent items to preparing for an order (optionally by phase)
+ */
+export const useKitchenBulkStart = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof kitchenBulkStart>>,
+    TError,
+    { orderId: number; data: BodyType<KitchenBulkPhaseInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof kitchenBulkStart>>,
+  TError,
+  { orderId: number; data: BodyType<KitchenBulkPhaseInput> },
+  TContext
+> => {
+  return useMutation(getKitchenBulkStartMutationOptions(options));
+};
+
+/**
+ * @summary Bulk transition preparing items to ready for an order (optionally by phase)
+ */
+export const getKitchenBulkReadyUrl = (orderId: number) => {
+  return `/api/kitchen/orders/${orderId}/ready`;
+};
+
+export const kitchenBulkReady = async (
+  orderId: number,
+  kitchenBulkPhaseInput?: KitchenBulkPhaseInput,
+  options?: RequestInit,
+): Promise<KitchenBulkResult> => {
+  return customFetch<KitchenBulkResult>(getKitchenBulkReadyUrl(orderId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(kitchenBulkPhaseInput),
+  });
+};
+
+export const getKitchenBulkReadyMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof kitchenBulkReady>>,
+    TError,
+    { orderId: number; data: BodyType<KitchenBulkPhaseInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof kitchenBulkReady>>,
+  TError,
+  { orderId: number; data: BodyType<KitchenBulkPhaseInput> },
+  TContext
+> => {
+  const mutationKey = ["kitchenBulkReady"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof kitchenBulkReady>>,
+    { orderId: number; data: BodyType<KitchenBulkPhaseInput> }
+  > = (props) => {
+    const { orderId, data } = props ?? {};
+
+    return kitchenBulkReady(orderId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type KitchenBulkReadyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof kitchenBulkReady>>
+>;
+export type KitchenBulkReadyMutationBody = BodyType<KitchenBulkPhaseInput>;
+export type KitchenBulkReadyMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Bulk transition preparing items to ready for an order (optionally by phase)
+ */
+export const useKitchenBulkReady = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof kitchenBulkReady>>,
+    TError,
+    { orderId: number; data: BodyType<KitchenBulkPhaseInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof kitchenBulkReady>>,
+  TError,
+  { orderId: number; data: BodyType<KitchenBulkPhaseInput> },
+  TContext
+> => {
+  return useMutation(getKitchenBulkReadyMutationOptions(options));
+};
+
+/**
+ * @summary Admin kitchen analytics — load, prep times, variance, delayed count (admin only)
+ */
+export const getGetKitchenAnalyticsUrl = (
+  params?: GetKitchenAnalyticsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/kitchen/analytics?${stringifiedParams}`
+    : `/api/kitchen/analytics`;
+};
+
+export const getKitchenAnalytics = async (
+  params?: GetKitchenAnalyticsParams,
+  options?: RequestInit,
+): Promise<KitchenAnalytics> => {
+  return customFetch<KitchenAnalytics>(getGetKitchenAnalyticsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetKitchenAnalyticsQueryKey = (
+  params?: GetKitchenAnalyticsParams,
+) => {
+  return [`/api/kitchen/analytics`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetKitchenAnalyticsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getKitchenAnalytics>>,
+  TError = ErrorType<void>,
+>(
+  params?: GetKitchenAnalyticsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getKitchenAnalytics>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetKitchenAnalyticsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getKitchenAnalytics>>
+  > = ({ signal }) =>
+    getKitchenAnalytics(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getKitchenAnalytics>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetKitchenAnalyticsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getKitchenAnalytics>>
+>;
+export type GetKitchenAnalyticsQueryError = ErrorType<void>;
+
+/**
+ * @summary Admin kitchen analytics — load, prep times, variance, delayed count (admin only)
+ */
+
+export function useGetKitchenAnalytics<
+  TData = Awaited<ReturnType<typeof getKitchenAnalytics>>,
+  TError = ErrorType<void>,
+>(
+  params?: GetKitchenAnalyticsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getKitchenAnalytics>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetKitchenAnalyticsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}

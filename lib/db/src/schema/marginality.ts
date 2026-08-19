@@ -397,6 +397,10 @@ export const marginOrderItemFactsTable = pgTable(
     unitPrice: numeric("unit_price", { precision: 18, scale: 6 }).notNull(),
     subtotal: numeric("subtotal", { precision: 18, scale: 6 }).notNull(),
     vatRate: numeric("vat_rate", { precision: 18, scale: 6 }).notNull().default("0"),
+    // JSON snapshot of structured modifiers at capture time for cost exclusion logic
+    modifiersSnapshot: text("modifiers_snapshot"),
+    // Actual prep elapsed minutes (from kitchen lifecycle; null if not yet delivered)
+    actualPrepMinutes: integer("actual_prep_minutes"),
     capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

@@ -63,6 +63,26 @@ export async function requireAdminSession(req: Request, res: Response, next: Nex
     res.status(403).json({ error: "Operazione riservata all'amministratore" });
     return;
   }
-  (req as Request & { session?: { userId: number; userName: string } }).session = { userId: user.id, userName: user.name };
+  (req as Request & { session?: { userId: number; userName: string; role: string } }).session = { userId: user.id, userName: user.name, role: user.role };
+  next();
+}
+
+/**
+ * Middleware for any authenticated session (kitchen, employee, admin).
+ * Attaches req.session with userId, userName, role.
+ */
+export async function requireAuthenticatedSession(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const session = readSession(req);
+  if (!session) {
+    res.status(401).json({ error: "Autenticazione richiesta" });
+    return;
+  }
+  const [user] = await db.select({ id: usersTable.id, name: usersTable.name, role: usersTable.role })
+    .from(usersTable).where(eq(usersTable.id, session.userId)).limit(1);
+  if (!user) {
+    res.status(401).json({ error: "Sessione non valida" });
+    return;
+  }
+  (req as Request & { session?: { userId: number; userName: string; role: string } }).session = { userId: user.id, userName: user.name, role: user.role };
   next();
 }

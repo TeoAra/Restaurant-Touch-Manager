@@ -35,6 +35,7 @@ import PrenotazioniPage from "@/pages/backoffice/prenotazioni";
 import FunzioniPage from "@/pages/backoffice/funzioni";
 import AuditPage from "@/pages/backoffice/audit";
 import MarginalitaPage from "@/pages/backoffice/marginalita";
+import KitchenPage from "@/pages/kitchen";
 
 const API_BASE = `${import.meta.env.BASE_URL?.replace(/\/$/, "") || ""}/api`;
 
@@ -81,6 +82,7 @@ function AppRouter() {
 
   // Onboarding fuori dal Layout (full-screen)
   if (location === "/onboarding") return <OnboardingPage />;
+  if (location === "/kitchen") return <KitchenPage />;
 
   return (
     <Layout>

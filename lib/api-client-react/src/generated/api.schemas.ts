@@ -515,6 +515,159 @@ export interface MarginCatalog {
   utilityBills: MarginUtilityBill[];
 }
 
+export type KitchenOrderItemStatus =
+  (typeof KitchenOrderItemStatus)[keyof typeof KitchenOrderItemStatus];
+
+export const KitchenOrderItemStatus = {
+  draft: "draft",
+  sent: "sent",
+  preparing: "preparing",
+  ready: "ready",
+  delivered: "delivered",
+} as const;
+
+export type KitchenOrderItemModifiersItem = { [key: string]: unknown };
+
+export interface KitchenOrderItem {
+  id: number;
+  orderId: number;
+  productId: number;
+  productName: string;
+  quantity: number;
+  status: KitchenOrderItemStatus;
+  phase: number;
+  /** @nullable */
+  notes?: string | null;
+  modifiers?: KitchenOrderItemModifiersItem[];
+  /** @nullable */
+  categoryId?: number | null;
+  /** @nullable */
+  categoryName?: string | null;
+  /** @nullable */
+  expectedPrepMinutes?: number | null;
+  /** @nullable */
+  sentAt?: string | null;
+  /** @nullable */
+  preparingAt?: string | null;
+  /** @nullable */
+  readyAt?: string | null;
+  /** @nullable */
+  deliveredAt?: string | null;
+  createdAt: string;
+}
+
+export interface KitchenBoardOrder {
+  orderId: number;
+  /** @nullable */
+  tableId: number | null;
+  /** @nullable */
+  tableName?: string | null;
+  covers: number;
+  modalita: string;
+  /** @nullable */
+  notes?: string | null;
+  createdAt: string;
+  items: KitchenOrderItem[];
+}
+
+export interface KitchenCategory {
+  id: number;
+  name: string;
+  sortOrder: number;
+}
+
+export interface KitchenIngredient {
+  ingredientId: number;
+  name: string;
+  quantity: string;
+  unit: string;
+  source: string;
+}
+
+export type KitchenStatusTransitionStatus =
+  (typeof KitchenStatusTransitionStatus)[keyof typeof KitchenStatusTransitionStatus];
+
+export const KitchenStatusTransitionStatus = {
+  sent: "sent",
+  preparing: "preparing",
+  ready: "ready",
+  delivered: "delivered",
+} as const;
+
+export interface KitchenStatusTransition {
+  status: KitchenStatusTransitionStatus;
+}
+
+export type KitchenStatusResultStatus =
+  (typeof KitchenStatusResultStatus)[keyof typeof KitchenStatusResultStatus];
+
+export const KitchenStatusResultStatus = {
+  sent: "sent",
+  preparing: "preparing",
+  ready: "ready",
+  delivered: "delivered",
+} as const;
+
+export type KitchenStatusResultMessage =
+  (typeof KitchenStatusResultMessage)[keyof typeof KitchenStatusResultMessage];
+
+export const KitchenStatusResultMessage = {
+  updated: "updated",
+  already_in_status: "already_in_status",
+} as const;
+
+export interface KitchenStatusResult {
+  id: number;
+  status: KitchenStatusResultStatus;
+  message: KitchenStatusResultMessage;
+}
+
+export interface KitchenBulkPhaseInput {
+  phase?: number;
+}
+
+export type KitchenBulkResultItemsItem = { [key: string]: unknown };
+
+export interface KitchenBulkResult {
+  updated: number;
+  items?: KitchenBulkResultItemsItem[];
+}
+
+export interface KitchenProductSummary {
+  productId: number;
+  productName: string;
+  /** @nullable */
+  categoryId?: number | null;
+  /** @nullable */
+  categoryName?: string | null;
+  totalCount: number;
+  deliveredCount: number;
+  /** @nullable */
+  avgActualPrepMinutes?: number | null;
+  /** @nullable */
+  expectedPrepMinutes?: number | null;
+}
+
+export interface KitchenCategorySummary {
+  categoryId: number;
+  categoryName: string;
+  totalCount: number;
+  deliveredCount: number;
+  /** @nullable */
+  avgActualPrepMinutes?: number | null;
+}
+
+export interface KitchenAnalytics {
+  currentLoad: number;
+  /** @nullable */
+  averageActualPrepMinutes?: number | null;
+  /** @nullable */
+  expectedVsActualVarianceMinutes?: number | null;
+  delayedCount: number;
+  productSummaries: KitchenProductSummary[];
+  categorySummaries: KitchenCategorySummary[];
+}
+
 export type ListProductsParams = {
   /**
    * @nullable
@@ -555,4 +708,11 @@ export type GetTopProductsParams = {
 export type GetMarginOverviewParams = {
   from?: string;
   to?: string;
+};
+
+export type GetKitchenAnalyticsParams = {
+  from?: string;
+  to?: string;
+  categoryId?: number;
+  productId?: number;
 };

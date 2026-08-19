@@ -1,3 +1,4 @@
 - [Protocollo DTR RT XonXoff](dtr-rt-protocol.md) — gestionali `j`...`J`; parola TOTALE vietata nelle righe `@`; record max 256 byte con flow XOFF/XON; `K` sblocca errori. Spec PDF in attached_assets.
 - [Attribuzione vendite nei report](report-attribution.md) — report vendite sempre su orders.createdAt + status paid, mai su order_items.createdAt.
 - [Marginalità: sicurezza e snapshot](marginality-security-and-snapshots.md) — dati economici protetti da sessione server; snapshot immutabili includono split, costi storici e utenze.
+- [Instradamento tablet cucina](kitchen-printer-routing.md) — il tablet mostra solo categorie instradate a stampanti di reparti cucina; ricette guidano “Senza…” e costi.

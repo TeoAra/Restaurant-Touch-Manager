@@ -14,3 +14,9 @@ Gli snapshot di marginalità rappresentano una versione immutabile; coperti, cos
 **Why:** il POS può eliminare righe dopo un conto separato e i costi cambiano nel tempo; ricalcoli e analisi devono restare spiegabili.
 
 **How to apply:** catturare gli elementi venduti nella transazione di pagamento, usare costi datati, e creare una nuova versione esplicita per ogni ricalcolo.
+
+Quando il tempo reale di cucina arriva dopo il pagamento, la marginalità deve creare una nuova versione immutabile invece di modificare lo snapshot esistente.
+
+**Why:** pagamento e stato `ready` possono sovrapporsi; un calcolo concluso troppo presto non deve perdere definitivamente il tempo reale di preparazione.
+
+**How to apply:** serializzare i cambiamenti concorrenti sullo stesso ordine e assicurare che il pagamento catturi il dato definitivo oppure che il completamento cucina generi il ricalcolo successivo.

@@ -1,10 +1,11 @@
 import { Router } from "express";
-import { db, ordersTable, orderItemsTable, tablesTable, roomsTable, productsTable, categoriesTable, printersTable } from "@workspace/db";
+import { db, ordersTable, orderItemsTable, tablesTable, roomsTable, productsTable, categoriesTable, printersTable, kitchenProductionEventsTable } from "@workspace/db";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import net from "net";
 import { emettiPreconto } from "../lib/fiscal-printer";
 import { getSettings } from "../lib/settings";
 import { logAudit } from "../lib/audit";
+import { canAmendOrderItem, canDeleteOrderItem } from "../lib/kitchen-domain.js";
 import {
   CreateOrderBody,
   UpdateOrderBody,
@@ -266,10 +267,22 @@ router.patch("/:orderId/items/:itemId", async (req, res) => {
   });
   const body = UpdateOrderItemBody.parse(req.body);
 
-  const [existing] = await db.select().from(orderItemsTable).where(
-    and(eq(orderItemsTable.id, itemId), eq(orderItemsTable.orderId, orderId))
-  );
+  const [[existing], [order]] = await Promise.all([
+    db.select().from(orderItemsTable).where(
+      and(eq(orderItemsTable.id, itemId), eq(orderItemsTable.orderId, orderId))
+    ).limit(1),
+    db.select({ status: ordersTable.status }).from(ordersTable)
+      .where(eq(ordersTable.id, orderId))
+      .limit(1),
+  ]);
   if (!existing) return res.status(404).json({ error: "Order item not found" });
+  if (!order) return res.status(404).json({ error: "Order not found" });
+  if (!canAmendOrderItem(existing.status, order.status)) {
+    return res.status(409).json({
+      error: "La riga è già in preparazione o l'ordine è chiuso. Crea una nuova variazione invece di modificare lo storico.",
+      code: "ORDER_ITEM_NOT_AMENDABLE",
+    });
+  }
 
   const updateData: Record<string, unknown> = {};
   const effectiveUnitPrice = body.unitPrice ?? existing.unitPrice;
@@ -287,8 +300,19 @@ router.patch("/:orderId/items/:itemId", async (req, res) => {
   if (rawModifiers !== undefined) updateData.modifiers = rawModifiers;
 
   const [item] = await db.update(orderItemsTable).set(updateData)
-    .where(and(eq(orderItemsTable.id, itemId), eq(orderItemsTable.orderId, orderId)))
+    .where(and(
+      eq(orderItemsTable.id, itemId),
+      eq(orderItemsTable.orderId, orderId),
+      eq(orderItemsTable.status, existing.status),
+      sql`EXISTS (SELECT 1 FROM orders WHERE id = ${orderId} AND status = 'open')`,
+    ))
     .returning();
+  if (!item) {
+    return res.status(409).json({
+      error: "La riga o l'ordine sono cambiati su un altro dispositivo. Aggiorna e riprova.",
+      code: "ORDER_ITEM_CONFLICT",
+    });
+  }
 
   await recalcOrderTotal(orderId);
   return res.json(item);
@@ -300,11 +324,38 @@ router.delete("/:orderId/items/:itemId", async (req, res) => {
     orderId: Number(req.params.orderId),
     itemId: Number(req.params.itemId),
   });
-  await db.delete(orderItemsTable).where(
-    and(eq(orderItemsTable.id, itemId), eq(orderItemsTable.orderId, orderId))
-  );
+  const [[existing], [order]] = await Promise.all([
+    db.select({ status: orderItemsTable.status }).from(orderItemsTable).where(
+      and(eq(orderItemsTable.id, itemId), eq(orderItemsTable.orderId, orderId))
+    ).limit(1),
+    db.select({ status: ordersTable.status }).from(ordersTable)
+      .where(eq(ordersTable.id, orderId))
+      .limit(1),
+  ]);
+  if (!existing) return res.status(404).json({ error: "Order item not found" });
+  if (!order) return res.status(404).json({ error: "Order not found" });
+  if (!canDeleteOrderItem(existing.status, order.status)) {
+    return res.status(409).json({
+      error: "Una riga già inviata non può essere eliminata. Serve uno storno esplicito al reparto.",
+      code: "ORDER_ITEM_NOT_DELETABLE",
+    });
+  }
+  const deleted = await db.delete(orderItemsTable).where(
+    and(
+      eq(orderItemsTable.id, itemId),
+      eq(orderItemsTable.orderId, orderId),
+      eq(orderItemsTable.status, "draft"),
+      sql`EXISTS (SELECT 1 FROM orders WHERE id = ${orderId} AND status = 'open')`,
+    )
+  ).returning({ id: orderItemsTable.id });
+  if (!deleted.length) {
+    return res.status(409).json({
+      error: "La riga o l'ordine sono cambiati su un altro dispositivo. Aggiorna e riprova.",
+      code: "ORDER_ITEM_CONFLICT",
+    });
+  }
   await recalcOrderTotal(orderId);
-  res.status(204).end();
+  return res.status(204).end();
 });
 
 // ── ESC/POS helpers ──────────────────────────────────────────────────────────
@@ -438,11 +489,25 @@ router.post("/:id/send-comanda", async (req, res) => {
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
   if (!order) return res.status(404).json({ error: "Order not found" });
 
-  // 1. Mark draft items as sent and get them back
-  const sentItems = await db.update(orderItemsTable)
-    .set({ status: "sent" })
-    .where(and(eq(orderItemsTable.orderId, id), eq(orderItemsTable.status, "draft")))
-    .returning();
+  // 1. Mark draft items as sent and persist the matching events atomically.
+  // Printer I/O remains outside this transaction and cannot revert the KDS state.
+  const sentItems = await db.transaction(async (tx) => {
+    const now = new Date();
+    const transitioned = await tx.update(orderItemsTable)
+      .set({ status: "sent", sentAt: now })
+      .where(and(eq(orderItemsTable.orderId, id), eq(orderItemsTable.status, "draft")))
+      .returning();
+    if (transitioned.length) {
+      await tx.insert(kitchenProductionEventsTable).values(transitioned.map(item => ({
+        orderItemId: item.id,
+        orderId: id,
+        fromStatus: "draft",
+        toStatus: "sent",
+        triggeredBy: "send-comanda",
+      }))).onConflictDoNothing();
+    }
+    return transitioned;
+  });
 
   if (sentItems.length === 0) {
     return res.json({ success: true, sentItems: 0, printers: [] });

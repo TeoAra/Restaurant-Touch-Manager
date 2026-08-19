@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -40,8 +40,39 @@ export const orderItemsTable = pgTable("order_items", {
   notes: text("notes"),
   modifiers: text("modifiers").notNull().default("[]"),
   phase: integer("phase").notNull().default(0),
+  // Kitchen lifecycle timestamps
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  preparingAt: timestamp("preparing_at", { withTimezone: true }),
+  readyAt: timestamp("ready_at", { withTimezone: true }),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ---------------------------------------------------------------------------
+// kitchenProductionEvents — immutable event log for kitchen status transitions
+// Unique on (orderItemId, toStatus) makes repeated calls idempotent.
+// ---------------------------------------------------------------------------
+export const kitchenProductionEventsTable = pgTable(
+  "kitchen_production_events",
+  {
+    id: serial("id").primaryKey(),
+    orderItemId: integer("order_item_id").notNull(),
+    orderId: integer("order_id").notNull(),
+    fromStatus: text("from_status").notNull(),
+    toStatus: text("to_status").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    triggeredBy: text("triggered_by"),
+  },
+  (t) => [
+    uniqueIndex("kitchen_production_events_item_to_status_unique").on(t.orderItemId, t.toStatus),
+    index("kitchen_production_events_order_idx").on(t.orderId),
+    index("kitchen_production_events_occurred_at_idx").on(t.occurredAt),
+  ],
+);
+
+export const insertKitchenProductionEventSchema = createInsertSchema(kitchenProductionEventsTable).omit({ id: true, occurredAt: true });
+export type InsertKitchenProductionEvent = z.infer<typeof insertKitchenProductionEventSchema>;
+export type KitchenProductionEvent = typeof kitchenProductionEventsTable.$inferSelect;
 
 export const insertOrderSchema = createInsertSchema(ordersTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertOrder = z.infer<typeof insertOrderSchema>;

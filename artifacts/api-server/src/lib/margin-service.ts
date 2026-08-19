@@ -21,6 +21,7 @@ import {
 } from "@workspace/db";
 import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { FixedDecimal } from "./fixed-decimal.js";
+import { calculateActualPrepMinutes } from "./kitchen-domain.js";
 import { calculateMargin, type MarginCalculatorOutput, type MarginProductLine } from "./margin-calculator.js";
 import { logger } from "./logger.js";
 
@@ -86,16 +87,26 @@ export async function captureMarginFacts(
     ? await tx.select({ id: productsTable.id, iva: productsTable.iva }).from(productsTable).where(inArray(productsTable.id, productIds))
     : [];
   const vatByProductId = new Map(products.map((product) => [product.id, product.iva]));
-  const values = selected.map((row) => ({
-    orderId,
-    orderItemId: row.id,
-    productId: row.productId,
-    productName: row.productName,
-    quantity: row.quantity,
-    unitPrice: asStorage(row.unitPrice),
-    subtotal: asStorage(row.subtotal),
-    vatRate: asStorage(vatByProductId.get(row.productId) ?? "0"),
-  }));
+  const values = selected.map((row) => {
+    // Compute actual prep minutes from kitchen lifecycle timestamps if available
+    let actualPrepMinutes: number | null = null;
+    if (row.preparingAt && row.readyAt) {
+      actualPrepMinutes = calculateActualPrepMinutes(row.preparingAt, row.readyAt);
+    }
+    return {
+      orderId,
+      orderItemId: row.id,
+      productId: row.productId,
+      productName: row.productName,
+      quantity: row.quantity,
+      unitPrice: asStorage(row.unitPrice),
+      subtotal: asStorage(row.subtotal),
+      vatRate: asStorage(vatByProductId.get(row.productId) ?? "0"),
+      // Snapshot modifiers for cost exclusion logic
+      modifiersSnapshot: row.modifiers !== "[]" ? row.modifiers : null,
+      actualPrepMinutes,
+    };
+  });
   if (options?.cover && options.cover.quantity > 0 && !amount(options.cover.unitPrice).isZero()) {
     values.push({
       orderId,
@@ -106,6 +117,8 @@ export async function captureMarginFacts(
       unitPrice: asStorage(options.cover.unitPrice),
       subtotal: amount(options.cover.unitPrice).mul(amount(options.cover.quantity)).toString(),
       vatRate: asStorage(options.cover.vatRate),
+      modifiersSnapshot: null,
+      actualPrepMinutes: null,
     });
   }
   if (values.length) await tx.insert(marginOrderItemFactsTable).values(values).onConflictDoNothing();
@@ -122,6 +135,49 @@ export async function enqueueMarginCalculation(
     status: "pending",
     attempts: 0,
   }).onConflictDoNothing();
+}
+
+async function enqueueNextCalculationVersion(tx: Tx, orderId: number): Promise<number> {
+  const existing = await tx.select({ calculationVersion: marginCalculationJobsTable.calculationVersion })
+    .from(marginCalculationJobsTable)
+    .where(eq(marginCalculationJobsTable.orderId, orderId))
+    .orderBy(desc(marginCalculationJobsTable.calculationVersion))
+    .limit(1);
+  const calculationVersion = (existing[0]?.calculationVersion ?? 0) + 1;
+  await enqueueMarginCalculation(tx, orderId, calculationVersion);
+  return calculationVersion;
+}
+
+export async function recordActualPrepTimes(
+  orderId: number,
+  entries: Array<{ orderItemId: number; actualPrepMinutes: number }>,
+): Promise<void> {
+  if (!entries.length) return;
+
+  const shouldProcess = await db.transaction(async tx => {
+    const lockedOrder = await tx.execute<{ status: string }>(sql`
+      SELECT status FROM orders WHERE id = ${orderId} FOR UPDATE
+    `);
+    const orderStatus = lockedOrder.rows[0]?.status;
+    if (!orderStatus) throw new Error(`Order ${orderId} not found`);
+
+    let count = 0;
+    for (const entry of entries) {
+      const updated = await tx.update(marginOrderItemFactsTable)
+        .set({ actualPrepMinutes: entry.actualPrepMinutes })
+        .where(and(
+          eq(marginOrderItemFactsTable.orderId, orderId),
+          eq(marginOrderItemFactsTable.orderItemId, entry.orderItemId),
+        ))
+        .returning({ id: marginOrderItemFactsTable.id });
+      count += updated.length;
+    }
+    if (!count || orderStatus !== "paid") return false;
+
+    await enqueueNextCalculationVersion(tx, orderId);
+    return true;
+  });
+  if (shouldProcess) void processPendingMarginJobs();
 }
 
 function selectRecipeForDate<T extends { productId: number; validFrom: string; validTo: string | null; active: boolean; version: number }>(
@@ -210,11 +266,33 @@ async function buildCalculation(orderId: number): Promise<{
     let energyCost = ZERO;
     let fryerOilCost: FixedDecimal | undefined;
 
+    // Parse structured modifiers snapshot to determine excluded recipe ingredients
+    // A structured "minus" modifier with ingredientId and source="recipe" means
+    // that ingredient was removed, so its cost should be excluded.
+    const excludedIngredientIds = new Set<number>();
+    if (fact.modifiersSnapshot) {
+      try {
+        const mods = JSON.parse(fact.modifiersSnapshot) as Array<{
+          type?: string;
+          ingredientId?: number;
+          source?: string;
+        }>;
+        for (const mod of mods) {
+          if (mod.type === "minus" && typeof mod.ingredientId === "number" && mod.source === "recipe") {
+            excludedIngredientIds.add(mod.ingredientId);
+          }
+        }
+      } catch { /* ignore malformed JSON */ }
+    }
+
     if (recipe) {
       const recipeRows = recipeItems.filter((item) => item.recipeId === recipe.id);
       if (!recipeRows.length) localMissing.push(`RECIPE_${fact.productId}_EMPTY`);
 
       for (const row of recipeRows) {
+        // Skip excluded recipe ingredients (removed via structured modifier)
+        if (excludedIngredientIds.has(row.ingredientId)) continue;
+
         const ingredient = ingredientById.get(row.ingredientId);
         const unitCost = selectCostForDate(costHistory, row.ingredientId, at) ?? ingredient?.currentUnitCost;
         if (!ingredient || !unitCost) {
@@ -257,6 +335,11 @@ async function buildCalculation(orderId: number): Promise<{
       }
     }
 
+    // Use actual production elapsed minutes when available; otherwise expected recipe minutes
+    const prepMinutes = fact.actualPrepMinutes != null
+      ? fact.actualPrepMinutes
+      : (recipe?.preparationMinutes ?? 0);
+
     missingData.push(...localMissing);
     return {
       productId: fact.productId,
@@ -267,7 +350,7 @@ async function buildCalculation(orderId: number): Promise<{
       packagingCostPerUnit: packagingCost?.toString(),
       fryerOilCostPerUnit: fryerOilCost?.toString(),
       energyCostPerUnit: energyCost.toString(),
-      preparationMinutesPerUnit: recipe?.preparationMinutes ?? 0,
+      preparationMinutesPerUnit: prepMinutes,
       complete: localMissing.length === 0,
     };
   });
@@ -402,16 +485,13 @@ export async function processPendingMarginJobs(limit = 25): Promise<void> {
 }
 
 export async function enqueueRecalculation(orderId: number): Promise<number> {
-  const existing = await db.select({ calculationVersion: marginCalculationJobsTable.calculationVersion })
-    .from(marginCalculationJobsTable)
-    .where(eq(marginCalculationJobsTable.orderId, orderId))
-    .orderBy(desc(marginCalculationJobsTable.calculationVersion))
-    .limit(1);
-  const calculationVersion = (existing[0]?.calculationVersion ?? 0) + 1;
-  await db.transaction(async (tx) => {
-    await enqueueMarginCalculation(tx, orderId, calculationVersion);
+  return db.transaction(async (tx) => {
+    const lockedOrder = await tx.execute<{ id: number }>(sql`
+      SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE
+    `);
+    if (!lockedOrder.rows.length) throw new Error(`Order ${orderId} not found`);
+    return enqueueNextCalculationVersion(tx, orderId);
   });
-  return calculationVersion;
 }
 
 export async function getMarginOverview(from?: string, to?: string) {

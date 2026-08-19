@@ -8,7 +8,8 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:marginality": "node --experimental-strip-types --loader ./src/lib/ts-node-loader.mjs --no-warnings src/lib/margin-calculator.test.ts"
+    "test:marginality": "node --experimental-strip-types --loader ./src/lib/ts-node-loader.mjs --no-warnings src/lib/margin-calculator.test.ts",
+    "test:kitchen": "node --experimental-strip-types --loader ./src/lib/ts-node-loader.mjs --no-warnings src/lib/kitchen.test.ts"
   },
   "dependencies": {
     "@workspace/api-zod": "workspace:*",

@@ -74,9 +74,11 @@ async function deleteVariation(productId: number, varId: number): Promise<void> 
 
 // ── CategoryForm ──────────────────────────────────────────────────────────────
 type SimplePrinter = { id: number; name: string };
-function CategoryForm({ initial, printers, onSave, onClose }: {
+type ProductionDepartment = { id: number; productionType: string; printerId: number | null };
+function CategoryForm({ initial, printers, kitchenPrinterIds, onSave, onClose }: {
   initial?: Category;
   printers: SimplePrinter[];
+  kitchenPrinterIds: ReadonlySet<number>;
   onSave: (data: { name: string; color: string; sortOrder: number; printerId: number | null }) => void;
   onClose: () => void;
 }) {
@@ -84,6 +86,7 @@ function CategoryForm({ initial, printers, onSave, onClose }: {
   const [color, setColor] = useState(initial?.color ?? "#f59e0b");
   const [sortOrder, setSortOrder] = useState(initial?.sortOrder ?? 0);
   const [printerId, setPrinterId] = useState<number | null>((initial as Category & { printerId?: number | null })?.printerId ?? null);
+  const goesToKitchenTablet = printerId !== null && kitchenPrinterIds.has(printerId);
 
   return (
     <div className="space-y-4">
@@ -103,7 +106,7 @@ function CategoryForm({ initial, printers, onSave, onClose }: {
         <Input type="number" value={sortOrder} onChange={(e) => setSortOrder(Number(e.target.value))} className="mt-1" />
       </div>
       <div>
-        <Label>Stampante comanda</Label>
+        <Label>Reparto / stampante comanda</Label>
         <select
           value={printerId ?? ""}
           onChange={e => setPrinterId(e.target.value ? Number(e.target.value) : null)}
@@ -115,7 +118,9 @@ function CategoryForm({ initial, printers, onSave, onClose }: {
           ))}
         </select>
         <p className="text-[11px] text-slate-400 mt-1">
-          Le comande di questa categoria vengono stampate su questa stampante
+          {goesToKitchenTablet
+            ? "Questa categoria verrà stampata e visualizzata sul tablet della cucina."
+            : "Solo le categorie assegnate a una stampante di un reparto Cucina appaiono sul tablet cucina."}
         </p>
       </div>
       <DialogFooter>
@@ -164,6 +169,9 @@ function ProductForm({ initial, defaultCategoryId, categories, onSave, onClose }
             <option value="">Nessuna</option>
             {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Collega gli ingredienti in <strong>Marginalità → Ricette</strong>: diventano variazioni automatiche “Senza …” nella cassa e aggiornano i costi della marginalità.
+          </p>
         </div>
       </div>
 
@@ -664,6 +672,14 @@ export default function MenuPage() {
   const { data: products = [] } = useListProducts(filterCatId != null ? { categoryId: filterCatId } : undefined);
   const { data: allProducts = [] } = useListProducts();
   const { data: printers = [] } = useQuery<SimplePrinter[]>({ queryKey: ["printers"], queryFn: () => fetch(`${API}/printers`).then(r => r.json()) });
+  const { data: departments = [] } = useQuery<ProductionDepartment[]>({ queryKey: ["departments"], queryFn: () => fetch(`${API}/departments`).then(r => r.json()) });
+  const kitchenPrinterIds = new Set<number>(
+    departments.flatMap(department =>
+      department.productionType === "kitchen" && typeof department.printerId === "number"
+        ? [department.printerId]
+        : [],
+    ),
+  );
 
   const createCat = useCreateCategory();
   const updateCat = useUpdateCategory();
@@ -853,6 +869,7 @@ export default function MenuPage() {
               {categories.map((c) => {
                 const printerId = (c as unknown as { printerId?: number | null }).printerId;
                 const assignedPrinter = printerId ? printers.find(p => p.id === printerId) : null;
+                const goesToKitchenTablet = printerId !== null && printerId !== undefined && kitchenPrinterIds.has(printerId);
                 return (
                 <div key={c.id} className="flex items-center gap-3 p-3 rounded-lg bg-card border border-border">
                   <div className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
@@ -861,9 +878,14 @@ export default function MenuPage() {
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-xs text-muted-foreground">Ordine: {c.sortOrder}</span>
                       {assignedPrinter ? (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                          🖨 {assignedPrinter.name}
-                        </span>
+                        <>
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                            🖨 {assignedPrinter.name}
+                          </span>
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${goesToKitchenTablet ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-50 text-slate-500 border-slate-200"}`}>
+                            {goesToKitchenTablet ? "Tablet cucina" : "Fuori dal tablet cucina"}
+                          </span>
+                        </>
                       ) : (
                         <span className="text-[10px] text-slate-300 italic">nessuna stampante</span>
                       )}
@@ -926,7 +948,7 @@ export default function MenuPage() {
           <DialogHeader>
             <DialogTitle>{catDialog.item ? "Modifica Categoria" : "Nuova Categoria"}</DialogTitle>
           </DialogHeader>
-          <CategoryForm initial={catDialog.item} printers={printers} onSave={handleSaveCategory} onClose={() => setCatDialog({ open: false })} />
+          <CategoryForm initial={catDialog.item} printers={printers} kitchenPrinterIds={kitchenPrinterIds} onSave={handleSaveCategory} onClose={() => setCatDialog({ open: false })} />
         </DialogContent>
       </Dialog>
 

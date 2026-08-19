@@ -793,3 +793,155 @@ export const CreateMarginUtilityTypeBody = zod.object({
     .string()
     .default(createMarginUtilityTypeBodyReliabilityLevelDefault),
 });
+
+/**
+ * @summary Kitchen display board — active orders with items, phases, modifiers, prep minutes
+ */
+export const GetKitchenBoardResponseItem = zod.object({
+  orderId: zod.number(),
+  tableId: zod.number().nullable(),
+  tableName: zod.string().nullish(),
+  covers: zod.number(),
+  modalita: zod.string(),
+  notes: zod.string().nullish(),
+  createdAt: zod.string(),
+  items: zod.array(
+    zod.object({
+      id: zod.number(),
+      orderId: zod.number(),
+      productId: zod.number(),
+      productName: zod.string(),
+      quantity: zod.number(),
+      status: zod.enum(["draft", "sent", "preparing", "ready", "delivered"]),
+      phase: zod.number(),
+      notes: zod.string().nullish(),
+      modifiers: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+      categoryId: zod.number().nullish(),
+      categoryName: zod.string().nullish(),
+      expectedPrepMinutes: zod.number().nullish(),
+      sentAt: zod.string().nullish(),
+      preparingAt: zod.string().nullish(),
+      readyAt: zod.string().nullish(),
+      deliveredAt: zod.string().nullish(),
+      createdAt: zod.string(),
+    }),
+  ),
+});
+export const GetKitchenBoardResponse = zod.array(GetKitchenBoardResponseItem);
+
+/**
+ * @summary List menu categories (no cost data)
+ */
+export const GetKitchenCategoriesResponseItem = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  sortOrder: zod.number(),
+});
+export const GetKitchenCategoriesResponse = zod.array(
+  GetKitchenCategoriesResponseItem,
+);
+
+/**
+ * @summary Get active recipe ingredients for a product (for automatic Senza modifiers)
+ */
+export const GetProductIngredientsParams = zod.object({
+  productId: zod.coerce.number(),
+});
+
+export const GetProductIngredientsResponseItem = zod.object({
+  ingredientId: zod.number(),
+  name: zod.string(),
+  quantity: zod.string(),
+  unit: zod.string(),
+  source: zod.string(),
+});
+export const GetProductIngredientsResponse = zod.array(
+  GetProductIngredientsResponseItem,
+);
+
+/**
+ * @summary Transition an order item status (sent→preparing→ready→delivered)
+ */
+export const UpdateKitchenItemStatusParams = zod.object({
+  itemId: zod.coerce.number(),
+});
+
+export const UpdateKitchenItemStatusBody = zod.object({
+  status: zod.enum(["sent", "preparing", "ready", "delivered"]),
+});
+
+export const UpdateKitchenItemStatusResponse = zod.object({
+  id: zod.number(),
+  status: zod.enum(["sent", "preparing", "ready", "delivered"]),
+  message: zod.enum(["updated", "already_in_status"]),
+});
+
+/**
+ * @summary Bulk transition sent items to preparing for an order (optionally by phase)
+ */
+export const KitchenBulkStartParams = zod.object({
+  orderId: zod.coerce.number(),
+});
+
+export const KitchenBulkStartBody = zod.object({
+  phase: zod.number().optional(),
+});
+
+export const KitchenBulkStartResponse = zod.object({
+  updated: zod.number(),
+  items: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+});
+
+/**
+ * @summary Bulk transition preparing items to ready for an order (optionally by phase)
+ */
+export const KitchenBulkReadyParams = zod.object({
+  orderId: zod.coerce.number(),
+});
+
+export const KitchenBulkReadyBody = zod.object({
+  phase: zod.number().optional(),
+});
+
+export const KitchenBulkReadyResponse = zod.object({
+  updated: zod.number(),
+  items: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+});
+
+/**
+ * @summary Admin kitchen analytics — load, prep times, variance, delayed count (admin only)
+ */
+export const GetKitchenAnalyticsQueryParams = zod.object({
+  from: zod.date().optional(),
+  to: zod.date().optional(),
+  categoryId: zod.coerce.number().optional(),
+  productId: zod.coerce.number().optional(),
+});
+
+export const GetKitchenAnalyticsResponse = zod.object({
+  currentLoad: zod.number(),
+  averageActualPrepMinutes: zod.number().nullish(),
+  expectedVsActualVarianceMinutes: zod.number().nullish(),
+  delayedCount: zod.number(),
+  productSummaries: zod.array(
+    zod.object({
+      productId: zod.number(),
+      productName: zod.string(),
+      categoryId: zod.number().nullish(),
+      categoryName: zod.string().nullish(),
+      totalCount: zod.number(),
+      deliveredCount: zod.number(),
+      avgActualPrepMinutes: zod.number().nullish(),
+      expectedPrepMinutes: zod.number().nullish(),
+    }),
+  ),
+  categorySummaries: zod.array(
+    zod.object({
+      categoryId: zod.number(),
+      categoryName: zod.string(),
+      totalCount: zod.number(),
+      deliveredCount: zod.number(),
+      avgActualPrepMinutes: zod.number().nullish(),
+    }),
+  ),
+});

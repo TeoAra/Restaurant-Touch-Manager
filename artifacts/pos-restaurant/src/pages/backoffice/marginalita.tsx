@@ -4,6 +4,8 @@ import { AlertTriangle, BadgeEuro, ChartNoAxesCombined, CirclePlus, Factory, Pac
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { useGetKitchenAnalytics } from "@workspace/api-client-react";
+import { cn } from "@/lib/utils";
 
 const API = (import.meta.env.BASE_URL || "/") + "api/marginality";
 const today = new Date().toISOString().slice(0, 10);
@@ -83,10 +85,13 @@ export default function MarginalitaPage() {
     queryFn: () => request<Catalog>("/catalog"),
   });
 
+  const { data: kitchenAnalytics } = useGetKitchenAnalytics({ from, to });
+
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["marginality-overview"] }),
       queryClient.invalidateQueries({ queryKey: ["marginality-catalog"] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/kitchen/analytics"] }),
     ]);
   };
   const submit = async (path: string, body: unknown, success: string) => {
@@ -116,6 +121,7 @@ export default function MarginalitaPage() {
         <Tabs defaultValue="overview" className="max-w-6xl mx-auto">
           <TabsList className="w-full justify-start overflow-x-auto h-auto gap-1 p-1">
             <TabsTrigger value="overview">Analisi</TabsTrigger>
+            <TabsTrigger value="production">Produzione</TabsTrigger>
             <TabsTrigger value="ingredients">Ingredienti</TabsTrigger>
             <TabsTrigger value="recipes">Ricette</TabsTrigger>
             <TabsTrigger value="costs">Costi</TabsTrigger>
@@ -167,6 +173,98 @@ export default function MarginalitaPage() {
                     <div className="mt-3 flex gap-2"><input value={recalculateOrderId} onChange={event => setRecalculateOrderId(event.target.value)} placeholder="N. comanda" inputMode="numeric" className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-sm" /><SubmitButton>Ricalcola</SubmitButton></div>
                   </form>
                 </section>
+              </>
+            )}
+          </TabsContent>
+
+          <TabsContent value="production" className="space-y-5">
+            <section className="flex flex-wrap gap-3 items-end rounded-xl border border-slate-200 bg-white p-4">
+              <SimpleInput label="Dal" type="date" value={from} onChange={event => setFrom(event.target.value)} />
+              <SimpleInput label="Al" type="date" value={to} onChange={event => setTo(event.target.value)} />
+              <div className="text-xs text-slate-500 pb-2">Analisi delle tempistiche di preparazione completate nel periodo.</div>
+            </section>
+
+            {!kitchenAnalytics ? (
+              <div className="text-center py-16 text-slate-400">Caricamento dati di produzione...</div>
+            ) : (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <Card
+                    label="Carico attuale"
+                    value={kitchenAnalytics.currentLoad.toString()}
+                    detail="Articoli inviati o in preparazione adesso"
+                  />
+                  <Card
+                    label="Tempo medio reale"
+                    value={kitchenAnalytics.averageActualPrepMinutes != null ? `${kitchenAnalytics.averageActualPrepMinutes.toFixed(1)} min` : "N/D"}
+                    detail="Dall'avvio della preparazione allo stato pronto"
+                  />
+                  <Card
+                    label="Scostamento vs atteso"
+                    value={kitchenAnalytics.expectedVsActualVarianceMinutes != null ? `${kitchenAnalytics.expectedVsActualVarianceMinutes > 0 ? '+' : ''}${kitchenAnalytics.expectedVsActualVarianceMinutes.toFixed(1)} min` : "N/D"}
+                    detail="Differenza media rispetto ai tempi ricetta"
+                    tone={kitchenAnalytics.expectedVsActualVarianceMinutes != null && kitchenAnalytics.expectedVsActualVarianceMinutes > 0 ? "bad" : "good"}
+                  />
+                  <Card
+                    label="Articoli in ritardo"
+                    value={kitchenAnalytics.delayedCount.toString()}
+                    detail="Articoli attivi oltre il tempo ricetta"
+                    tone={kitchenAnalytics.delayedCount > 0 ? "bad" : "primary"}
+                  />
+                </div>
+
+                <div className="grid gap-5 lg:grid-cols-2">
+                  <section className="rounded-xl border border-slate-200 bg-white p-4">
+                    <h3 className="flex items-center gap-2 font-bold text-slate-800">Prestazioni per Categoria</h3>
+                    <div className="mt-4 space-y-3">
+                      {kitchenAnalytics.categorySummaries.length === 0 ? (
+                        <p className="py-4 text-sm text-slate-400">Nessun dato disponibile nel periodo.</p>
+                      ) : (
+                        kitchenAnalytics.categorySummaries.map(cat => (
+                          <div key={cat.categoryId} className="flex items-center justify-between border-b border-slate-100 pb-2 text-sm last:border-0">
+                            <div>
+                              <b>{cat.categoryName}</b>
+                              <div className="text-xs text-slate-500">{cat.deliveredCount} completati su {cat.totalCount}</div>
+                            </div>
+                            <div className="font-bold text-right">
+                              {cat.avgActualPrepMinutes ? `${cat.avgActualPrepMinutes.toFixed(1)} min` : "N/D"}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="rounded-xl border border-slate-200 bg-white p-4">
+                    <h3 className="flex items-center gap-2 font-bold text-slate-800">Dettaglio Prodotti (Top 10 Lenti)</h3>
+                    <div className="mt-4 space-y-3">
+                      {kitchenAnalytics.productSummaries.length === 0 ? (
+                        <p className="py-4 text-sm text-slate-400">Nessun dato disponibile nel periodo.</p>
+                      ) : (
+                        [...kitchenAnalytics.productSummaries]
+                          .sort((a, b) => (b.avgActualPrepMinutes || 0) - (a.avgActualPrepMinutes || 0))
+                          .slice(0, 10)
+                          .map(prod => {
+                            const isSlow = prod.avgActualPrepMinutes && prod.expectedPrepMinutes && prod.avgActualPrepMinutes > prod.expectedPrepMinutes;
+                            return (
+                              <div key={prod.productId} className="flex items-center justify-between border-b border-slate-100 pb-2 text-sm last:border-0">
+                                <div>
+                                  <b>{prod.productName}</b>
+                                  <div className="text-xs text-slate-500">{prod.categoryName || "Senza categoria"} • {prod.deliveredCount} completati</div>
+                                </div>
+                                <div className="text-right flex flex-col items-end">
+                                  <span className={cn("font-bold", isSlow ? "text-red-600" : "text-emerald-700")}>
+                                    {prod.avgActualPrepMinutes != null ? `${prod.avgActualPrepMinutes.toFixed(1)} min` : "N/D"}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400">Atteso: {prod.expectedPrepMinutes != null ? `${prod.expectedPrepMinutes} min` : "N/D"}</span>
+                                </div>
+                              </div>
+                            );
+                          })
+                      )}
+                    </div>
+                  </section>
+                </div>
               </>
             )}
           </TabsContent>

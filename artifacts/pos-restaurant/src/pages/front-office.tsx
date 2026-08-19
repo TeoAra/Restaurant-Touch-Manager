@@ -12,6 +12,8 @@ import {
   useUpdateOrderItem,
   useDeleteOrderItem,
   useCreatePayment,
+  useGetProductIngredients,
+  getGetProductIngredientsQueryKey,
 } from "@workspace/api-client-react";
 import type { TableStatus } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -3019,13 +3021,16 @@ export default function FrontOffice() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [comandaBanner, setComandaBanner] = useState<string | null>(null);
 
-  type FEModifier = { id: number; label: string; type: string; priceExtra: string };
+  type FEModifier = { id: number; label: string; type: string; priceExtra: string; ingredientId?: number; source?: string };
+  const modifierPickerCategoryId = modifierPicker
+    ? products.find(product => product.id === modifierPicker.productId)?.categoryId ?? selectedCategoryId
+    : selectedCategoryId;
   const { data: categoryModifiers = [] } = useQuery<FEModifier[]>({
-    queryKey: ["category-modifiers", selectedCategoryId],
-    queryFn: () => selectedCategoryId
-      ? fetch(`${API}/modifiers/by-category/${selectedCategoryId}`).then(r => r.json())
+    queryKey: ["category-modifiers", modifierPickerCategoryId],
+    queryFn: () => modifierPickerCategoryId
+      ? fetch(`${API}/modifiers/by-category/${modifierPickerCategoryId}`).then(r => r.json())
       : Promise.resolve([]),
-    enabled: !!selectedCategoryId,
+    enabled: !!modifierPickerCategoryId,
     staleTime: 30000,
   });
 
@@ -3038,7 +3043,11 @@ export default function FrontOffice() {
     staleTime: 30000,
   });
 
-  const activeTableEntry = tablesStatus.find(t => t.id === selectedTableId) as FETable | undefined;
+  const { data: productIngredients = [] } = useGetProductIngredients(modifierPicker?.productId ?? 0, {
+    query: { enabled: !!modifierPicker, queryKey: getGetProductIngredientsQueryKey(modifierPicker?.productId ?? 0) }
+  });
+
+  const activeTableEntry = tablesStatus.find((t: any) => t.id === selectedTableId) as FETable | undefined;
   const activeOrderId = isQuickMode
     ? quickOrderId ?? undefined
     : (activeTableEntry?.activeOrderId as number | undefined);
@@ -3071,6 +3080,24 @@ export default function FrontOffice() {
   useEffect(() => { hasDraftItemsRef.current = hasDraftItems; }, [hasDraftItems]);
 
   const selectedItem = items.find(i => i.id === selectedItemId);
+  const selectedItemStatus = (selectedItem as never as { status?: string })?.status;
+  const selectedItemCanAmend = selectedItemStatus === "draft" || selectedItemStatus === "sent";
+  const selectedItemCanDelete = selectedItemStatus === "draft";
+  const { data: selectedItemIngredients = [] } = useGetProductIngredients(selectedItem?.productId ?? 0, {
+    query: {
+      enabled: !!selectedItem,
+      queryKey: getGetProductIngredientsQueryKey(selectedItem?.productId ?? 0),
+    },
+  });
+  const selectedItemRecipeModifiers: FEModifier[] = selectedItemIngredients.map(ingredient => ({
+    id: -ingredient.ingredientId,
+    label: `Senza ${ingredient.name}`,
+    type: "minus",
+    priceExtra: "0.00",
+    ingredientId: ingredient.ingredientId,
+    source: "recipe",
+  }));
+  const selectedItemAvailableModifiers = [...selectedItemModifiers, ...selectedItemRecipeModifiers];
   useEffect(() => {
     if (!selectedItem) { setSelectedItemCategoryId(null); return; }
     fetch(`${API}/products/${selectedItem.productId}`)
@@ -3371,7 +3398,7 @@ export default function FrontOffice() {
       setMobilePanel("left");
       orderId = order.id;
     }
-    const modJson = JSON.stringify(mods.map(m => ({ id: m.id, label: m.label, type: m.type, priceExtra: m.priceExtra })));
+    const modJson = JSON.stringify(mods.map(m => ({ id: m.id, label: m.label, type: m.type, priceExtra: m.priceExtra, ingredientId: (m as any).ingredientId, source: (m as any).source })));
     const effectivePrice = mods.reduce((acc, m) => acc + parseFloat(m.priceExtra || "0"), parseFloat(unitPrice));
     const finalPrice = effectivePrice.toFixed(2);
     const kpNote = notes?.trim() || undefined;
@@ -3393,14 +3420,34 @@ export default function FrontOffice() {
   }
 
   async function handleAddProduct(productId: number, unitPrice: string) {
-    await doAddProduct(productId, unitPrice, [], undefined);
+    const product = products.find(p => p.id === productId);
+    setModifierPicker({ productId, productName: product?.name || "Articolo", unitPrice });
+    setSelectedModifierIds(new Set());
+    setPickerKpNote("");
   }
 
   async function confirmModifiers(withMods: boolean) {
     if (!modifierPicker) return;
+
+    const recipeMods = productIngredients.map(ing => ({
+      id: -ing.ingredientId,
+      label: `Senza ${ing.name}`,
+      type: "minus",
+      priceExtra: "0.00",
+      ingredientId: ing.ingredientId,
+      source: "recipe"
+    }));
+
     if (modifierPicker.itemId && activeOrderId) {
+      const existingItem = items.find(item => item.id === modifierPicker.itemId);
+      const existingStatus = (existingItem as never as { status?: string })?.status;
+      if (existingStatus !== "draft" && existingStatus !== "sent") {
+        toast({ title: "Riga non modificabile", description: "La preparazione è già iniziata.", variant: "destructive" });
+        setModifierPicker(null);
+        return;
+      }
       // Editing an existing item's modifiers
-      const availableMods = selectedItemModifiers.length > 0 ? selectedItemModifiers : categoryModifiers;
+      const availableMods = [...(selectedItemModifiers.length > 0 ? selectedItemModifiers : categoryModifiers), ...recipeMods];
       const mods = withMods ? availableMods.filter(m => selectedModifierIds.has(m.id)) : [];
       const baseItem = items.find(i => i.id === modifierPicker.itemId);
       const basePrice = parseFloat((baseItem as never as { productPrice?: string })?.productPrice || baseItem?.unitPrice || modifierPicker.unitPrice);
@@ -3410,7 +3457,7 @@ export default function FrontOffice() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          modifiers: JSON.stringify(mods.map(m => ({ id: m.id, label: m.label, type: m.type, priceExtra: m.priceExtra }))),
+          modifiers: JSON.stringify(mods.map(m => ({ id: m.id, label: m.label, type: m.type, priceExtra: m.priceExtra, ingredientId: (m as any).ingredientId, source: (m as any).source }))),
           unitPrice: newPrice,
           notes: pickerKpNote.trim() || null,
         }),
@@ -3419,7 +3466,8 @@ export default function FrontOffice() {
       setModifierPicker(null);
     } else {
       // Adding a new item
-      const mods = withMods ? categoryModifiers.filter(m => selectedModifierIds.has(m.id)) : [];
+      const availableMods = [...categoryModifiers, ...recipeMods];
+      const mods = withMods ? availableMods.filter(m => selectedModifierIds.has(m.id)) : [];
       setModifierPicker(null);
       await doAddProduct(modifierPicker.productId, modifierPicker.unitPrice, mods, pickerKpNote);
     }
@@ -3428,9 +3476,21 @@ export default function FrontOffice() {
   async function handleQty(itemId: number, qty: number) {
     if (!activeOrderId) return;
     const item = items.find(i => i.id === itemId);
-    const wasSent = item && (item as never as { status: string }).status === "sent";
+    const itemStatus = (item as never as { status?: string })?.status;
+    const wasSent = itemStatus === "sent";
+    if (itemStatus !== "draft" && itemStatus !== "sent") {
+      toast({ title: "Riga non modificabile", description: "La preparazione è già iniziata.", variant: "destructive" });
+      return;
+    }
     if (qty <= 0) {
-      // Conferma sempre la cancellazione (sia draft che sent) per evitare tap accidentali
+      if (wasSent) {
+        toast({
+          title: "Riga già inviata",
+          description: "Non può essere eliminata senza uno storno esplicito al reparto.",
+          variant: "destructive",
+        });
+        return;
+      }
       setDeleteConfirm({ itemId, name: item?.productName ?? "Articolo" });
       return;
     } else {
@@ -3441,18 +3501,16 @@ export default function FrontOffice() {
     refresh();
   }
 
-  async function confirmDelete(notify: boolean) {
+  async function confirmDelete() {
     if (!deleteConfirm || !activeOrderId) return;
-    const item = items.find(i => i.id === deleteConfirm.itemId);
-    const wasSent = item && (item as never as { status: string }).status === "sent";
-    if (notify && wasSent) {
-      await fetch(`${API}/orders/${activeOrderId}/items/${deleteConfirm.itemId}/void`, { method: "POST" }).catch(() => {});
-      toast({ title: "Avviso inviato al reparto", description: "Comanda di annullamento generata" });
-    }
     addLog("info", `Articolo rimosso: ${deleteConfirm.name}`);
-    await deleteItem.mutateAsync({ orderId: activeOrderId, itemId: deleteConfirm.itemId });
-    refresh();
-    setDeleteConfirm(null);
+    try {
+      await deleteItem.mutateAsync({ orderId: activeOrderId, itemId: deleteConfirm.itemId });
+      refresh();
+      setDeleteConfirm(null);
+    } catch (error) {
+      toast({ title: "Articolo non eliminato", description: error instanceof Error ? error.message : "Aggiorna e riprova.", variant: "destructive" });
+    }
   }
 
   function selectNextAfter(removedId: number) {
@@ -3472,13 +3530,17 @@ export default function FrontOffice() {
     if (!selectedItemId) return;
     const item = items.find(i => i.id === selectedItemId);
     if (!item) return;
-    const wasSent = (item as never as { status: string }).status === "sent";
-    selectNextAfter(selectedItemId);
-    if (wasSent) {
-      setDeleteConfirm({ itemId: item.id, name: item.productName });
-    } else {
-      handleQty(item.id, 0);
+    const itemStatus = (item as never as { status: string }).status;
+    if (itemStatus !== "draft") {
+      toast({
+        title: "Riga già inviata",
+        description: "Non può essere eliminata senza uno storno esplicito al reparto.",
+        variant: "destructive",
+      });
+      return;
     }
+    selectNextAfter(selectedItemId);
+    handleQty(item.id, 0);
   }
 
   /**
@@ -3488,7 +3550,10 @@ export default function FrontOffice() {
    */
   async function handleExplodeAll() {
     if (!activeOrderId) return;
-    const explodable = items.filter(i => i.quantity > 1);
+    const explodable = items.filter(i => {
+      const status = (i as never as { status?: string }).status;
+      return i.quantity > 1 && (status === "draft" || status === "sent");
+    });
     if (explodable.length === 0) {
       toast({ title: "Niente da esplodere", description: "Tutti gli articoli hanno già quantità 1" });
       return;
@@ -3531,6 +3596,11 @@ export default function FrontOffice() {
 
   async function handleSaveItemEdit(itemId: number, unitPrice: string) {
     if (!activeOrderId) return;
+    const itemStatus = (items.find(item => item.id === itemId) as never as { status?: string })?.status;
+    if (itemStatus !== "draft" && itemStatus !== "sent") {
+      toast({ title: "Riga non modificabile", description: "La preparazione è già iniziata.", variant: "destructive" });
+      return;
+    }
     await updateItem.mutateAsync({
       orderId: activeOrderId,
       itemId,
@@ -3574,14 +3644,21 @@ export default function FrontOffice() {
       setNumBuffer("");
       await handleQty(selectedItemId, qty);
     } else {
+      const selected = items.find(item => item.id === selectedItemId);
+      const selectedStatus = (selected as never as { status?: string })?.status;
+      if (selectedStatus !== "draft" && selectedStatus !== "sent") {
+        setNumBuffer("");
+        toast({ title: "Riga non modificabile", description: "La preparazione è già iniziata.", variant: "destructive" });
+        return;
+      }
       setNumBuffer("");
       await fetch(`${API}/orders/${activeOrderId}/items/${selectedItemId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ unitPrice: val.toFixed(2) }),
       });
-      const item = items.find(i => i.id === selectedItemId);
-      addLog("info", `Prezzo modificato: ${item?.productName} → €${val.toFixed(2)}`);
+    const item = items.find(i => i.id === selectedItemId);
+    addLog("info", `Prezzo modificato: ${item?.productName} → €${val.toFixed(2)}`);
       refresh();
       if (item && (item as never as { status: string }).status === "sent") setKpResendPending(true);
     }
@@ -4230,7 +4307,10 @@ export default function FrontOffice() {
               Romana
             </button>
             <button
-              disabled={!items.some(i => i.quantity > 1)}
+              disabled={!items.some(i => {
+                const status = (i as never as { status?: string }).status;
+                return i.quantity > 1 && (status === "draft" || status === "sent");
+              })}
               onClick={handleExplodeAll}
               title="Espandi: ogni articolo con qty>1 viene separato in righe da 1 (utile per conto separato/romana)"
               className="h-10 rounded-lg flex items-center justify-center bg-indigo-800 text-indigo-200 hover:bg-indigo-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
@@ -4239,7 +4319,7 @@ export default function FrontOffice() {
 
             {/* Riga 4 */}
             <button
-              disabled={!selectedItemId}
+              disabled={!selectedItemId || !selectedItemCanDelete}
               onClick={handleDeleteSelected}
               title="Cancella l'articolo selezionato dall'ordine"
               className="h-10 rounded-lg flex items-center justify-center bg-red-900/80 text-red-300 hover:bg-red-800 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
@@ -4504,7 +4584,7 @@ export default function FrontOffice() {
                   {/* Applied modifiers */}
                   {(() => {
                     try {
-                      const applied: Array<{ id: number; label: string; type: string; priceExtra: string }> =
+                      const applied: FEModifier[] =
                         JSON.parse((selectedItem as never as { modifiers?: string }).modifiers ?? "[]");
                       if (!applied.length) return null;
                       return (
@@ -4533,8 +4613,8 @@ export default function FrontOffice() {
                   })()}
 
                   {/* Available category modifiers */}
-                  {selectedItemModifiers.length > 0 && (
-                    <div className="space-y-1.5">
+                  {selectedItemAvailableModifiers.length > 0 && (
+                    <div className={cn("space-y-1.5", !selectedItemCanAmend && "pointer-events-none opacity-50")}>
                       <div className="flex items-center gap-2 flex-wrap">
                         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 flex-1">Variazioni disponibili</div>
                         {(["all", "plus", "minus"] as const).map(f => (
@@ -4551,12 +4631,12 @@ export default function FrontOffice() {
                           </button>
                         ))}
                       </div>
-                      {selectedItemModifiers.filter(m =>
+                      {selectedItemAvailableModifiers.filter(m =>
                         varModFilter === "all" ||
                         m.type === varModFilter ||
                         m.type === "both"
                       ).map(mod => {
-                        const currentMods: Array<{ id: number; label: string; type: string; priceExtra: string }> = (() => {
+                        const currentMods: FEModifier[] = (() => {
                           try { return JSON.parse((selectedItem as never as { modifiers?: string }).modifiers ?? "[]"); } catch { return []; }
                         })();
 
@@ -4566,7 +4646,7 @@ export default function FrontOffice() {
                           if (remove) {
                             next = currentMods.filter(m => !(m.id === mod.id && m.type === direction));
                           } else {
-                            next = [...currentMods, { id: mod.id, label: mod.label, type: direction, priceExtra: mod.priceExtra }];
+                            next = [...currentMods, { ...mod, type: direction }];
                           }
                           const priceAdj = next.reduce((acc, m) => acc + parseFloat(m.priceExtra || "0"), 0);
                           const basePrice = parseFloat((selectedItem as never as { productPrice: string }).productPrice || selectedItem.unitPrice);
@@ -4655,7 +4735,7 @@ export default function FrontOffice() {
                     </div>
                   )}
 
-                  {selectedItemModifiers.length === 0 && selectedItemCategoryId && (
+                  {selectedItemAvailableModifiers.length === 0 && (selectedItemCategoryId || selectedItem) && (
                     <div className="text-center py-6 text-slate-300 text-xs italic">
                       Nessuna variazione configurata per questa categoria
                     </div>
@@ -4671,12 +4751,13 @@ export default function FrontOffice() {
                     <textarea
                       value={kpComment}
                       onChange={e => setKpComment(e.target.value)}
+                      disabled={!selectedItemCanAmend}
                       rows={2}
                       placeholder="Es. senza cipolla, ben cotto, allergia…"
                       className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl resize-none outline-none focus:ring-2 focus:ring-teal-300 focus:border-teal-400 placeholder:text-slate-300"
                     />
                     <button
-                      disabled={kpSaving}
+                      disabled={kpSaving || !selectedItemCanAmend}
                       onClick={async () => {
                         if (!activeOrderId || !selectedItem) return;
                         setKpSaving(true);
@@ -4695,6 +4776,7 @@ export default function FrontOffice() {
 
                   {/* Modifica prezzo */}
                   <button
+                    disabled={!selectedItemCanAmend}
                     onClick={() => setEditingItem({
                       id: selectedItem.id,
                       productName: selectedItem.productName,
@@ -4703,7 +4785,7 @@ export default function FrontOffice() {
                       notes: (selectedItem as never as { notes?: string | null }).notes,
                       status: (selectedItem as never as { status: string }).status,
                     })}
-                    className="w-full py-3 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400 font-semibold text-sm hover:border-slate-400 hover:text-slate-600 transition-all active:scale-95">
+                    className="w-full py-3 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400 font-semibold text-sm hover:border-slate-400 hover:text-slate-600 transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-40">
                     ✎ Modifica prezzo…
                   </button>
                 </>
@@ -5151,19 +5233,18 @@ export default function FrontOffice() {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-orange-500" /> Articolo già inviato
+              <AlertTriangle className="h-5 w-5 text-orange-500" /> Elimina articolo
             </DialogTitle>
           </DialogHeader>
           <div className="py-2 text-sm text-slate-600">
-            <strong>"{deleteConfirm?.name}"</strong> è già stato inviato al reparto.
-            <br />Vuoi inviare un avviso di cancellazione?
+            Vuoi eliminare <strong>"{deleteConfirm?.name}"</strong> dalla comanda?
           </div>
-          <DialogFooter className="flex flex-col gap-2">
-            <Button variant="outline" onClick={() => confirmDelete(false)} className="w-full">
-              Elimina senza avvisare
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
+              Annulla
             </Button>
-            <Button onClick={() => confirmDelete(true)} className="w-full">
-              <Send className="h-4 w-4 mr-2" /> Invia avviso al reparto
+            <Button variant="destructive" onClick={() => void confirmDelete()}>
+              Elimina
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -5287,9 +5368,22 @@ export default function FrontOffice() {
       {/* ── Modifier Picker ─────────────────────────────────────────── */}
       {(() => {
         const isEditing = !!modifierPicker?.itemId;
-        const pickerMods = isEditing
+        let baseMods = isEditing
           ? (selectedItemModifiers.length > 0 ? selectedItemModifiers : categoryModifiers)
           : categoryModifiers;
+
+        // Append recipe ingredients as "minus" modifiers
+        const recipeMods: FEModifier[] = productIngredients.map(ing => ({
+          id: -ing.ingredientId, // negative ID to avoid conflicts
+          label: `Senza ${ing.name}`,
+          type: "minus",
+          priceExtra: "0.00",
+          ingredientId: ing.ingredientId,
+          source: "recipe"
+        }));
+
+        const pickerMods = [...baseMods, ...recipeMods];
+
         return (
           <Dialog open={!!modifierPicker} onOpenChange={o => !o && setModifierPicker(null)}>
             <DialogContent className="max-w-sm p-0 overflow-hidden rounded-2xl">
