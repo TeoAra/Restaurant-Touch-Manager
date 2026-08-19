@@ -4,7 +4,7 @@ import { AlertTriangle, BadgeEuro, ChartNoAxesCombined, CirclePlus, Factory, Pac
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { useGetKitchenAnalytics } from "@workspace/api-client-react";
+import { useGetKitchenAnalytics, useListCategories, useListProducts } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 
 const API = (import.meta.env.BASE_URL || "/") + "api/marginality";
@@ -27,7 +27,7 @@ type Overview = {
   incomplete: Array<{ orderId: number; calculatedAt?: string; missingData: string[] }>;
 };
 type Ingredient = { id: number; name: string; baseUnit: string; currentUnitCost: string; vatRate: string; active: boolean };
-type RecipeProduct = { id: number; name: string; price: string; categoryId: number | null; sortOrder: number };
+type RecipeProduct = { id: number; name: string; price: string; categoryId?: number | null; sortOrder: number };
 type RecipeCategory = { id: number; name: string; sortOrder: number };
 type RecipeProductGroup = { id: number | null; name: string; products: RecipeProduct[] };
 type Catalog = {
@@ -112,6 +112,10 @@ export default function MarginalitaPage() {
     queryKey: ["marginality-catalog"],
     queryFn: () => request<Catalog>("/catalog"),
   });
+  // Recipes must use the same menu hierarchy maintained in Backoffice → Menu,
+  // not a copied product list maintained separately for marginality.
+  const { data: menuCategories = [] } = useListCategories();
+  const { data: menuProducts = [] } = useListProducts();
 
   const { data: kitchenAnalytics } = useGetKitchenAnalytics({ from, to });
 
@@ -144,8 +148,8 @@ export default function MarginalitaPage() {
     return latestByProduct;
   }, [catalog.data?.recipes]);
   const recipeProductGroups = useMemo(
-    () => groupMenuProducts(catalog.data?.products ?? [], catalog.data?.categories ?? []),
-    [catalog.data?.products, catalog.data?.categories],
+    () => groupMenuProducts(menuProducts, menuCategories),
+    [menuProducts, menuCategories],
   );
 
   return (
@@ -329,7 +333,7 @@ export default function MarginalitaPage() {
             <RecipeForm productGroups={recipeProductGroups} ingredients={catalog.data?.ingredients ?? []} onSave={async data => submit("/recipes", data, "Ricetta salvata")} />
             <section className="rounded-xl border border-slate-200 bg-white p-4">
               <h2 className="flex items-center gap-2 font-bold"><Utensils className="h-4 w-4 text-primary" /> Copertura del menu</h2>
-              <p className="mt-1 text-xs text-slate-500">Prodotti del Menu raggruppati con lo stesso ordine delle categorie.</p>
+              <p className="mt-1 text-xs text-slate-500">Elenco aggiornato direttamente dal Menu, raggruppato con lo stesso ordine delle categorie.</p>
               <div className="mt-3 space-y-4">{recipeProductGroups.length === 0 ? <p className="py-4 text-sm text-slate-400">Nessun prodotto disponibile nel Menu.</p> : recipeProductGroups.map(group => (
                 <div key={group.id ?? "uncategorized"}>
                   <h3 className="border-b border-slate-100 pb-1 text-xs font-bold uppercase tracking-wide text-slate-500">{group.name}</h3>
