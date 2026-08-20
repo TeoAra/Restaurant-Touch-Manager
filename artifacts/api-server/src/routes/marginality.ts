@@ -406,6 +406,7 @@ router.post("/cover-cost-items", async (req, res): Promise<void> => {
 router.post("/ingredients", async (req, res): Promise<void> => {
   try {
     const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+    const category = typeof req.body?.category === "string" ? req.body.category.trim() || "Senza categoria" : "Senza categoria";
     const baseUnit = typeof req.body?.baseUnit === "string" ? req.body.baseUnit.trim() : "";
     if (!name || !baseUnit) throw new Error("Nome e unità base sono obbligatori");
     const currentUnitCost = decimal(req.body.currentUnitCost);
@@ -414,7 +415,7 @@ router.post("/ingredients", async (req, res): Promise<void> => {
     if (sliceWeightG != null && unitSizeG == null) throw new Error("Il peso della fetta richiede anche il peso dell'unità in grammi");
     const [ingredient] = await db.transaction(async (tx) => {
       const [created] = await tx.insert(ingredientsTable).values({
-        name, baseUnit, currentUnitCost, vatRate: decimal(req.body.vatRate, "0"), unitSizeG, sliceWeightG,
+        name, category, baseUnit, currentUnitCost, vatRate: decimal(req.body.vatRate, "0"), unitSizeG, sliceWeightG,
       }).returning();
       await tx.insert(ingredientCostHistoryTable).values({
         ingredientId: created.id,
@@ -439,6 +440,7 @@ router.patch("/ingredients/:id", async (req, res): Promise<void> => {
   try {
     const updates: Record<string, unknown> = {};
     if (typeof req.body?.name === "string" && req.body.name.trim()) updates.name = req.body.name.trim();
+    if (typeof req.body?.category === "string") updates.category = req.body.category.trim() || "Senza categoria";
     if (typeof req.body?.baseUnit === "string" && req.body.baseUnit.trim()) updates.baseUnit = req.body.baseUnit.trim();
     if (req.body?.currentUnitCost != null) updates.currentUnitCost = decimal(req.body.currentUnitCost);
     if (req.body?.vatRate != null) updates.vatRate = decimal(req.body.vatRate);

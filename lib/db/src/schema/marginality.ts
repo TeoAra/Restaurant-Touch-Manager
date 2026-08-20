@@ -23,6 +23,7 @@ export const ingredientsTable = pgTable(
   {
     id: serial("id").primaryKey(),
     name: text("name").notNull(),
+    category: text("category").notNull().default("Senza categoria"),
     baseUnit: text("base_unit").notNull(),
     currentUnitCost: numeric("current_unit_cost", { precision: 18, scale: 6 }).notNull(),
     vatRate: numeric("vat_rate", { precision: 18, scale: 6 }).notNull(),

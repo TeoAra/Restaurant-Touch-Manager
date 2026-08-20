@@ -27,7 +27,7 @@ type Overview = {
   incomplete: Array<{ orderId: number; calculatedAt?: string; missingData: string[] }>;
   recommendations: Array<{ tone: "critical" | "attention" | "opportunity"; title: string; explanation: string; action: string }>;
 };
-type Ingredient = { id: number; name: string; baseUnit: string; currentUnitCost: string; vatRate: string; unitSizeG?: string | null; sliceWeightG?: string | null; active: boolean };
+type Ingredient = { id: number; name: string; category: string; baseUnit: string; currentUnitCost: string; vatRate: string; unitSizeG?: string | null; sliceWeightG?: string | null; active: boolean };
 type RecipeProduct = { id: number; name: string; price: string; categoryId?: number | null; sortOrder: number };
 type RecipeCategory = { id: number; name: string; sortOrder: number };
 type RecipeProductGroup = { id: number | null; name: string; products: RecipeProduct[] };
@@ -179,6 +179,21 @@ function ingredientQuantityUnit(item: Ingredient | undefined): string {
   if (Number(item.sliceWeightG ?? 0) > 0) return "fette";
   if (Number(item.unitSizeG ?? 0) > 0) return "g";
   return item.baseUnit;
+}
+
+function groupIngredientsByCategory(ingredients: Ingredient[]): Array<{ name: string; ingredients: Ingredient[] }> {
+  const groups = new Map<string, Ingredient[]>();
+  for (const ingredient of ingredients) {
+    const category = ingredient.category.trim() || "Senza categoria";
+    groups.set(category, [...(groups.get(category) ?? []), ingredient]);
+  }
+  return [...groups.entries()]
+    .map(([name, rows]) => ({ name, ingredients: [...rows].sort((left, right) => left.name.localeCompare(right.name, "it")) }))
+    .sort((left, right) => {
+      if (left.name === "Senza categoria") return 1;
+      if (right.name === "Senza categoria") return -1;
+      return left.name.localeCompare(right.name, "it");
+    });
 }
 
 function coverCostDetail(item: Catalog["coverCostItems"][number]): { unitCost: number; coverCost: number } {
@@ -375,6 +390,8 @@ export default function MarginalitaPage() {
   const [from, setFrom] = useState(() => today.slice(0, 8) + "01");
   const [to, setTo] = useState(today);
   const [recalculateOrderId, setRecalculateOrderId] = useState("");
+  const [recipeCoverageCategoryId, setRecipeCoverageCategoryId] = useState("");
+  const [ingredientCategoryFilter, setIngredientCategoryFilter] = useState("");
   const overview = useQuery<Overview>({
     queryKey: ["marginality-overview", from, to],
     queryFn: () => request<Overview>(`/overview?from=${from}&to=${to}`),
@@ -419,6 +436,15 @@ export default function MarginalitaPage() {
       return false;
     }
   };
+  const updateIngredientCategory = async (ingredientId: number, category: string) => {
+    try {
+      await request(`/ingredients/${ingredientId}`, { method: "PATCH", body: JSON.stringify({ category }) });
+      toast({ title: "Categoria ingrediente aggiornata" });
+      await refresh();
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : "Errore aggiornamento ingrediente", variant: "destructive" });
+    }
+  };
   const totals = overview.data?.totals ?? {};
   const contribution = Number(totals.contributionMargin ?? 0);
   const management = Number(totals.managementResult ?? 0);
@@ -432,6 +458,10 @@ export default function MarginalitaPage() {
   const recipeProductGroups = useMemo(
     () => groupMenuProducts(menuProducts, menuCategories),
     [menuProducts, menuCategories],
+  );
+  const ingredientGroups = useMemo(
+    () => groupIngredientsByCategory(catalog.data?.ingredients ?? []),
+    [catalog.data?.ingredients],
   );
 
   return (
@@ -611,6 +641,8 @@ export default function MarginalitaPage() {
             }} className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
               <h2 className="flex items-center gap-2 font-bold"><PackagePlus className="h-4 w-4 text-primary" /> Nuovo ingrediente</h2>
               <SimpleInput label="Nome" name="name" required placeholder="es. Mozzarella fior di latte" />
+              <SimpleInput label="Categoria ingrediente" name="category" required placeholder="es. Latticini, Carni, Verdure, Condimenti" list="ingredient-categories" />
+              <datalist id="ingredient-categories">{ingredientGroups.map(group => <option key={group.name} value={group.name} />)}</datalist>
               <div className="grid grid-cols-2 gap-3"><SimpleInput label="Unità base" name="baseUnit" required placeholder="kg, l, pz" /><SimpleInput label="Costo per unità (€)" name="currentUnitCost" inputMode="decimal" required placeholder="0.000000" /></div>
               <SimpleInput label="IVA acquisto %" name="vatRate" inputMode="decimal" defaultValue="0" />
               <div className="grid grid-cols-2 gap-3"><SimpleInput label="Peso confezione in grammi (opz.)" name="unitSizeG" inputMode="decimal" placeholder="es. 1000 per 1 kg" /><SimpleInput label="Peso fetta/pezzo in grammi (opz.)" name="sliceWeightG" inputMode="decimal" placeholder="es. 20" /></div>
@@ -619,10 +651,20 @@ export default function MarginalitaPage() {
             </form>
             <section className="rounded-xl border border-slate-200 bg-white p-4">
               <h2 className="font-bold">Ingredienti attivi</h2>
-              <div className="mt-3 divide-y divide-slate-100">{(catalog.data?.ingredients ?? []).map(item => {
-                const detail = ingredientCostDetail(item);
-                return <div key={item.id} className="flex justify-between gap-4 py-2 text-sm"><span>{item.name}<small className="ml-2 text-slate-400">/{item.baseUnit}</small>{detail && <small className="ml-2 text-emerald-700">{detail}</small>}</span><b>{euro(item.currentUnitCost)}</b></div>;
-              }) || <span />}</div>
+              <label className="mt-3 block text-xs font-semibold text-slate-600">Categoria ingrediente
+                <select value={ingredientCategoryFilter} onChange={event => setIngredientCategoryFilter(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-primary">
+                  <option value="">Seleziona una categoria…</option>
+                  {ingredientGroups.map(group => <option key={group.name} value={group.name}>{group.name}</option>)}
+                </select>
+              </label>
+              {!ingredientCategoryFilter ? (
+                <p className="mt-4 rounded-lg bg-slate-50 px-3 py-3 text-sm text-slate-500">Scegli una categoria per vedere solo gli ingredienti utili.</p>
+              ) : (
+                <div className="mt-3 divide-y divide-slate-100">{(ingredientGroups.find(group => group.name === ingredientCategoryFilter)?.ingredients ?? []).map(item => {
+                  const detail = ingredientCostDetail(item);
+                  return <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 py-2 text-sm"><span>{item.name}<small className="ml-2 text-slate-400">/{item.baseUnit}</small>{detail && <small className="ml-2 text-emerald-700">{detail}</small>}</span><div className="flex items-center gap-2"><b>{euro(item.currentUnitCost)}</b><form onSubmit={event => { event.preventDefault(); const category = String(new FormData(event.currentTarget).get("category") ?? ""); void updateIngredientCategory(item.id, category); }} className="flex items-center gap-1"><input name="category" defaultValue={item.category} list="ingredient-categories" aria-label={`Categoria di ${item.name}`} className="w-28 rounded border border-slate-200 px-2 py-1 text-xs" /><button type="submit" className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 hover:border-primary">Aggiorna</button></form></div></div>;
+                })}</div>
+              )}
               {!catalog.data?.ingredients.length && <p className="mt-4 text-sm text-slate-400">Nessun ingrediente inserito.</p>}
               <MenuVariationIngredients
                 products={menuProducts}
@@ -635,10 +677,15 @@ export default function MarginalitaPage() {
             <RecipeForm productGroups={recipeProductGroups} ingredients={catalog.data?.ingredients ?? []} onSave={async data => submit("/recipes", data, "Ricetta salvata")} />
             <section className="rounded-xl border border-slate-200 bg-white p-4">
               <h2 className="flex items-center gap-2 font-bold"><Utensils className="h-4 w-4 text-primary" /> Copertura del menu</h2>
-              <p className="mt-1 text-xs text-slate-500">Elenco aggiornato direttamente dal Menu, raggruppato con lo stesso ordine delle categorie.</p>
-              <div className="mt-3 space-y-4">{recipeProductGroups.length === 0 ? <p className="py-4 text-sm text-slate-400">Nessun prodotto disponibile nel Menu.</p> : recipeProductGroups.map(group => (
+              <p className="mt-1 text-xs text-slate-500">Scegli una categoria del Menu per controllare solo le ricette dei prodotti che ti interessano.</p>
+              <label className="mt-3 block text-xs font-semibold text-slate-600">Categoria prodotto
+                <select value={recipeCoverageCategoryId} onChange={event => setRecipeCoverageCategoryId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-primary">
+                  <option value="">Seleziona una categoria…</option>
+                  {recipeProductGroups.map(group => <option key={group.id ?? "uncategorized"} value={group.id ?? "uncategorized"}>{group.name}</option>)}
+                </select>
+              </label>
+              <div className="mt-3">{!recipeCoverageCategoryId ? <p className="rounded-lg bg-slate-50 px-3 py-3 text-sm text-slate-500">Scegli una categoria: così non vedrai avvisi di ricetta mancante per prodotti non pertinenti.</p> : recipeProductGroups.filter(group => String(group.id ?? "uncategorized") === recipeCoverageCategoryId).map(group => (
                 <div key={group.id ?? "uncategorized"}>
-                  <h3 className="border-b border-slate-100 pb-1 text-xs font-bold uppercase tracking-wide text-slate-500">{group.name}</h3>
                   <div className="mt-2 space-y-2">{group.products.map(product => {
                     const recipe = recipesByProduct.get(product.id);
                     return <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 px-3 py-2 text-sm"><span>{product.name}</span>{recipe ? <span className="shrink-0 text-emerald-700 font-semibold">Ricetta v{recipe.version}</span> : <span className="shrink-0 text-amber-600">Ricetta mancante</span>}</div>;
@@ -911,20 +958,69 @@ function ProductList({ title, icon, rows, empty, danger = false }: { title: stri
 }
 
 function RecipeForm({ productGroups, ingredients, onSave }: { productGroups: RecipeProductGroup[]; ingredients: Ingredient[]; onSave: (data: unknown) => Promise<boolean> }) {
-  const [items, setItems] = useState<Array<{ ingredientId: string; quantity: string; wastePercentage: string }>>([{ ingredientId: "", quantity: "", wastePercentage: "0" }]);
+  const [productCategoryId, setProductCategoryId] = useState("");
+  const [items, setItems] = useState<Array<{ ingredientCategory: string; ingredientId: string; quantity: string; wastePercentage: string }>>([
+    { ingredientCategory: "", ingredientId: "", quantity: "", wastePercentage: "0" },
+  ]);
+  const ingredientGroups = groupIngredientsByCategory(ingredients);
+  const selectedProductGroup = productGroups.find(group => String(group.id ?? "uncategorized") === productCategoryId);
+
   return <form onSubmit={async event => {
-    event.preventDefault(); const form = new FormData(event.currentTarget);
-    const saved = await onSave({ ...Object.fromEntries(form), items: items.map(item => ({ ...item, ingredientId: Number(item.ingredientId) })) });
-    if (saved) { event.currentTarget.reset(); setItems([{ ingredientId: "", quantity: "", wastePercentage: "0" }]); }
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const saved = await onSave({
+      ...Object.fromEntries(form),
+      items: items.map(item => ({
+        ingredientId: Number(item.ingredientId),
+        quantity: item.quantity,
+        wastePercentage: item.wastePercentage,
+      })),
+    });
+    if (saved) {
+      event.currentTarget.reset();
+      setProductCategoryId("");
+      setItems([{ ingredientCategory: "", ingredientId: "", quantity: "", wastePercentage: "0" }]);
+    }
   }} className="rounded-xl border border-slate-200 bg-white p-4">
     <h2 className="flex items-center gap-2 font-bold"><Utensils className="h-4 w-4 text-primary" /> Nuova ricetta</h2>
-    <p className="mt-1 text-xs text-slate-500">Scegli un prodotto dal Menu: gli ingredienti inseriti qui diventano anche le variazioni automatiche “Senza …” in cassa.</p>
+    <p className="mt-1 text-xs text-slate-500">Prima scegli la categoria del Menu, poi il prodotto. Gli ingredienti inseriti qui diventano anche le variazioni automatiche “Senza …” in cassa.</p>
     <div className="mt-3 grid gap-3 sm:grid-cols-2">
-      <label className="block text-xs font-semibold text-slate-600">Prodotto del Menu<select required name="productId" className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="">Seleziona…</option>{productGroups.map(group => <optgroup key={group.id ?? "uncategorized"} label={group.name}>{group.products.map(product => <option value={product.id} key={product.id}>{product.name}</option>)}</optgroup>)}</select></label>
+      <label className="block text-xs font-semibold text-slate-600">Categoria prodotto
+        <select value={productCategoryId} onChange={event => setProductCategoryId(event.target.value)} required className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+          <option value="">Seleziona categoria…</option>
+          {productGroups.map(group => <option key={group.id ?? "uncategorized"} value={group.id ?? "uncategorized"}>{group.name}</option>)}
+        </select>
+      </label>
+      <label className="block text-xs font-semibold text-slate-600">Prodotto del Menu
+        <select required name="productId" disabled={!selectedProductGroup} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-slate-100">
+          <option value="">{selectedProductGroup ? "Seleziona prodotto…" : "Prima scegli una categoria"}</option>
+          {selectedProductGroup?.products.map(product => <option value={product.id} key={product.id}>{product.name}</option>)}
+        </select>
+      </label>
       <SimpleInput label="Valida dal" name="validFrom" type="date" defaultValue={today} required />
     </div>
-    <div className="mt-4"><div className="text-xs font-bold uppercase tracking-wide text-slate-500">Ingredienti e variazioni</div><p className="mt-1 text-xs text-slate-500">Ogni ingrediente selezionato sarà proposto alla cassa come “Senza nome ingrediente”.</p>{items.map((item, index) => <div key={index} className="mt-2 grid grid-cols-[1fr_.5fr_.45fr_auto] gap-2"><select value={item.ingredientId} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, ingredientId: event.target.value } : row))} required className="rounded-lg border border-slate-200 bg-white px-2 text-sm"><option value="">Ingrediente / variazione…</option>{ingredients.map(ingredient => <option value={ingredient.id} key={ingredient.id}>{ingredient.name} — Senza {ingredient.name}</option>)}</select><input value={item.quantity} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, quantity: event.target.value } : row))} placeholder={ingredientQuantityUnit(ingredients.find(ingredient => String(ingredient.id) === item.ingredientId))} required className="rounded-lg border border-slate-200 px-2 text-sm" /><input value={item.wastePercentage} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, wastePercentage: event.target.value } : row))} placeholder="Scarto %" className="rounded-lg border border-slate-200 px-2 text-sm" /><button type="button" onClick={() => setItems(current => current.length > 1 ? current.filter((_, i) => i !== index) : current)} className="text-xs text-red-500">Rimuovi</button></div>)}
-      <button type="button" onClick={() => setItems(current => [...current, { ingredientId: "", quantity: "", wastePercentage: "0" }])} className="mt-2 text-xs font-semibold text-primary">+ Aggiungi ingrediente</button></div>
+    <div className="mt-4">
+      <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Ingredienti e variazioni</div>
+      <p className="mt-1 text-xs text-slate-500">Per ogni riga scegli prima la categoria ingrediente, poi l’ingrediente da usare nella ricetta.</p>
+      {items.map((item, index) => {
+        const selectedIngredientGroup = ingredientGroups.find(group => group.name === item.ingredientCategory);
+        const selectedIngredient = ingredients.find(ingredient => String(ingredient.id) === item.ingredientId);
+        return <div key={index} className="mt-2 grid gap-2 sm:grid-cols-[1fr_1.2fr_.5fr_.45fr_auto]">
+          <select value={item.ingredientCategory} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, ingredientCategory: event.target.value, ingredientId: "" } : row))} required className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm">
+            <option value="">Categoria ingrediente…</option>
+            {ingredientGroups.map(group => <option key={group.name} value={group.name}>{group.name}</option>)}
+          </select>
+          <select value={item.ingredientId} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, ingredientId: event.target.value } : row))} required disabled={!selectedIngredientGroup} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm disabled:cursor-not-allowed disabled:bg-slate-100">
+            <option value="">{selectedIngredientGroup ? "Ingrediente / variazione…" : "Prima scegli una categoria"}</option>
+            {selectedIngredientGroup?.ingredients.map(ingredient => <option value={ingredient.id} key={ingredient.id}>{ingredient.name} — Senza {ingredient.name}</option>)}
+          </select>
+          <input value={item.quantity} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, quantity: event.target.value } : row))} placeholder={ingredientQuantityUnit(selectedIngredient)} required className="rounded-lg border border-slate-200 px-2 py-2 text-sm" />
+          <input value={item.wastePercentage} onChange={event => setItems(current => current.map((row, i) => i === index ? { ...row, wastePercentage: event.target.value } : row))} placeholder="Scarto %" className="rounded-lg border border-slate-200 px-2 py-2 text-sm" />
+          <button type="button" onClick={() => setItems(current => current.length > 1 ? current.filter((_, i) => i !== index) : current)} className="text-xs text-red-500">Rimuovi</button>
+        </div>;
+      })}
+      <button type="button" onClick={() => setItems(current => [...current, { ingredientCategory: "", ingredientId: "", quantity: "", wastePercentage: "0" }])} className="mt-2 text-xs font-semibold text-primary">+ Aggiungi ingrediente</button>
+    </div>
     <div className="mt-4"><SubmitButton>Salva ricetta</SubmitButton></div>
   </form>;
 }
