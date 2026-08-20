@@ -653,18 +653,17 @@ export default function MarginalitaPage() {
               <h2 className="flex items-center gap-2 font-bold"><ReceiptText className="h-4 w-4 text-primary" /> Registra bolletta</h2>
               <label className="block text-xs font-semibold text-slate-600">Utenza<select required name="utilityTypeId" className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="">Seleziona…</option>{(catalog.data?.utilityTypes ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
               <div className="grid grid-cols-2 gap-3"><SimpleInput label="Dal" name="periodStart" type="date" required /><SimpleInput label="Al" name="periodEnd" type="date" required /></div>
-               <div className="grid grid-cols-2 gap-3"><SimpleInput label="Consumo (kWh, m³, …)" name="consumptionQuantity" inputMode="decimal" required /><SimpleInput label="Costo variabile (€)" name="variableCost" inputMode="decimal" required /></div>
-              <div className="grid grid-cols-2 gap-3"><SimpleInput label="Costo fisso (€)" name="fixedCost" defaultValue="0" inputMode="decimal" required /><SimpleInput label="Tasse/oneri (€)" name="taxesAndFees" defaultValue="0" inputMode="decimal" /></div>
-               <p className="text-xs text-slate-500">Il totale e il prezzo per kWh/m³ sono calcolati automaticamente dalle voci inserite, per evitare errori di trascrizione.</p>
+                <div className="grid grid-cols-2 gap-3"><SimpleInput label="Consumo del periodo (kWh, m³, …)" name="consumptionQuantity" inputMode="decimal" required placeholder="2500" /><SimpleInput label="Spesa totale bolletta (€)" name="totalCost" inputMode="decimal" required placeholder="1000" /></div>
+                <p className="text-xs text-slate-500">Esempio: 1.000 € per 2.500 kWh = 0,40 €/kWh. Il costo medio viene calcolato automaticamente e il periodo viene usato per i report.</p>
               <SubmitButton>Registra bolletta</SubmitButton>
             </form>
              <section className="rounded-xl border border-slate-200 bg-white p-4 lg:col-span-2">
                <h2 className="font-bold">Prezzi calcolati dalle bollette</h2>
-               <p className="mt-1 text-xs text-slate-500">Il costo variabile serve per confrontare i consumi; il costo totale include quota fissa e oneri. Le bollette valide sono ripartite per coperto.</p>
+               <p className="mt-1 text-xs text-slate-500">Ogni bolletta è registrata come spesa complessiva del periodo e consumo totale. Le bollette valide sono ripartite per coperto.</p>
                <div className="mt-3 divide-y divide-slate-100">{(catalog.data?.utilityBills ?? []).map(bill => {
                  const utility = (catalog.data?.utilityTypes ?? []).find(item => item.id === bill.utilityTypeId);
                  const unit = utility?.measurementUnit ?? "unità";
-                 return <div key={bill.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm"><span><b>{utility?.name ?? "Utenza"}</b><small className="ml-2 text-slate-400">{bill.periodStart} → {bill.periodEnd} · {bill.consumptionQuantity} {unit}</small></span><span className="text-right"><b>{bill.variableUnitCost == null ? "—" : `${euro(bill.variableUnitCost)}/${unit}`}</b><small className="ml-2 text-slate-500">variabile · {bill.totalUnitCost == null ? "—" : `${euro(bill.totalUnitCost)}/${unit}`} totale</small></span></div>;
+                 return <div key={bill.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm"><span><b>{utility?.name ?? "Utenza"}</b><small className="ml-2 text-slate-400">{bill.periodStart} → {bill.periodEnd} · {bill.consumptionQuantity} {unit}</small></span><span className="text-right"><b>{bill.totalCost == null ? "—" : euro(bill.totalCost)}</b><small className="ml-2 text-slate-500">totale · {bill.totalUnitCost == null ? "—" : `${euro(bill.totalUnitCost)}/${unit}`}</small></span></div>;
                })}</div>
                {!catalog.data?.utilityBills.length && <p className="mt-3 text-sm text-slate-400">Nessuna bolletta registrata.</p>}
              </section>

@@ -529,16 +529,21 @@ router.post("/utility-bills", async (req, res): Promise<void> => {
     const periodStart = validDate(req.body?.periodStart);
     const periodEnd = validDate(req.body?.periodEnd);
     if (!utilityTypeId || !periodStart || !periodEnd) throw new Error("Tipo utenza e periodo sono obbligatori");
+    if (periodEnd < periodStart) throw new Error("La fine del periodo non può precedere l'inizio");
     const consumptionQuantity = strictlyPositiveDecimal(req.body.consumptionQuantity, "Il consumo");
-    const variableCost = decimal(req.body.variableCost, "0");
-    const fixedCost = decimal(req.body.fixedCost, "0");
-    const taxesAndFees = decimal(req.body.taxesAndFees, "0");
-    // Il totale non è più un numero da copiare manualmente: deriva dalle voci
-    // della bolletta, così il prezzo per kWh/m³ è verificabile.
-    const totalCost = FixedDecimal.from(variableCost)
-      .add(FixedDecimal.from(fixedCost))
-      .add(FixedDecimal.from(taxesAndFees))
-      .toString();
+    // Il flusso principale registra la spesa complessiva della bolletta
+    // (es. 1.000 € per 2.500 kWh). I vecchi client possono ancora inviare la
+    // scomposizione precedente, mantenendo invariati gli snapshot storici.
+    const hasTotalCost = req.body?.totalCost !== undefined && req.body?.totalCost !== "";
+    const totalCost = hasTotalCost
+      ? strictlyPositiveDecimal(req.body.totalCost, "La spesa della bolletta")
+      : FixedDecimal.from(decimal(req.body.variableCost, "0"))
+        .add(FixedDecimal.from(decimal(req.body.fixedCost, "0")))
+        .add(FixedDecimal.from(decimal(req.body.taxesAndFees, "0")))
+        .toString();
+    const variableCost = hasTotalCost ? totalCost : decimal(req.body.variableCost, "0");
+    const fixedCost = hasTotalCost ? "0" : decimal(req.body.fixedCost, "0");
+    const taxesAndFees = hasTotalCost ? "0" : decimal(req.body.taxesAndFees, "0");
     const [bill] = await db.insert(utilityBillsTable).values({
       utilityTypeId, supplier: typeof req.body?.supplier === "string" ? req.body.supplier.trim() || null : null,
       periodStart, periodEnd,
