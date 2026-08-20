@@ -7,3 +7,4 @@
 - [Modello costo ingredienti a peso](ingredient-cost-model.md) — quantità ricetta contestuale (fette/g/unità); costo derivato da prezzo unità ÷ grammi unità; campi produttivi legacy restano con default.
 - [Categorie ingredienti](ingredient-categories.md) — ingredienti hanno categorie testuali autonome dal Menu; nei flussi ricetta si seleziona la categoria prima dell’elemento.
 - [Storico forniture beverage](beverage-supply-history.md) — prezzo e volume vanno selezionati per decorrenza; le linee legacy ricevono una fornitura iniziale dalla data di creazione.
+- [Costi diretti dei prodotti](direct-product-costs.md) — confezionati e pronti/surgelati hanno costi storici propri, senza ricette fittizie o linee alla spina.

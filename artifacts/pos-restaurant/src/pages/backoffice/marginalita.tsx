@@ -28,11 +28,42 @@ type Overview = {
   recommendations: Array<{ tone: "critical" | "attention" | "opportunity"; title: string; explanation: string; action: string }>;
 };
 type Ingredient = { id: number; name: string; category: string; baseUnit: string; currentUnitCost: string; vatRate: string; unitSizeG?: string | null; sliceWeightG?: string | null; active: boolean };
-type RecipeProduct = { id: number; name: string; price: string; categoryId?: number | null; sortOrder: number };
+type RecipeProduct = { id: number; name: string; price: string; iva?: string; categoryId?: number | null; sortOrder: number };
 type RecipeCategory = { id: number; name: string; sortOrder: number };
 type RecipeProductGroup = { id: number | null; name: string; products: RecipeProduct[] };
 type BeverageFormat = "bottle" | "can" | "glass" | "other";
 type BeverageMapping = { id: number; productId: number; beverageLineId: number; servingVolumeLiters: string; servingFormat: BeverageFormat };
+type DirectProductCost = {
+  id: number;
+  productId: number;
+  costType: "packaged_beverage" | "ready_food";
+  purchasePriceNet: string;
+  vatRate: string;
+  purchaseQuantity: string;
+  purchaseUnit: "g" | "kg" | "ml" | "l" | "pz";
+  portionQuantity: string;
+  portionUnit: "g" | "kg" | "ml" | "l" | "pz";
+  portionPieces: string | null;
+  wastePercentage: string;
+  packagingCostPerUnit: string;
+  preparationMinutes: number;
+  usesFryer: boolean;
+  active: boolean;
+  validFrom: string;
+};
+type DirectProductCostPreview = {
+  directProductCostId: number;
+  productId: number;
+  materialCost: string;
+  fryerOilCost: string;
+  packagingCost: string;
+  unitCost: string;
+  netSellingPrice: string;
+  margin: string;
+  marginPercent: string;
+  marginPerMinute: string | null;
+  missingData: string[];
+};
 type BeverageMappingGroup = {
   categoryId: number | null;
   categoryName: string;
@@ -55,6 +86,8 @@ type Catalog = {
   beverageLineSupplyHistory?: Array<{ id: number; beverageLineId: number; purchasePriceNet: string; sourceVolumeLiters: string; validFrom: string }>;
   beverageProductMappings?: BeverageMapping[];
   beverageCostPreviews?: Array<{ beverageLineId: number; costPerLiter: string; sourceCostPerLiter: string; waterCostPerLiter: string; co2CostPerLiter: string; energyCostPerLiter: string; missingData: string[] }>;
+  directProductCosts?: DirectProductCost[];
+  directProductCostPreviews?: DirectProductCostPreview[];
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -384,6 +417,151 @@ function BeverageMappingForm({ beverageLineId, menuProducts, menuCategories, onS
   );
 }
 
+const DIRECT_UNITS = [
+  { value: "g", label: "grammi (g)" },
+  { value: "kg", label: "chilogrammi (kg)" },
+  { value: "ml", label: "millilitri (ml)" },
+  { value: "l", label: "litri (L)" },
+  { value: "pz", label: "pezzi (pz)" },
+] as const;
+
+function DirectProductCostForm({ costType, productGroups, onSubmit }: {
+  costType: "packaged_beverage" | "ready_food";
+  productGroups: RecipeProductGroup[];
+  onSubmit: (data: Record<string, unknown>) => Promise<boolean>;
+}) {
+  const [categoryId, setCategoryId] = useState("");
+  const [purchaseUnit, setPurchaseUnit] = useState<DirectProductCost["purchaseUnit"]>("pz");
+  const [usesFryer, setUsesFryer] = useState(false);
+  const selectedGroup = productGroups.find(group => String(group.id ?? "uncategorized") === categoryId);
+  const allowedPortionUnits = purchaseUnit === "g" || purchaseUnit === "kg"
+    ? DIRECT_UNITS.filter(unit => unit.value === "g" || unit.value === "kg")
+    : purchaseUnit === "ml" || purchaseUnit === "l"
+      ? DIRECT_UNITS.filter(unit => unit.value === "ml" || unit.value === "l")
+      : DIRECT_UNITS.filter(unit => unit.value === "pz");
+  const title = costType === "packaged_beverage" ? "Bevanda confezionata" : "Prodotto pronto o surgelato";
+
+  return (
+    <form onSubmit={async event => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const data: Record<string, unknown> = Object.fromEntries(form);
+      data.costType = costType;
+      data.usesFryer = usesFryer;
+      if (await onSubmit(data)) {
+        event.currentTarget.reset();
+        setCategoryId("");
+        setPurchaseUnit("pz");
+        setUsesFryer(false);
+      }
+    }} className="rounded-xl border border-slate-200 bg-white p-4">
+      <h2 className="flex items-center gap-2 font-bold text-slate-800"><PackagePlus className="h-4 w-4 text-primary" /> {title}</h2>
+      <p className="mt-1 text-xs text-slate-500">
+        {costType === "packaged_beverage"
+          ? "Usa questa scheda per acqua, bottiglie e lattine: non serve una ricetta."
+          : "Usa questa scheda per fritti e surgelati venduti a porzione: non serve una ricetta né un ingrediente."}
+      </p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <label className="block text-xs font-semibold text-slate-600">Categoria Menu
+          <select value={categoryId} onChange={event => setCategoryId(event.target.value)} required className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+            <option value="">Seleziona categoria…</option>
+            {productGroups.map(group => <option key={group.id ?? "uncategorized"} value={group.id ?? "uncategorized"}>{group.name}</option>)}
+          </select>
+        </label>
+        <label className="block text-xs font-semibold text-slate-600">Prodotto Menu
+          <select name="productId" required disabled={!selectedGroup} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-slate-100">
+            <option value="">{selectedGroup ? "Seleziona prodotto…" : "Prima scegli la categoria"}</option>
+            {selectedGroup?.products.map(product => <option key={product.id} value={product.id}>{product.name} · {euro(product.price)}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <SimpleInput label="Prezzo acquisto netto (€)" name="purchasePriceNet" inputMode="decimal" required placeholder="0,00" />
+        <SimpleInput label="IVA acquisto (%)" name="vatRate" inputMode="decimal" defaultValue="22" required />
+        <SimpleInput label="Quantità acquistata" name="purchaseQuantity" inputMode="decimal" required placeholder={costType === "ready_food" ? "1" : "24"} />
+        <label className="block text-xs font-semibold text-slate-600">Unità acquisto
+          <select name="purchaseUnit" value={purchaseUnit} onChange={event => setPurchaseUnit(event.target.value as DirectProductCost["purchaseUnit"])} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+            {DIRECT_UNITS.map(unit => <option key={unit.value} value={unit.value}>{unit.label}</option>)}
+          </select>
+        </label>
+        <SimpleInput label="Quantità della porzione" name="portionQuantity" inputMode="decimal" required placeholder={costType === "ready_food" ? "200" : "1"} />
+        <label className="block text-xs font-semibold text-slate-600">Unità porzione
+          <select name="portionUnit" required className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+            {allowedPortionUnits.map(unit => <option key={unit.value} value={unit.value}>{unit.label}</option>)}
+          </select>
+        </label>
+        <SimpleInput label="Scarto (%)" name="wastePercentage" inputMode="decimal" defaultValue="0" />
+        <SimpleInput label="Packaging per porzione (€)" name="packagingCostPerUnit" inputMode="decimal" defaultValue="0" />
+      </div>
+      {costType === "ready_food" && (
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <SimpleInput label="Pezzi per porzione (opz.)" name="portionPieces" inputMode="decimal" placeholder="es. 8 nuggets" />
+          <SimpleInput label="Tempo atteso (min)" name="preparationMinutes" inputMode="numeric" defaultValue="0" />
+          <label className="flex items-end gap-2 pb-2 text-sm font-medium text-slate-700">
+            <input type="checkbox" checked={usesFryer} onChange={event => setUsesFryer(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary" />
+            Include quota olio friggitrice
+          </label>
+        </div>
+      )}
+      <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <SimpleInput label="Valido dal" name="validFrom" type="date" defaultValue={today} required />
+        <div className="flex items-end"><SubmitButton>Salva costo</SubmitButton></div>
+      </div>
+    </form>
+  );
+}
+
+function DirectProductCostCards({ costType, costs, previews, products, categories }: {
+  costType: DirectProductCost["costType"];
+  costs: DirectProductCost[];
+  previews: DirectProductCostPreview[];
+  products: RecipeProduct[];
+  categories: RecipeCategory[];
+}) {
+  const costById = new Map(costs.map(cost => [cost.id, cost]));
+  const productById = new Map(products.map(product => [product.id, product]));
+  const categoryById = new Map(categories.map(category => [category.id, category]));
+  const rows = previews
+    .filter(preview => costById.get(preview.directProductCostId)?.costType === costType)
+    .map(preview => ({ preview, cost: costById.get(preview.directProductCostId)!, product: productById.get(preview.productId) }))
+    .sort((left, right) => (left.product?.name ?? "").localeCompare(right.product?.name ?? "", "it"));
+
+  if (!rows.length) return <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">Nessun prodotto configurato.</p>;
+  return <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{rows.map(({ preview, cost, product }) => {
+    const category = product?.categoryId == null ? undefined : categoryById.get(product.categoryId);
+    const marginGood = Number(preview.margin) >= 0;
+    const history = costs
+      .filter(item => item.productId === preview.productId && item.costType === costType)
+      .sort((left, right) => right.validFrom.localeCompare(left.validFrom));
+    return <article key={preview.directProductCostId} className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div><h3 className="font-bold text-slate-800">{product?.name ?? `Prodotto #${preview.productId}`}</h3><p className="mt-0.5 text-xs text-slate-500">{category?.name ?? "Senza categoria"} · dal {cost.validFrom}</p></div>
+        <span className={cn("rounded px-2 py-1 text-xs font-bold", marginGood ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700")}>{Number(preview.marginPercent).toFixed(1)}%</span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+        <div className="rounded-lg bg-slate-50 p-2"><div className="text-slate-500">Prezzo Menu netto</div><b className="text-sm text-slate-800">{euro(preview.netSellingPrice)}</b></div>
+        <div className="rounded-lg bg-slate-50 p-2"><div className="text-slate-500">Costo porzione</div><b className="text-sm text-slate-800">{euro(preview.unitCost)}</b></div>
+        <div className="rounded-lg bg-slate-50 p-2"><div className="text-slate-500">Margine</div><b className={cn("text-sm", marginGood ? "text-emerald-700" : "text-red-700")}>{euro(preview.margin)}</b></div>
+        <div className="rounded-lg bg-slate-50 p-2"><div className="text-slate-500">Per minuto</div><b className="text-sm text-slate-800">{preview.marginPerMinute == null ? "—" : euro(preview.marginPerMinute)}</b></div>
+      </div>
+      <p className="mt-3 text-xs text-slate-500">
+        Acquisto: {cost.purchaseQuantity} {cost.purchaseUnit} · Porzione: {cost.portionQuantity} {cost.portionUnit}
+        {cost.portionPieces ? ` · ${cost.portionPieces} pz` : ""}{cost.usesFryer ? " · friggitrice" : ""}
+      </p>
+      {history.length > 1 && <details className="mt-3 border-t border-slate-100 pt-3 text-xs">
+        <summary className="cursor-pointer font-semibold text-primary">Storico costi ({history.length} decorrenze)</summary>
+        <div className="mt-2 space-y-1">
+          {history.map(item => <div key={item.id} className="flex items-center justify-between rounded bg-slate-50 px-2 py-1.5 text-slate-600">
+            <span>Dal {new Date(`${item.validFrom}T00:00:00`).toLocaleDateString("it-IT")}</span>
+            <span className="font-semibold text-slate-800">{euro(item.purchasePriceNet)} · {item.purchaseQuantity} {item.purchaseUnit}</span>
+          </div>)}
+        </div>
+      </details>}
+      {preview.missingData.length > 0 && <p className="mt-2 text-xs font-semibold text-amber-700">Dati da completare: {preview.missingData.join(", ")}</p>}
+    </article>;
+  })}</div>;
+}
+
 export default function MarginalitaPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -478,6 +656,7 @@ export default function MarginalitaPage() {
             <TabsTrigger value="production">Produzione</TabsTrigger>
             <TabsTrigger value="ingredients">Ingredienti</TabsTrigger>
             <TabsTrigger value="recipes">Ricette</TabsTrigger>
+            <TabsTrigger value="direct">Pronti e fritti</TabsTrigger>
             <TabsTrigger value="costs">Costi</TabsTrigger>
             <TabsTrigger value="utilities">Utenze</TabsTrigger>
             <TabsTrigger value="beverage">Bevande</TabsTrigger>
@@ -695,6 +874,25 @@ export default function MarginalitaPage() {
             </section>
           </TabsContent>
 
+          <TabsContent value="direct" className="space-y-5">
+            <section className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+              <h2 className="font-bold text-slate-800">Prodotti pronti, surgelati e fritti</h2>
+              <p className="mt-1 text-sm text-slate-600">Questa sezione è distinta da Bevande e Ricette. Configura qui nuggets, patatine e altri prodotti acquistati pronti, indicando il costo di acquisto e la porzione venduta.</p>
+              <p className="mt-2 text-xs text-slate-600">Il margine usa il prezzo del Menu e il costo storico; per i fritti include la quota del ciclo olio. Il tempo reale della cucina, quando disponibile, sostituisce il tempo atteso.</p>
+            </section>
+            <DirectProductCostForm costType="ready_food" productGroups={recipeProductGroups} onSubmit={data => submit("/direct-product-costs", data, "Costo diretto salvato")} />
+            <section>
+              <h2 className="mb-3 flex items-center gap-2 font-bold"><Utensils className="h-4 w-4 text-primary" /> Costi e margini configurati</h2>
+              <DirectProductCostCards
+                costType="ready_food"
+                costs={catalog.data?.directProductCosts ?? []}
+                previews={catalog.data?.directProductCostPreviews ?? []}
+                products={menuProducts}
+                categories={menuCategories}
+              />
+            </section>
+          </TabsContent>
+
           <TabsContent value="costs" className="space-y-5">
             <form onSubmit={async event => {
               event.preventDefault(); const form = new FormData(event.currentTarget);
@@ -782,14 +980,11 @@ export default function MarginalitaPage() {
              </section>
           </TabsContent>
 
-          <TabsContent value="beverage" className="grid gap-5 lg:grid-cols-[.9fr_1.1fr]">
-            <div className="space-y-5">
-              <BeverageLineForm onSubmit={async data => submit("/beverage-lines", data, "Linea bevande salvata")} />
-            </div>
-
+          <TabsContent value="beverage" className="space-y-5">
+            <BeverageLineForm onSubmit={async data => submit("/beverage-lines", data, "Linea bevande salvata")} />
             <section className="space-y-4">
               <h2 className="font-bold flex items-center gap-2"><GlassWater className="h-4 w-4 text-primary" /> Linee attive e costi</h2>
-
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {!catalog.data?.beverageLines || catalog.data.beverageLines.length === 0 ? (
                 <p className="text-sm text-slate-500 bg-white p-4 rounded-xl border border-slate-200">Nessuna linea alla spina configurata.</p>
               ) : (
@@ -903,6 +1098,18 @@ export default function MarginalitaPage() {
                   );
                 })
               )}
+              </div>
+            </section>
+            <section className="space-y-4">
+              <div><h2 className="font-bold text-slate-800">Bottiglie e lattine</h2><p className="mt-1 text-xs text-slate-500">Acqua, lattine e altre bevande confezionate restano qui, ma non sono linee alla spina e non richiedono ricette.</p></div>
+              <DirectProductCostForm costType="packaged_beverage" productGroups={recipeProductGroups} onSubmit={data => submit("/direct-product-costs", data, "Costo bevanda confezionata salvato")} />
+              <DirectProductCostCards
+                costType="packaged_beverage"
+                costs={catalog.data?.directProductCosts ?? []}
+                previews={catalog.data?.directProductCostPreviews ?? []}
+                products={menuProducts}
+                categories={menuCategories}
+              />
             </section>
           </TabsContent>
         </Tabs>

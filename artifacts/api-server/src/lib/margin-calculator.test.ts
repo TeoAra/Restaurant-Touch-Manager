@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 
 import { FixedDecimal } from "./fixed-decimal.js";
 import { calculateBeveragePortionCost, utilityCostAfterDirectBeverage } from "./beverage-costs.js";
+import { calculateDirectProductPortionCost } from "./direct-product-costs.js";
 import { calculateMargin, type MarginCalculatorInput } from "./margin-calculator.js";
 
 // ── FixedDecimal unit tests ────────────────────────────────────────────────
@@ -214,6 +215,55 @@ describe("calculateBeveragePortionCost", () => {
     // Se la stima diretta supera il variabile, canoni fissi e oneri rimangono
     // comunque allocati ai coperti senza produrre un costo negativo.
     assert.equal(utilityCostAfterDirectBeverage("100", "60", "75"), "40.000000");
+  });
+});
+
+describe("calculateDirectProductPortionCost", () => {
+  test("calcola nuggets al kg con porzione in grammi", () => {
+    const cost = calculateDirectProductPortionCost({
+      purchasePriceNet: "20",
+      purchaseQuantity: "1",
+      purchaseUnit: "kg",
+      portionQuantity: "250",
+      portionUnit: "g",
+      wastePercentage: "0",
+    });
+    assert.equal(cost.materialCost, "5.000000");
+    assert.deepEqual(cost.missingData, []);
+  });
+
+  test("calcola una lattina acquistata in cartone", () => {
+    const cost = calculateDirectProductPortionCost({
+      purchasePriceNet: "12",
+      purchaseQuantity: "24",
+      purchaseUnit: "pz",
+      portionQuantity: "1",
+      portionUnit: "pz",
+      wastePercentage: "0",
+    });
+    assert.equal(cost.materialCost, "0.500000");
+  });
+
+  test("applica lo scarto alle patatine e rifiuta unità incompatibili", () => {
+    const fries = calculateDirectProductPortionCost({
+      purchasePriceNet: "4",
+      purchaseQuantity: "2.5",
+      purchaseUnit: "kg",
+      portionQuantity: "200",
+      portionUnit: "g",
+      wastePercentage: "10",
+    });
+    assert.equal(fries.materialCost, "0.352000");
+
+    const invalid = calculateDirectProductPortionCost({
+      purchasePriceNet: "4",
+      purchaseQuantity: "1",
+      purchaseUnit: "kg",
+      portionQuantity: "1",
+      portionUnit: "pz",
+      wastePercentage: "0",
+    });
+    assert.ok(invalid.missingData.includes("DIRECT_COST_UNIT_MISMATCH"));
   });
 });
 

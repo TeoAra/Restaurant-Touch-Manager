@@ -3,6 +3,7 @@ import {
   beverageLinesTable,
   beverageLineSupplyHistoryTable,
   beverageProductMappingsTable,
+  directProductCostsTable,
   costConfigurationsTable,
   coverCostItemsTable,
   db,
@@ -14,6 +15,7 @@ import {
   productVariationsTable,
   recipeItemsTable,
   recipesTable,
+  fryerOilCyclesTable,
   utilityBillsTable,
   utilityTypesTable,
 } from "@workspace/db";
@@ -28,6 +30,11 @@ import {
   processPendingMarginJobs,
 } from "../lib/margin-service.js";
 import { FixedDecimal } from "../lib/fixed-decimal.js";
+import {
+  calculateDirectProductPortionCost,
+  isDirectCostUnit,
+  selectDirectProductCostForDate,
+} from "../lib/direct-product-costs.js";
 import { requireAdminSession } from "../lib/session-auth.js";
 
 const router = Router();
@@ -153,7 +160,7 @@ router.post("/orders/:orderId/recalculate", async (req, res): Promise<void> => {
 
 router.get("/catalog", async (_req, res): Promise<void> => {
   await ensureLegacyBeverageSupplyHistory();
-  const [ingredients, categories, products, productVariations, recipes, recipeItems, configurations, coverCostItems, utilityTypes, utilityBills, beverageLines, beverageLineSupplyHistory, beverageProductMappings] = await Promise.all([
+  const [ingredients, categories, products, productVariations, recipes, recipeItems, configurations, coverCostItems, utilityTypes, utilityBills, beverageLines, beverageLineSupplyHistory, beverageProductMappings, directProductCosts, fryerOilCycles] = await Promise.all([
     db.select().from(ingredientsTable).orderBy(ingredientsTable.name),
     db.select().from(categoriesTable).orderBy(categoriesTable.sortOrder, categoriesTable.name),
     db.select().from(productsTable).orderBy(productsTable.categoryId, productsTable.sortOrder, productsTable.name),
@@ -167,6 +174,8 @@ router.get("/catalog", async (_req, res): Promise<void> => {
     db.select().from(beverageLinesTable).orderBy(beverageLinesTable.name),
     db.select().from(beverageLineSupplyHistoryTable).orderBy(desc(beverageLineSupplyHistoryTable.validFrom)),
     db.select().from(beverageProductMappingsTable),
+    db.select().from(directProductCostsTable).orderBy(desc(directProductCostsTable.validFrom)),
+    db.select().from(fryerOilCyclesTable).orderBy(desc(fryerOilCyclesTable.openedAt)),
   ]);
   const typeById = new Map(utilityTypes.map((type) => [type.id, type]));
   const electricityBill = newestBillFor(utilityBills, utilityTypes, isElectricityUtility);
@@ -203,6 +212,43 @@ router.get("/catalog", async (_req, res): Promise<void> => {
       missingData: cost.missingData,
     };
   });
+  const activeOilCycle = fryerOilCycles
+    .filter((cycle) => cycle.openedAt <= new Date() && cycle.portionsProduced > 0)
+    .sort((left, right) => right.openedAt.getTime() - left.openedAt.getTime())[0];
+  const directProductCostPreviews = products.flatMap((product) => {
+    const cost = selectDirectProductCostForDate(directProductCosts, product.id, today);
+    if (!cost) return [];
+    const portion = calculateDirectProductPortionCost(cost);
+    const fryerOilCost = cost.usesFryer && activeOilCycle
+      ? FixedDecimal.from(activeOilCycle.totalCost).div(FixedDecimal.from(activeOilCycle.portionsProduced))
+      : FixedDecimal.zero();
+    const netSellingPrice = FixedDecimal.from(product.price)
+      .mul(FixedDecimal.from("100"))
+      .div(FixedDecimal.from(product.iva).add(FixedDecimal.from("100")));
+    const fullUnitCost = FixedDecimal.from(portion.materialCost)
+      .add(FixedDecimal.from(cost.packagingCostPerUnit))
+      .add(fryerOilCost);
+    return [{
+      directProductCostId: cost.id,
+      productId: product.id,
+      materialCost: portion.materialCost,
+      fryerOilCost: fryerOilCost.toString(),
+      packagingCost: cost.packagingCostPerUnit,
+      unitCost: fullUnitCost.toString(),
+      netSellingPrice: netSellingPrice.toString(),
+      margin: netSellingPrice.sub(fullUnitCost).toString(),
+      marginPercent: netSellingPrice.isPositive()
+        ? netSellingPrice.sub(fullUnitCost).mul(FixedDecimal.from("100")).div(netSellingPrice).toString()
+        : "0",
+      marginPerMinute: cost.preparationMinutes > 0
+        ? netSellingPrice.sub(fullUnitCost).div(FixedDecimal.from(cost.preparationMinutes)).toString()
+        : null,
+      missingData: [
+        ...portion.missingData,
+        ...(cost.usesFryer && !activeOilCycle ? ["FRYER_OIL_MISSING"] : []),
+      ],
+    }];
+  });
   res.json({
     ingredients,
     categories,
@@ -223,6 +269,8 @@ router.get("/catalog", async (_req, res): Promise<void> => {
     beverageLineSupplyHistory,
     beverageProductMappings,
     beverageCostPreviews,
+    directProductCosts,
+    directProductCostPreviews,
   });
 });
 
@@ -378,6 +426,82 @@ router.post("/beverage-product-mappings", async (req, res): Promise<void> => {
     res.status(201).json(mapping);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Associazione beverage non valida" });
+  }
+});
+
+router.post("/direct-product-costs", async (req, res): Promise<void> => {
+  try {
+    const productId = positiveId(req.body?.productId);
+    const costType = req.body?.costType === "packaged_beverage" || req.body?.costType === "ready_food"
+      ? req.body.costType
+      : null;
+    const validFrom = validDate(req.body?.validFrom);
+    const purchaseUnit = req.body?.purchaseUnit;
+    const portionUnit = req.body?.portionUnit;
+    if (!productId || !costType || !validFrom) throw new Error("Prodotto, tipo e data di decorrenza sono obbligatori");
+    if (!isDirectCostUnit(purchaseUnit) || !isDirectCostUnit(portionUnit)) {
+      throw new Error("Le unità consentite sono grammi, kg, ml, litri o pezzi");
+    }
+    const purchasePriceNet = strictlyPositiveDecimal(req.body?.purchasePriceNet, "Il prezzo netto d'acquisto");
+    const purchaseQuantity = strictlyPositiveDecimal(req.body?.purchaseQuantity, "La quantità acquistata");
+    const portionQuantity = strictlyPositiveDecimal(req.body?.portionQuantity, "La quantità della porzione");
+    const wastePercentage = nonNegativeDecimal(req.body?.wastePercentage, "Lo scarto");
+    if (!FixedDecimal.from(wastePercentage).lessThan(FixedDecimal.from("100"))) {
+      throw new Error("Lo scarto deve essere minore del 100%");
+    }
+    const validation = calculateDirectProductPortionCost({
+      purchasePriceNet,
+      purchaseQuantity,
+      purchaseUnit,
+      portionQuantity,
+      portionUnit,
+      wastePercentage,
+    });
+    if (validation.missingData.length) {
+      throw new Error("L'unità di acquisto e quella della porzione devono essere compatibili");
+    }
+    const [product] = await db.select({ id: productsTable.id }).from(productsTable).where(eq(productsTable.id, productId)).limit(1);
+    if (!product) throw new Error("Prodotto Menu non trovato");
+    const portionPieces = req.body?.portionPieces == null || req.body?.portionPieces === ""
+      ? null
+      : strictlyPositiveDecimal(req.body.portionPieces, "I pezzi della porzione");
+    const [cost] = await db.insert(directProductCostsTable).values({
+      productId,
+      costType,
+      purchasePriceNet,
+      vatRate: nonNegativeDecimal(req.body?.vatRate, "L'IVA"),
+      purchaseQuantity,
+      purchaseUnit,
+      portionQuantity,
+      portionUnit,
+      portionPieces,
+      wastePercentage,
+      packagingCostPerUnit: nonNegativeDecimal(req.body?.packagingCostPerUnit, "Il packaging"),
+      preparationMinutes: costType === "ready_food" ? Math.max(0, Math.trunc(Number(req.body?.preparationMinutes ?? 0))) : 0,
+      usesFryer: costType === "ready_food" && req.body?.usesFryer === true,
+      active: req.body?.active !== false,
+      validFrom,
+    }).onConflictDoUpdate({
+      target: [directProductCostsTable.productId, directProductCostsTable.validFrom],
+      set: {
+        costType,
+        purchasePriceNet,
+        vatRate: nonNegativeDecimal(req.body?.vatRate, "L'IVA"),
+        purchaseQuantity,
+        purchaseUnit,
+        portionQuantity,
+        portionUnit,
+        portionPieces,
+        wastePercentage,
+        packagingCostPerUnit: nonNegativeDecimal(req.body?.packagingCostPerUnit, "Il packaging"),
+        preparationMinutes: costType === "ready_food" ? Math.max(0, Math.trunc(Number(req.body?.preparationMinutes ?? 0))) : 0,
+        usesFryer: costType === "ready_food" && req.body?.usesFryer === true,
+        active: req.body?.active !== false,
+      },
+    }).returning();
+    res.status(201).json(cost);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Costo diretto non valido" });
   }
 });
 

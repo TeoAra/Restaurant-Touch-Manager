@@ -2,6 +2,7 @@ import {
   beverageLinesTable,
   beverageLineSupplyHistoryTable,
   beverageProductMappingsTable,
+  directProductCostsTable,
   db,
   costConfigurationsTable,
   coverCostItemsTable,
@@ -26,6 +27,7 @@ import {
 import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { calculateBeveragePortionCost, type BeverageLineCostInput, utilityCostAfterDirectBeverage } from "./beverage-costs.js";
 import { ensureLegacyBeverageSupplyHistory, selectBeverageSupplyForDate, type BeverageSupply } from "./beverage-supply-history.js";
+import { calculateDirectProductPortionCost, selectDirectProductCostForDate } from "./direct-product-costs.js";
 import { FixedDecimal } from "./fixed-decimal.js";
 import { calculateActualPrepMinutes } from "./kitchen-domain.js";
 import { calculateMargin, type MarginCalculatorOutput, type MarginProductLine } from "./margin-calculator.js";
@@ -294,7 +296,7 @@ async function buildCalculation(orderId: number): Promise<{
 
   await ensureLegacyBeverageSupplyHistory();
   const at = dateKey(order.createdAt);
-  const [facts, products, recipes, recipeItems, ingredients, costHistory, equipment, productEquipment, oilCycles, configurations, coverCostItems, payments, indirectAllocations, utilityBills, utilityTypes, paidOrders, beverageLines, beverageLineSupplyHistory, beverageProductMappings, paidFacts] = await Promise.all([
+  const [facts, products, recipes, recipeItems, ingredients, costHistory, equipment, productEquipment, oilCycles, configurations, coverCostItems, payments, indirectAllocations, utilityBills, utilityTypes, paidOrders, beverageLines, beverageLineSupplyHistory, beverageProductMappings, directProductCosts, paidFacts] = await Promise.all([
     db.select().from(marginOrderItemFactsTable).where(eq(marginOrderItemFactsTable.orderId, orderId)),
     db.select().from(productsTable),
     db.select().from(recipesTable),
@@ -315,6 +317,7 @@ async function buildCalculation(orderId: number): Promise<{
     db.select().from(beverageLinesTable),
     db.select().from(beverageLineSupplyHistoryTable),
     db.select().from(beverageProductMappingsTable),
+    db.select().from(directProductCostsTable),
     db.select({ fact: marginOrderItemFactsTable, order: ordersTable })
       .from(marginOrderItemFactsTable)
       .innerJoin(ordersTable, eq(marginOrderItemFactsTable.orderId, ordersTable.id))
@@ -372,9 +375,10 @@ async function buildCalculation(orderId: number): Promise<{
     const recipe = selectRecipeForDate(recipes, fact.productId, at);
     const beverageMapping = beverageMappingsByProduct.get(fact.productId);
     const beverageLine = beverageMapping ? beverageLinesById.get(beverageMapping.beverageLineId) : undefined;
+    const directProductCost = selectDirectProductCostForDate(directProductCosts, fact.productId, at);
     const localMissing: string[] = [];
     if (!product) localMissing.push(`PRODUCT_${fact.productId}_MISSING`);
-    if (!recipe && !beverageMapping) localMissing.push(`RECIPE_${fact.productId}_MISSING`);
+    if (!recipe && !beverageMapping && !directProductCost) localMissing.push(`RECIPE_${fact.productId}_MISSING`);
     if (beverageMapping && !beverageLine) localMissing.push(`BEVERAGE_LINE_${beverageMapping.beverageLineId}_MISSING`);
 
     let ingredientCost = ZERO;
@@ -477,12 +481,26 @@ async function buildCalculation(orderId: number): Promise<{
             .div(amount(recipe.fryerPortionsPerYield));
         }
       }
+    } else if (directProductCost) {
+      const directCost = calculateDirectProductPortionCost(directProductCost);
+      ingredientCost = amount(directCost.materialCost);
+      packagingCost = amount(directProductCost.packagingCostPerUnit);
+      localMissing.push(...directCost.missingData);
+      if (directProductCost.usesFryer) {
+        if (!activeOilCycle) {
+          localMissing.push(`FRYER_OIL_${fact.productId}_MISSING`);
+        } else {
+          // Un prodotto pronto/fritto corrisponde a una porzione conteggiata nel
+          // ciclo dell'olio; non serve una ricetta o una resa artificiale.
+          fryerOilCost = amount(activeOilCycle.totalCost).div(amount(activeOilCycle.portionsProduced));
+        }
+      }
     }
 
     // Use actual production elapsed minutes when available; otherwise expected recipe minutes
     const prepMinutes = fact.actualPrepMinutes != null
       ? fact.actualPrepMinutes
-      : (recipe?.preparationMinutes ?? 0);
+      : (recipe?.preparationMinutes ?? directProductCost?.preparationMinutes ?? 0);
 
     missingData.push(...localMissing);
     return {
@@ -490,7 +508,7 @@ async function buildCalculation(orderId: number): Promise<{
       grossRevenue: fact.subtotal,
       quantity: fact.quantity,
       vatRate: fact.vatRate || product?.iva || "0",
-      ingredientCostPerUnit: recipe || beverageLine ? ingredientCost.toString() : undefined,
+      ingredientCostPerUnit: recipe || beverageLine || directProductCost ? ingredientCost.toString() : undefined,
       packagingCostPerUnit: packagingCost?.toString(),
       fryerOilCostPerUnit: fryerOilCost?.toString(),
       energyCostPerUnit: energyCost.toString(),

@@ -363,6 +363,44 @@ export type InsertBeverageProductMapping = z.infer<typeof insertBeverageProductM
 export type BeverageProductMapping = typeof beverageProductMappingsTable.$inferSelect;
 
 // ---------------------------------------------------------------------------
+// directProductCosts
+// ---------------------------------------------------------------------------
+// Prodotti acquistati e rivenduti senza una ricetta composta: bevande
+// confezionate, surgelati e porzioni semplici. Ogni decorrenza è una nuova riga
+// per ricostruire il costo applicabile alla data della comanda.
+export const directProductCostsTable = pgTable(
+  "direct_product_costs",
+  {
+    id: serial("id").primaryKey(),
+    productId: integer("product_id").notNull(),
+    costType: text("cost_type").notNull(), // "packaged_beverage" | "ready_food"
+    purchasePriceNet: numeric("purchase_price_net", { precision: 18, scale: 6 }).notNull(),
+    vatRate: numeric("vat_rate", { precision: 18, scale: 6 }).notNull().default("0"),
+    purchaseQuantity: numeric("purchase_quantity", { precision: 18, scale: 6 }).notNull(),
+    purchaseUnit: text("purchase_unit").notNull(), // g | kg | ml | l | pz
+    portionQuantity: numeric("portion_quantity", { precision: 18, scale: 6 }).notNull(),
+    portionUnit: text("portion_unit").notNull(), // g | kg | ml | l | pz
+    portionPieces: numeric("portion_pieces", { precision: 18, scale: 6 }),
+    wastePercentage: numeric("waste_percentage", { precision: 18, scale: 6 }).notNull().default("0"),
+    packagingCostPerUnit: numeric("packaging_cost_per_unit", { precision: 18, scale: 6 }).notNull().default("0"),
+    preparationMinutes: integer("preparation_minutes").notNull().default(0),
+    usesFryer: boolean("uses_fryer").notNull().default(false),
+    active: boolean("active").notNull().default(true),
+    validFrom: date("valid_from", { mode: "string" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("direct_product_costs_product_valid_from_unique").on(t.productId, t.validFrom),
+    index("direct_product_costs_product_idx").on(t.productId),
+    index("direct_product_costs_type_valid_from_idx").on(t.costType, t.validFrom),
+  ],
+);
+
+export const insertDirectProductCostSchema = createInsertSchema(directProductCostsTable).omit({ id: true, createdAt: true });
+export type InsertDirectProductCost = z.infer<typeof insertDirectProductCostSchema>;
+export type DirectProductCost = typeof directProductCostsTable.$inferSelect;
+
+// ---------------------------------------------------------------------------
 // fryerOilCycles
 // ---------------------------------------------------------------------------
 export const fryerOilCyclesTable = pgTable(
