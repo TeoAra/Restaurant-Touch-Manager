@@ -2589,7 +2589,7 @@ type EditableItem = { id: number; productName: string; quantity: number; unitPri
 function ItemEditDialog({ open, onClose, item, onSave }: {
   open: boolean; onClose: () => void;
   item: EditableItem | null;
-  onSave: (itemId: number, unitPrice: string) => void;
+  onSave: (itemId: number, unitPrice: string) => Promise<void>;
 }) {
   const [price, setPrice] = useState("");
 
@@ -2654,7 +2654,15 @@ function ItemEditDialog({ open, onClose, item, onSave }: {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Annulla</Button>
-          <Button onClick={() => { onSave(item.id, parseFloat(price).toFixed(2)); onClose(); }}>Salva</Button>
+          <Button onClick={async () => {
+            if (!Number.isFinite(parseFloat(price)) || parseFloat(price) < 0) return;
+            try {
+              await onSave(item.id, parseFloat(price).toFixed(2));
+              onClose();
+            } catch {
+              // Il dialog resta aperto; handleSaveItemEdit mostra l'errore.
+            }
+          }}>Salva</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -3447,27 +3455,47 @@ export default function FrontOffice() {
   async function handleQty(itemId: number, qty: number) {
     if (!activeOrderId) return;
     const item = items.find(i => i.id === itemId);
+    if (!item) return;
     const itemStatus = (item as never as { status?: string })?.status;
-    const wasSent = itemStatus === "sent";
-    if (itemStatus !== "draft" && itemStatus !== "sent") {
+    if (qty > item.quantity && itemStatus !== "draft" && itemStatus !== "sent") {
       toast({ title: "Riga non modificabile", description: "La preparazione è già iniziata.", variant: "destructive" });
       return;
     }
-    if (qty <= 0) {
-      if (wasSent) {
+    if (qty < item.quantity && itemStatus !== "draft") {
+      const quantityToVoid = item.quantity - Math.max(0, qty);
+      try {
+        const response = await fetch(`${API}/orders/${activeOrderId}/items/${itemId}/void`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ quantity: quantityToVoid }),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null) as { error?: string } | null;
+          throw new Error(payload?.error ?? "Storno non riuscito");
+        }
+        addLog("info", `Articolo stornato: ${item.productName} × ${quantityToVoid}`);
+        if (qty <= 0) selectNextAfter(itemId);
+        refresh();
         toast({
-          title: "Riga già inviata",
-          description: "Non può essere eliminata senza uno storno esplicito al reparto.",
+          title: qty <= 0 ? "Articolo annullato" : "Quantità ridotta",
+          description: "Il ticket di storno è stato inviato al reparto.",
+        });
+      } catch (error) {
+        toast({
+          title: "Storno non riuscito",
+          description: error instanceof Error ? error.message : "Aggiorna e riprova.",
           variant: "destructive",
         });
-        return;
       }
+      return;
+    }
+    if (qty <= 0) {
       setDeleteConfirm({ itemId, name: item?.productName ?? "Articolo" });
       return;
     } else {
       addLog("info", `Qtà modificata: ${item?.productName} → ${qty}`);
       await updateItem.mutateAsync({ orderId: activeOrderId, itemId, data: { quantity: qty } });
-      if (wasSent) setKpResendPending(true);
+      if (itemStatus === "sent") setKpResendPending(true);
     }
     refresh();
   }
@@ -3502,15 +3530,6 @@ export default function FrontOffice() {
     const item = items.find(i => i.id === selectedItemId);
     if (!item) return;
     const itemStatus = (item as never as { status: string }).status;
-    if (itemStatus !== "draft") {
-      toast({
-        title: "Riga già inviata",
-        description: "Non può essere eliminata senza uno storno esplicito al reparto.",
-        variant: "destructive",
-      });
-      return;
-    }
-    selectNextAfter(selectedItemId);
     handleQty(item.id, 0);
   }
 
@@ -3565,20 +3584,20 @@ export default function FrontOffice() {
     }
   }
 
-  async function handleSaveItemEdit(itemId: number, unitPrice: string) {
+  async function handleSaveItemEdit(itemId: number, unitPrice: string): Promise<void> {
     if (!activeOrderId) return;
-    const itemStatus = (items.find(item => item.id === itemId) as never as { status?: string })?.status;
-    if (itemStatus !== "draft" && itemStatus !== "sent") {
-      toast({ title: "Riga non modificabile", description: "La preparazione è già iniziata.", variant: "destructive" });
-      return;
+    try {
+      await updateItem.mutateAsync({
+        orderId: activeOrderId,
+        itemId,
+        data: { unitPrice } as never,
+      });
+      refresh();
+      toast({ title: "Prezzo aggiornato" });
+    } catch (error) {
+      toast({ title: "Prezzo non aggiornato", description: error instanceof Error ? error.message : "Aggiorna e riprova.", variant: "destructive" });
+      throw error;
     }
-    await updateItem.mutateAsync({
-      orderId: activeOrderId,
-      itemId,
-      data: { unitPrice } as never,
-    });
-    refresh();
-    toast({ title: "Prezzo aggiornato" });
   }
 
   async function handleSendComanda() {
@@ -3615,13 +3634,6 @@ export default function FrontOffice() {
       setNumBuffer("");
       await handleQty(selectedItemId, qty);
     } else {
-      const selected = items.find(item => item.id === selectedItemId);
-      const selectedStatus = (selected as never as { status?: string })?.status;
-      if (selectedStatus !== "draft" && selectedStatus !== "sent") {
-        setNumBuffer("");
-        toast({ title: "Riga non modificabile", description: "La preparazione è già iniziata.", variant: "destructive" });
-        return;
-      }
       setNumBuffer("");
       await fetch(`${API}/orders/${activeOrderId}/items/${selectedItemId}`, {
         method: "PATCH",

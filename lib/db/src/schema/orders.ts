@@ -79,6 +79,27 @@ export const insertKitchenProductionEventSchema = createInsertSchema(kitchenProd
 export type InsertKitchenProductionEvent = z.infer<typeof insertKitchenProductionEventSchema>;
 export type KitchenProductionEvent = typeof kitchenProductionEventsTable.$inferSelect;
 
+export const kitchenCancellationEventsTable = pgTable(
+  "kitchen_cancellation_events",
+  {
+    id: serial("id").primaryKey(),
+    orderItemId: integer("order_item_id").notNull(),
+    orderId: integer("order_id").notNull(),
+    productName: text("product_name").notNull(),
+    quantity: integer("quantity").notNull(),
+    previousStatus: text("previous_status").notNull(),
+    printerId: integer("printer_id"),
+    printStatus: text("print_status").notNull().default("pending"),
+    printError: text("print_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    printedAt: timestamp("printed_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("kitchen_cancellation_events_order_idx").on(t.orderId),
+    index("kitchen_cancellation_events_item_idx").on(t.orderItemId),
+  ],
+);
+
 export const insertOrderSchema = createInsertSchema(ordersTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertOrder = z.infer<typeof insertOrderSchema>;
 export type Order = typeof ordersTable.$inferSelect;
