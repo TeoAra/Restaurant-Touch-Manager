@@ -31,6 +31,14 @@ type Ingredient = { id: number; name: string; baseUnit: string; currentUnitCost:
 type RecipeProduct = { id: number; name: string; price: string; categoryId?: number | null; sortOrder: number };
 type RecipeCategory = { id: number; name: string; sortOrder: number };
 type RecipeProductGroup = { id: number | null; name: string; products: RecipeProduct[] };
+type BeverageFormat = "bottle" | "can" | "glass" | "other";
+type BeverageMapping = { id: number; productId: number; beverageLineId: number; servingVolumeLiters: string; servingFormat: BeverageFormat };
+type BeverageMappingGroup = {
+  categoryId: number | null;
+  categoryName: string;
+  sortOrder: number;
+  items: Array<{ mapping: BeverageMapping; product?: RecipeProduct }>;
+};
 type MenuVariation = { id: number; productId: number; name: string; options: string | Array<{ name: string; priceExtra?: string }>; required: boolean; sortOrder: number };
 type Catalog = {
   ingredients: Ingredient[];
@@ -45,7 +53,7 @@ type Catalog = {
   utilityBills: Array<{ id: number; utilityTypeId: number; periodStart: string; periodEnd: string; consumptionQuantity: string; variableCost: string; fixedCost: string; taxesAndFees: string; totalCost: string; variableUnitCost: string | null; totalUnitCost: string | null }>;
   beverageLines?: Array<{ id: number; name: string; lineType: 'beer'|'bib'; purchasePriceNet: string; vatRate: string; sourceVolumeLiters: string; lossPercentage: string; dilutionWaterRatio: string; co2CostPerLiter: string; coolerKwhPerLiter: string; cellarKwhPerLiter: string; active: boolean; currentSupplyValidFrom: string | null }>;
   beverageLineSupplyHistory?: Array<{ id: number; beverageLineId: number; purchasePriceNet: string; sourceVolumeLiters: string; validFrom: string }>;
-  beverageProductMappings?: Array<{ id: number; productId: number; beverageLineId: number; servingVolumeLiters: string }>;
+  beverageProductMappings?: BeverageMapping[];
   beverageCostPreviews?: Array<{ beverageLineId: number; costPerLiter: string; sourceCostPerLiter: string; waterCostPerLiter: string; co2CostPerLiter: string; energyCostPerLiter: string; missingData: string[] }>;
 };
 
@@ -104,6 +112,50 @@ function groupMenuProducts(products: RecipeProduct[], categories: RecipeCategory
 
   if (uncategorized.length) groups.push({ id: null, name: "Senza categoria", products: sortProducts(uncategorized) });
   return groups;
+}
+
+function groupBeverageMappings(
+  mappings: BeverageMapping[],
+  products: RecipeProduct[],
+  categories: RecipeCategory[],
+): BeverageMappingGroup[] {
+  const productById = new Map(products.map(product => [product.id, product]));
+  const categoryById = new Map(categories.map(category => [category.id, category]));
+  const grouped = new Map<string, BeverageMappingGroup>();
+
+  for (const mapping of mappings) {
+    const product = productById.get(mapping.productId);
+    const category = product?.categoryId != null ? categoryById.get(product.categoryId) : undefined;
+    const categoryId = category?.id ?? null;
+    const key = categoryId == null ? "uncategorized" : String(categoryId);
+    const group = grouped.get(key) ?? {
+      categoryId,
+      categoryName: category?.name ?? "Senza categoria",
+      sortOrder: category?.sortOrder ?? Number.MAX_SAFE_INTEGER,
+      items: [],
+    };
+    group.items.push({ mapping, product });
+    grouped.set(key, group);
+  }
+
+  return [...grouped.values()]
+    .map(group => ({
+      ...group,
+      items: [...group.items].sort((left, right) =>
+        (left.product?.sortOrder ?? Number.MAX_SAFE_INTEGER) - (right.product?.sortOrder ?? Number.MAX_SAFE_INTEGER)
+        || (left.product?.name ?? "").localeCompare(right.product?.name ?? "", "it"),
+      ),
+    }))
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.categoryName.localeCompare(right.categoryName, "it"));
+}
+
+function beverageFormatLabel(format: BeverageFormat): string {
+  return {
+    bottle: "Bottiglia",
+    can: "Lattina",
+    glass: "Bicchiere / spina",
+    other: "Altro",
+  }[format];
 }
 
 // Costo per grammo e per fetta calcolati dal prezzo d'acquisto:
@@ -270,11 +322,14 @@ function BeverageLineSettingsForm({ line, onSubmit }: {
   );
 }
 
-function BeverageMappingForm({ beverageLineId, menuProducts, onSubmit }: {
+function BeverageMappingForm({ beverageLineId, menuProducts, menuCategories, onSubmit }: {
   beverageLineId: number;
   menuProducts: RecipeProduct[];
+  menuCategories: RecipeCategory[];
   onSubmit: (data: Record<string, unknown>) => Promise<boolean>;
 }) {
+  const productGroups = groupMenuProducts(menuProducts, menuCategories);
+
   return (
     <form onSubmit={async event => {
       event.preventDefault();
@@ -286,18 +341,29 @@ function BeverageMappingForm({ beverageLineId, menuProducts, onSubmit }: {
         event.currentTarget.reset();
       }
     }} className="mt-3 flex flex-wrap items-end gap-2 p-3 bg-slate-50 rounded-lg border border-slate-100">
-      <label className="block text-xs font-semibold text-slate-600 flex-1 min-w-[200px]">
+      <label className="block min-w-[240px] flex-1 text-xs font-semibold text-slate-600">
         Collega formato Menu
         <select name="productId" required className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-primary">
           <option value="">Seleziona prodotto...</option>
-          {menuProducts.map(p => (
-            <option key={p.id} value={p.id}>{p.name}</option>
+          {productGroups.map(group => (
+            <optgroup key={group.id ?? "uncategorized"} label={group.name}>
+              {group.products.map(product => <option key={product.id} value={product.id}>{product.name}</option>)}
+            </optgroup>
           ))}
         </select>
       </label>
       <div className="w-24 shrink-0">
         <SimpleInput label="Litri erogati" name="servingVolumeLiters" inputMode="decimal" required placeholder="0.4" />
       </div>
+      <label className="block w-40 shrink-0 text-xs font-semibold text-slate-600">
+        Formato vendita
+        <select name="servingFormat" defaultValue="other" required className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-primary">
+          <option value="bottle">Bottiglia</option>
+          <option value="can">Lattina</option>
+          <option value="glass">Bicchiere / spina</option>
+          <option value="other">Altro</option>
+        </select>
+      </label>
       <button type="submit" className="h-[38px] px-3 rounded-lg bg-slate-800 text-white text-xs font-semibold hover:bg-slate-700 flex items-center justify-center" title="Collega prodotto"><Link2 className="h-4 w-4" /></button>
     </form>
   );
@@ -683,6 +749,7 @@ export default function MarginalitaPage() {
                 catalog.data.beverageLines.map(line => {
                   const preview = catalog.data?.beverageCostPreviews?.find(item => item.beverageLineId === line.id);
                   const mappings = catalog.data?.beverageProductMappings?.filter(item => item.beverageLineId === line.id) ?? [];
+                  const mappingGroups = groupBeverageMappings(mappings, menuProducts, menuCategories);
                   const supplies = (catalog.data?.beverageLineSupplyHistory ?? []).filter(item => item.beverageLineId === line.id);
 
                   return (
@@ -729,17 +796,23 @@ export default function MarginalitaPage() {
 
                           <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-700">Formati collegati</h4>
                           {mappings.length === 0 ? <p className="mb-3 text-xs text-slate-400">Nessun prodotto menu collegato a questa linea.</p> : (
-                            <div className="mb-3 space-y-1">
-                              {mappings.map(mapping => {
-                                const product = menuProducts.find(item => item.id === mapping.productId);
-                                const costPerServing = preview ? Number(preview.costPerLiter) * Number(mapping.servingVolumeLiters) : 0;
-                                return <div key={mapping.id} className="flex items-center justify-between rounded-lg border border-transparent px-2 py-1.5 text-sm hover:bg-slate-50"><div><span className="font-medium text-slate-800">{product?.name || `Prodotto #${mapping.productId}`}</span><span className="ml-2 text-xs text-slate-500">{mapping.servingVolumeLiters} L</span></div><div className="font-semibold text-slate-700">{euro(costPerServing)}</div></div>;
-                              })}
+                            <div className="mb-3 space-y-3">
+                              {mappingGroups.map(group => (
+                                <div key={group.categoryId ?? "uncategorized"}>
+                                  <div className="mb-1 border-b border-slate-100 px-1 pb-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">{group.categoryName}</div>
+                                  <div className="space-y-1">
+                                    {group.items.map(({ mapping, product }) => {
+                                      const costPerServing = preview ? Number(preview.costPerLiter) * Number(mapping.servingVolumeLiters) : 0;
+                                      return <div key={mapping.id} className="flex items-center justify-between rounded-lg border border-transparent px-2 py-1.5 text-sm hover:bg-slate-50"><div><span className="font-medium text-slate-800">{product?.name || `Prodotto #${mapping.productId}`}</span><span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">{beverageFormatLabel(mapping.servingFormat)}</span><span className="ml-2 text-xs text-slate-500">{mapping.servingVolumeLiters} L</span></div><div className="font-semibold text-slate-700">{euro(costPerServing)}</div></div>;
+                                    })}
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           )}
 
                           {line.active ? (
-                            <BeverageMappingForm beverageLineId={line.id} menuProducts={menuProducts} onSubmit={data => submit("/beverage-product-mappings", data, "Prodotto collegato")} />
+                            <BeverageMappingForm beverageLineId={line.id} menuProducts={menuProducts} menuCategories={menuCategories} onSubmit={data => submit("/beverage-product-mappings", data, "Prodotto collegato")} />
                           ) : (
                             <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">Riattiva la linea prima di collegare nuovi prodotti Menu.</p>
                           )}

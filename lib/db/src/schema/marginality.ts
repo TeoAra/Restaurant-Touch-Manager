@@ -347,6 +347,7 @@ export const beverageProductMappingsTable = pgTable(
     productId: integer("product_id").notNull(),
     beverageLineId: integer("beverage_line_id").notNull(),
     servingVolumeLiters: numeric("serving_volume_liters", { precision: 18, scale: 6 }).notNull(),
+    servingFormat: text("serving_format").notNull().default("other"), // "bottle" | "can" | "glass" | "other"
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
   },

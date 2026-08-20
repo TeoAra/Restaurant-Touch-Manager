@@ -349,7 +349,11 @@ router.post("/beverage-product-mappings", async (req, res): Promise<void> => {
   try {
     const productId = positiveId(req.body?.productId);
     const beverageLineId = positiveId(req.body?.beverageLineId);
+    const servingFormat = ["bottle", "can", "glass", "other"].includes(req.body?.servingFormat)
+      ? req.body.servingFormat
+      : null;
     if (!productId || !beverageLineId) throw new Error("Prodotto e linea beverage sono obbligatori");
+    if (!servingFormat) throw new Error("Il formato di vendita è obbligatorio");
     const [[product], [line]] = await Promise.all([
       db.select({ id: productsTable.id }).from(productsTable).where(eq(productsTable.id, productId)).limit(1),
       db.select({ id: beverageLinesTable.id, active: beverageLinesTable.active }).from(beverageLinesTable).where(eq(beverageLinesTable.id, beverageLineId)).limit(1),
@@ -361,11 +365,13 @@ router.post("/beverage-product-mappings", async (req, res): Promise<void> => {
       productId,
       beverageLineId,
       servingVolumeLiters: strictlyPositiveDecimal(req.body?.servingVolumeLiters, "I litri del formato"),
+      servingFormat,
     }).onConflictDoUpdate({
       target: beverageProductMappingsTable.productId,
       set: {
         beverageLineId,
         servingVolumeLiters: strictlyPositiveDecimal(req.body?.servingVolumeLiters, "I litri del formato"),
+        servingFormat,
         updatedAt: new Date(),
       },
     }).returning();
