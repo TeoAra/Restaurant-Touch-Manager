@@ -2331,7 +2331,7 @@ ${covers > 0 ? `<p>${covers} coperti${coverPrice > 0 ? ` × €${coverPrice.toFi
 // ─── Split Bill: body riusabile (dialog + tab "tot" inline) ───────────────────
 function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId }: {
   items: Array<{ id: number; productName: string; quantity: number; unitPrice: string; subtotal: string }>;
-  onPay: (method: string, amount: number, itemIds: number[], coversToDeduct: number) => void;
+  onPay: (method: string, amount: number, itemIds: number[], coversToDeduct: number, itemQuantities: Record<number, number>, splitRequestId: string) => void;
   onCancel: () => void;
   coverPrice: number; coverCount: number; orderId?: number;
 }) {
@@ -2348,6 +2348,7 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
 
   // qty[id] = selected quantity for this row (0 = not included)
   const [qty, setQty] = useState<Record<number, number>>({});
+  const splitRequestIdRef = useRef<string | null>(null);
   const [method, setMethod] = useState<"cash" | "card" | "ticket" | "other">("cash");
   const { data: sbSettings = {} } = useSettings();
   const sbBuoniPastoOn = sbSettings["feat_buoni_pasto"] === "true";
@@ -2362,8 +2363,13 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
   function doIncassaFinale() {
     const ids = allRows.filter(r => (qty[r.id] ?? 0) > 0 && !r.isCover).map(r => r.id);
     const coversToDeduct = coverRows.filter(r => (qty[r.id] ?? 0) > 0).length;
+    const itemQuantities = Object.fromEntries(allRows
+      .filter(row => !row.isCover && (qty[row.id] ?? 0) > 0)
+      .map(row => [row.id, qty[row.id] ?? 0]));
     setSbPosPhase("idle");
-    onPay(method, splitTotal, ids, coversToDeduct);
+    const splitRequestId = splitRequestIdRef.current ?? crypto.randomUUID();
+    splitRequestIdRef.current = splitRequestId;
+    onPay(method, splitTotal, ids, coversToDeduct, itemQuantities, splitRequestId);
   }
 
   async function handleIncassa() {
@@ -2556,7 +2562,7 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
 function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }: {
   open: boolean; onClose: () => void;
   items: Array<{ id: number; productName: string; quantity: number; unitPrice: string; subtotal: string }>;
-  onPay: (method: string, amount: number, itemIds: number[], coversToDeduct: number) => void;
+  onPay: (method: string, amount: number, itemIds: number[], coversToDeduct: number, itemQuantities: Record<number, number>, splitRequestId: string) => void;
   coverPrice: number; coverCount: number;
 }) {
   return (
@@ -2568,7 +2574,7 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
             items={items}
             coverPrice={coverPrice}
             coverCount={coverCount}
-            onPay={(m, a, ids, c) => { onPay(m, a, ids, c); onClose(); }}
+            onPay={(m, a, ids, c, quantities, splitRequestId) => { onPay(m, a, ids, c, quantities, splitRequestId); onClose(); }}
             onCancel={onClose}
           />
         )}
@@ -3629,7 +3635,7 @@ export default function FrontOffice() {
     }
   }
 
-  async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number, ragioneSocialeCliente?: string, itemIds?: number[], coversToDeduct = 0) {
+  async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number, ragioneSocialeCliente?: string, itemIds?: number[], coversToDeduct = 0, itemQuantities?: Record<number, number>, splitRequestId?: string) {
     if (!activeOrderId) return;
     setShowPayment(false);
     const isGestionale = !!invoiceCustomerId;
@@ -3735,6 +3741,8 @@ export default function FrontOffice() {
         // e flag `partial` così il backend NON chiude l'ordine intero anche
         // quando l'utente paga solo coperti (caso senza itemIds).
         itemIds: itemIds && itemIds.length > 0 ? itemIds : undefined,
+        itemQuantities: itemQuantities && Object.keys(itemQuantities).length > 0 ? itemQuantities : undefined,
+        splitRequestId: splitRequestId || undefined,
         coversCount: coversToDeduct > 0 ? coversToDeduct : undefined,
         partial: isSplitPay || undefined,
         invoice: invoicePayload,
@@ -3751,7 +3759,7 @@ export default function FrontOffice() {
       return;
     }
     // Mostra risultato RT
-    const fiscal = (paymentRes as never as { fiscal?: { rtOk?: boolean; rtError?: string; rtIp?: string; receiptId?: number; nonFiscale?: boolean } }).fiscal;
+    const fiscal = (paymentRes as never as { fiscal?: { rtOk?: boolean; rtError?: string; rtIp?: string; receiptId?: number; nonFiscale?: boolean; splitSettled?: boolean; settlementError?: string } }).fiscal;
     if (fiscal) {
       if (fiscal.rtOk) {
         if (fiscal.nonFiscale) {
@@ -3820,26 +3828,29 @@ export default function FrontOffice() {
       setInvoiceNumero("");
       setInvoiceAnno(String(new Date().getFullYear()));
       setInvoiceCustomer(null);
-    } else if (isSplitPay) {
-      // Elimina articoli pagati nel conto separato
-      if (itemIds?.length) {
-        await Promise.all(itemIds.map(itemId =>
-          fetch(`${API}/orders/${activeOrderId}/items/${itemId}`, { method: "DELETE" }).catch(() => {})
-        ));
-      }
-      // Scala i coperti pagati nel conto separato
-      if (coversToDeduct > 0) {
-        const newCovers = Math.max(0, coverCount - coversToDeduct);
-        await fetch(`${API}/orders/${activeOrderId}/covers`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ covers: newCovers }),
-        }).catch(() => {});
-      }
+    } else if (isSplitPay && fiscal?.rtOk !== true) {
+      // Un pagamento esiste già, ma senza conferma RT le righe NON vengono
+      // tolte dal conto: l'operatore non deve incassare o stampare una seconda
+      // volta. Il server conserva il residuo per la verifica e la ripresa.
+      refresh();
+      toast({
+        title: "Conto separato da verificare",
+        description: "La RT non ha confermato lo scontrino: le righe restano visibili. Non incassare una seconda volta.",
+        variant: "destructive",
+      });
+      return;
+    } else if (isSplitPay && fiscal?.splitSettled === false) {
+      refresh();
+      toast({
+        title: "Scontrino emesso: aggiornamento da verificare",
+        description: fiscal.settlementError ?? "Le righe non sono state aggiornate. Non incassare una seconda volta.",
+        variant: "destructive",
+      });
+      return;
     }
     if (!isSplitPay) handleExitOrder();
     refresh();
-    toast({ title: "Pagamento registrato", description: `€ ${payAmount.toFixed(2)} — ${method}` });
+    toast({ title: isSplitPay ? "Conto separato aggiornato" : "Pagamento registrato", description: `€ ${payAmount.toFixed(2)} — ${method}` });
   }
 
   const searchQ = productSearch.trim().toLowerCase();
@@ -5000,13 +5011,13 @@ export default function FrontOffice() {
                 ) : (
                   <div className="bg-white rounded-2xl border border-slate-200 p-3">
                     <SplitBillBody
-                      key={`split-${activeOrderId}`}
+                      key={`split-${activeOrderId}-${items.map(item => `${item.id}:${item.quantity}`).join(",")}-${coverCount}`}
                       items={items as never}
                       coverPrice={coverPrice}
                       coverCount={coverCount}
                       orderId={activeOrderId ?? undefined}
-                      onPay={(method, amount, ids, coversToDeduct) => {
-                        handlePay(method, amount, undefined, undefined, ids, coversToDeduct);
+                      onPay={(method, amount, ids, coversToDeduct, itemQuantities, splitRequestId) => {
+                        handlePay(method, amount, undefined, undefined, ids, coversToDeduct, itemQuantities, splitRequestId);
                       }}
                       onCancel={() => setPaymentMode("full")}
                     />
@@ -5332,7 +5343,7 @@ export default function FrontOffice() {
         items={items as never}
         coverPrice={coverPrice}
         coverCount={coverCount}
-        onPay={(method, amount, itemIds, coversToDeduct) => handlePay(method, amount, undefined, undefined, itemIds, coversToDeduct)}
+        onPay={(method, amount, itemIds, coversToDeduct, itemQuantities, splitRequestId) => handlePay(method, amount, undefined, undefined, itemIds, coversToDeduct, itemQuantities, splitRequestId)}
       />
 
       {/* ── Modifier Picker ─────────────────────────────────────────── */}

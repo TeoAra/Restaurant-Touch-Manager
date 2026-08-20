@@ -162,12 +162,17 @@ export async function captureMarginFacts(
   orderId: number,
   options?: {
     selectedItemIds?: number[];
+    selectedItemQuantities?: Record<number, number>;
+    paymentId?: number;
     cover?: { paymentId: number; quantity: number; unitPrice: string; vatRate: string };
   },
 ): Promise<void> {
   const rows: Array<typeof orderItemsTable.$inferSelect> = await tx.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
-  const selected: Array<typeof orderItemsTable.$inferSelect> = options?.selectedItemIds?.length
-    ? rows.filter((row) => options.selectedItemIds!.includes(row.id))
+  const selected: Array<typeof orderItemsTable.$inferSelect> = options?.selectedItemIds
+    ? rows.filter((row) => options.selectedItemIds!.includes(row.id)).map((row) => {
+      const quantity = options.selectedItemQuantities?.[row.id] ?? row.quantity;
+      return { ...row, quantity, subtotal: amount(row.unitPrice).mul(amount(quantity)).toString() };
+    })
     : rows;
   const productIds = [...new Set(selected.map((row) => row.productId))];
   const products: Array<{ id: number; iva: string }> = productIds.length
@@ -182,7 +187,10 @@ export async function captureMarginFacts(
     }
     return {
       orderId,
-      orderItemId: row.id,
+      // Una stessa riga del carrello può essere regolata in più conti
+      // separati. Lo snapshot è identificato dal pagamento, non solo dalla
+      // riga originaria, per non perdere le quantità successive.
+      orderItemId: options?.paymentId ? -(options.paymentId * 1_000_000 + row.id) : row.id,
       productId: row.productId,
       productName: row.productName,
       quantity: row.quantity,

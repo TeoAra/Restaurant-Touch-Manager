@@ -21,6 +21,11 @@ export const ordersTable = pgTable("orders", {
   sospeso: boolean("sospeso").notNull().default(false),
   sospesoCustomerId: integer("sospeso_customer_id"),
   sospesoNote: text("sospeso_note"),
+  // Riserva persistente per il conto separato: impedisce che due richieste
+  // stampino lo stesso split prima che la RT e il residuo siano regolati.
+  splitPaymentToken: text("split_payment_token"),
+  splitPaymentState: text("split_payment_state"),
+  splitPaymentId: integer("split_payment_id"),
   // Timestamp dell'ultima stampa preconto (usato per evidenziare tavoli "in attesa di pagamento")
   prePrintedAt: timestamp("pre_printed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
