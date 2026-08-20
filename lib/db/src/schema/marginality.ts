@@ -266,6 +266,70 @@ export type InsertProductEquipment = z.infer<typeof insertProductEquipmentSchema
 export type ProductEquipment = typeof productEquipmentTable.$inferSelect;
 
 // ---------------------------------------------------------------------------
+// beverageLines
+// ---------------------------------------------------------------------------
+// Una linea rappresenta la fonte fisica condivisa (fusto o BIB), non il
+// pulsante venduto in cassa. Formati diversi possono quindi consumare la stessa
+// linea, ciascuno con la propria dose in litri.
+export const beverageLinesTable = pgTable(
+  "beverage_lines",
+  {
+    id: serial("id").primaryKey(),
+    name: text("name").notNull(),
+    lineType: text("line_type").notNull(), // "beer" | "bib"
+    // Prezzo imponibile della fonte acquistata, con IVA salvata separatamente
+    // per trasparenza contabile. I costi di marginalità usano l'imponibile.
+    purchasePriceNet: numeric("purchase_price_net", { precision: 18, scale: 6 }).notNull(),
+    vatRate: numeric("vat_rate", { precision: 18, scale: 6 }).notNull().default("0"),
+    // Litri nominali del fusto (birra) o di concentrato (BIB).
+    sourceVolumeLiters: numeric("source_volume_liters", { precision: 18, scale: 6 }).notNull(),
+    lossPercentage: numeric("loss_percentage", { precision: 18, scale: 6 }).notNull().default("0"),
+    // Per BIB: litri d'acqua per ogni litro di concentrato (es. 5 = 1:5).
+    dilutionWaterRatio: numeric("dilution_water_ratio", { precision: 18, scale: 6 }).notNull().default("0"),
+    // Costo CO₂ già normalizzato per litro erogato, ricavabile dal gestore
+    // della bombola senza richiedere misurazioni live in servizio.
+    co2CostPerLiter: numeric("co2_cost_per_liter", { precision: 18, scale: 6 }).notNull().default("0"),
+    // Consumo tecnico attribuibile al litro servito per le due apparecchiature.
+    coolerKwhPerLiter: numeric("cooler_kwh_per_liter", { precision: 18, scale: 6 }).notNull().default("0"),
+    cellarKwhPerLiter: numeric("cellar_kwh_per_liter", { precision: 18, scale: 6 }).notNull().default("0"),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex("beverage_lines_name_unique").on(t.name),
+    index("beverage_lines_type_active_idx").on(t.lineType, t.active),
+  ],
+);
+
+export const insertBeverageLineSchema = createInsertSchema(beverageLinesTable).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertBeverageLine = z.infer<typeof insertBeverageLineSchema>;
+export type BeverageLine = typeof beverageLinesTable.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// beverageProductMappings
+// ---------------------------------------------------------------------------
+export const beverageProductMappingsTable = pgTable(
+  "beverage_product_mappings",
+  {
+    id: serial("id").primaryKey(),
+    productId: integer("product_id").notNull(),
+    beverageLineId: integer("beverage_line_id").notNull(),
+    servingVolumeLiters: numeric("serving_volume_liters", { precision: 18, scale: 6 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex("beverage_product_mappings_product_unique").on(t.productId),
+    index("beverage_product_mappings_line_idx").on(t.beverageLineId),
+  ],
+);
+
+export const insertBeverageProductMappingSchema = createInsertSchema(beverageProductMappingsTable).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertBeverageProductMapping = z.infer<typeof insertBeverageProductMappingSchema>;
+export type BeverageProductMapping = typeof beverageProductMappingsTable.$inferSelect;
+
+// ---------------------------------------------------------------------------
 // fryerOilCycles
 // ---------------------------------------------------------------------------
 export const fryerOilCyclesTable = pgTable(

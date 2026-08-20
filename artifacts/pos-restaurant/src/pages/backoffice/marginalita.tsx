@@ -1,6 +1,6 @@
 import { type FormEvent, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, BadgeEuro, ChartNoAxesCombined, CirclePlus, Factory, PackagePlus, RefreshCw, ReceiptText, Settings2, TrendingDown, TrendingUp, Utensils } from "lucide-react";
+import { AlertTriangle, BadgeEuro, ChartNoAxesCombined, CirclePlus, Factory, PackagePlus, RefreshCw, ReceiptText, Settings2, TrendingDown, TrendingUp, Utensils, Beer, Link2, GlassWater } from "lucide-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
@@ -43,6 +43,9 @@ type Catalog = {
   coverCostItems: Array<{ id: number; name: string; purchaseQuantity: string; purchaseUnit: string; purchasePrice: string; quantityPerCover: string; applicationScope: "cover" | "fried_order"; active: boolean }>;
   utilityTypes: Array<{ id: number; code: string; name: string; measurementUnit: string; active: boolean }>;
   utilityBills: Array<{ id: number; utilityTypeId: number; periodStart: string; periodEnd: string; consumptionQuantity: string; variableCost: string; fixedCost: string; taxesAndFees: string; totalCost: string; variableUnitCost: string | null; totalUnitCost: string | null }>;
+  beverageLines?: Array<{ id: number; name: string; lineType: 'beer'|'bib'; purchasePriceNet: string; vatRate: string; sourceVolumeLiters: string; lossPercentage: string; dilutionWaterRatio: string; co2CostPerLiter: string; coolerKwhPerLiter: string; cellarKwhPerLiter: string; active: boolean }>;
+  beverageProductMappings?: Array<{ id: number; productId: number; beverageLineId: number; servingVolumeLiters: string }>;
+  beverageCostPreviews?: Array<{ beverageLineId: number; costPerLiter: string; sourceCostPerLiter: string; waterCostPerLiter: string; co2CostPerLiter: string; energyCostPerLiter: string; missingData: string[] }>;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -142,6 +145,100 @@ function variationOptions(value: MenuVariation["options"]): Array<{ name: string
   }
 }
 
+function BeverageLineForm({ onSubmit }: { onSubmit: (data: Record<string, unknown>) => Promise<boolean> }) {
+  const [lineType, setLineType] = useState<"beer" | "bib">("beer");
+
+  return (
+    <form onSubmit={async event => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const data: Record<string, unknown> = Object.fromEntries(form);
+      data.active = form.get("active") === "on";
+      if (await onSubmit(data)) {
+        event.currentTarget.reset();
+        setLineType("beer");
+      }
+    }} className="rounded-xl border border-slate-200 bg-white p-4 space-y-4">
+      <h2 className="flex items-center gap-2 font-bold"><Beer className="h-4 w-4 text-primary" /> Nuova linea bevande</h2>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <SimpleInput label="Nome linea (es. Bionda Spina)" name="name" required />
+        <label className="block text-xs font-semibold text-slate-600">
+          Tipo impianto
+          <select
+            name="lineType"
+            value={lineType}
+            onChange={event => setLineType(event.target.value as "beer" | "bib")}
+            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-primary"
+          >
+            <option value="beer">Fusto birra</option>
+            <option value="bib">Bag in Box (Post-mix)</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <SimpleInput label="Prezzo acquisto netto (€)" name="purchasePriceNet" inputMode="decimal" required placeholder="0.00" />
+        <SimpleInput label="IVA acquisto (%)" name="vatRate" inputMode="decimal" defaultValue="22" required />
+        <SimpleInput label={`Volume ${lineType === "beer" ? "fusto" : "sacca"} (litri)`} name="sourceVolumeLiters" inputMode="decimal" required placeholder={lineType === "beer" ? "30" : "10"} />
+        <SimpleInput label="Perdita stimata (Spreco %)" name="lossPercentage" inputMode="decimal" defaultValue="3" required />
+      </div>
+
+      {lineType === "bib" && (
+        <div className="grid gap-3 sm:grid-cols-1">
+          <SimpleInput label="Rapporto diluizione acqua (L per 1 L di sciroppo)" name="dilutionWaterRatio" inputMode="decimal" defaultValue="5.4" required />
+        </div>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <SimpleInput label="Costo CO2 (€/L erogato)" name="co2CostPerLiter" inputMode="decimal" defaultValue="0" />
+        <SimpleInput label="Consumo Cooler (kWh/L)" name="coolerKwhPerLiter" inputMode="decimal" defaultValue="0" />
+        <SimpleInput label="Consumo Cella (kWh/L)" name="cellarKwhPerLiter" inputMode="decimal" defaultValue="0" />
+      </div>
+
+      <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer pt-2">
+        <input type="checkbox" name="active" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4" />
+        Linea attiva
+      </label>
+
+      <SubmitButton>Salva linea</SubmitButton>
+    </form>
+  );
+}
+
+function BeverageMappingForm({ beverageLineId, menuProducts, onSubmit }: {
+  beverageLineId: number;
+  menuProducts: RecipeProduct[];
+  onSubmit: (data: Record<string, unknown>) => Promise<boolean>;
+}) {
+  return (
+    <form onSubmit={async event => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const data: Record<string, unknown> = Object.fromEntries(form);
+      data.beverageLineId = beverageLineId;
+      data.productId = Number(data.productId);
+      if (await onSubmit(data)) {
+        event.currentTarget.reset();
+      }
+    }} className="mt-3 flex flex-wrap items-end gap-2 p-3 bg-slate-50 rounded-lg border border-slate-100">
+      <label className="block text-xs font-semibold text-slate-600 flex-1 min-w-[200px]">
+        Collega formato Menu
+        <select name="productId" required className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-primary">
+          <option value="">Seleziona prodotto...</option>
+          {menuProducts.map(p => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+      </label>
+      <div className="w-24 shrink-0">
+        <SimpleInput label="Litri erogati" name="servingVolumeLiters" inputMode="decimal" required placeholder="0.4" />
+      </div>
+      <button type="submit" className="h-[38px] px-3 rounded-lg bg-slate-800 text-white text-xs font-semibold hover:bg-slate-700 flex items-center justify-center" title="Collega prodotto"><Link2 className="h-4 w-4" /></button>
+    </form>
+  );
+}
+
 export default function MarginalitaPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -212,6 +309,7 @@ export default function MarginalitaPage() {
             <TabsTrigger value="recipes">Ricette</TabsTrigger>
             <TabsTrigger value="costs">Costi</TabsTrigger>
             <TabsTrigger value="utilities">Utenze</TabsTrigger>
+            <TabsTrigger value="beverage">Bevande</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-5">
@@ -495,6 +593,83 @@ export default function MarginalitaPage() {
                })}</div>
                {!catalog.data?.utilityBills.length && <p className="mt-3 text-sm text-slate-400">Nessuna bolletta registrata.</p>}
              </section>
+          </TabsContent>
+
+          <TabsContent value="beverage" className="grid gap-5 lg:grid-cols-[.9fr_1.1fr]">
+            <div className="space-y-5">
+              <BeverageLineForm onSubmit={async data => submit("/beverage-lines", data, "Linea bevande salvata")} />
+            </div>
+
+            <section className="space-y-4">
+              <h2 className="font-bold flex items-center gap-2"><GlassWater className="h-4 w-4 text-primary" /> Linee attive e costi</h2>
+
+              {!catalog.data?.beverageLines || catalog.data.beverageLines.length === 0 ? (
+                <p className="text-sm text-slate-500 bg-white p-4 rounded-xl border border-slate-200">Nessuna linea alla spina configurata.</p>
+              ) : (
+                catalog.data.beverageLines.map(line => {
+                  const preview = catalog.data?.beverageCostPreviews?.find(item => item.beverageLineId === line.id);
+                  const mappings = catalog.data?.beverageProductMappings?.filter(item => item.beverageLineId === line.id) ?? [];
+
+                  return (
+                    <div key={line.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                      <div className="flex items-start justify-between border-b border-slate-100 bg-slate-50/50 p-4">
+                        <div>
+                          <h3 className="flex items-center gap-2 font-bold text-slate-800">
+                            {line.name}
+                            {!line.active && <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">Inattiva</span>}
+                          </h3>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {line.lineType === "beer" ? "Fusto birra" : "Bag in Box"} · {line.sourceVolumeLiters} L · {euro(line.purchasePriceNet)} + IVA
+                            {Number(line.lossPercentage) > 0 ? ` · ${line.lossPercentage}% spreco` : ""}
+                          </div>
+                        </div>
+
+                        {preview && (
+                          <div className="text-right">
+                            <div className="text-sm font-black text-slate-800">{euro(preview.costPerLiter)} <span className="text-[10px] font-normal text-slate-500">/L</span></div>
+                            {preview.missingData.length > 0 ? (
+                              <div className="mt-1 flex items-center justify-end gap-1 text-[10px] font-semibold text-amber-600">
+                                <AlertTriangle className="h-3 w-3" /> Dati parziali
+                              </div>
+                            ) : (
+                              <div className="mt-1 text-[10px] font-semibold text-emerald-600">Costo completo</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {preview && preview.missingData.length > 0 && (
+                        <div className="border-b border-amber-100 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+                          <b>Attenzione:</b> per un calcolo completo manca: {preview.missingData.join(", ")}.
+                        </div>
+                      )}
+
+                      <div className="p-4">
+                          <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                            <div className="rounded-lg border border-slate-100 bg-slate-50 p-2"><div className="mb-1 text-slate-500">Materia prima</div><div className="font-semibold">{euro(preview?.sourceCostPerLiter)}/L</div></div>
+                            {line.lineType === "bib" && <div className="rounded-lg border border-slate-100 bg-slate-50 p-2"><div className="mb-1 text-slate-500">Acqua ({line.dilutionWaterRatio}:1)</div><div className="font-semibold">{euro(preview?.waterCostPerLiter)}/L</div></div>}
+                            <div className="rounded-lg border border-slate-100 bg-slate-50 p-2"><div className="mb-1 text-slate-500">CO₂</div><div className="font-semibold">{euro(preview?.co2CostPerLiter)}/L</div></div>
+                            <div className="rounded-lg border border-slate-100 bg-slate-50 p-2"><div className="mb-1 text-slate-500">Energia</div><div className="font-semibold">{euro(preview?.energyCostPerLiter)}/L</div></div>
+                          </div>
+
+                          <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-700">Formati collegati</h4>
+                          {mappings.length === 0 ? <p className="mb-3 text-xs text-slate-400">Nessun prodotto menu collegato a questa linea.</p> : (
+                            <div className="mb-3 space-y-1">
+                              {mappings.map(mapping => {
+                                const product = menuProducts.find(item => item.id === mapping.productId);
+                                const costPerServing = preview ? Number(preview.costPerLiter) * Number(mapping.servingVolumeLiters) : 0;
+                                return <div key={mapping.id} className="flex items-center justify-between rounded-lg border border-transparent px-2 py-1.5 text-sm hover:bg-slate-50"><div><span className="font-medium text-slate-800">{product?.name || `Prodotto #${mapping.productId}`}</span><span className="ml-2 text-xs text-slate-500">{mapping.servingVolumeLiters} L</span></div><div className="font-semibold text-slate-700">{euro(costPerServing)}</div></div>;
+                              })}
+                            </div>
+                          )}
+
+                          <BeverageMappingForm beverageLineId={line.id} menuProducts={menuProducts} onSubmit={data => submit("/beverage-product-mappings", data, "Prodotto collegato")} />
+                        </div>
+                      </div>
+                  );
+                })
+              )}
+            </section>
           </TabsContent>
         </Tabs>
       </div>

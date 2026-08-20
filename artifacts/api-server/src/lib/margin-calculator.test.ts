@@ -8,6 +8,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
 import { FixedDecimal } from "./fixed-decimal.js";
+import { calculateBeveragePortionCost, utilityCostAfterDirectBeverage } from "./beverage-costs.js";
 import { calculateMargin, type MarginCalculatorInput } from "./margin-calculator.js";
 
 // ── FixedDecimal unit tests ────────────────────────────────────────────────
@@ -124,6 +125,95 @@ describe("FixedDecimal", () => {
   test("half-away-from-zero rounding (negative): -2.555 rounds to -2.56", () => {
     const c = FixedDecimal.from("-2.555");
     assert.equal(c.toFixed(2), "-2.56");
+  });
+});
+
+describe("calculateBeveragePortionCost", () => {
+  test("birra piccola e media condividono il fusto e applicano la perdita", () => {
+    const line = {
+      lineType: "beer",
+      purchasePriceNet: "100",
+      sourceVolumeLiters: "50",
+      lossPercentage: "10",
+      dilutionWaterRatio: "0",
+      co2CostPerLiter: "0.05",
+      coolerKwhPerLiter: "0.02",
+      cellarKwhPerLiter: "0.01",
+    };
+    const rates = { electricityCostPerKwh: "0.30" };
+    const small = calculateBeveragePortionCost(line, "0.2", rates);
+    const medium = calculateBeveragePortionCost(line, "0.4", rates);
+
+    assert.equal(small.sourceCost, "0.444444");
+    assert.equal(small.co2Cost, "0.010000");
+    assert.equal(small.energyCost, "0.001800");
+    assert.equal(medium.totalCost, "0.912488");
+  });
+
+  test("BIB calcola concentrato, acqua da bolletta, CO₂ ed energia", () => {
+    const cost = calculateBeveragePortionCost({
+      lineType: "bib",
+      purchasePriceNet: "60",
+      sourceVolumeLiters: "10",
+      lossPercentage: "0",
+      dilutionWaterRatio: "5",
+      co2CostPerLiter: "0.02",
+      coolerKwhPerLiter: "0.01",
+      cellarKwhPerLiter: "0.005",
+    }, "0.4", {
+      waterCostPerLiter: "0.003",
+      electricityCostPerKwh: "0.30",
+    });
+
+    assert.equal(cost.sourceLiters, "0.066667");
+    assert.equal(cost.waterLiters, "0.333335");
+    assert.equal(cost.sourceCost, "0.400002");
+    assert.equal(cost.waterCost, "0.001000");
+    assert.equal(cost.co2Cost, "0.008000");
+    assert.equal(cost.energyCost, "0.001800");
+    assert.equal(cost.totalCost, "0.410802");
+    assert.deepEqual(cost.missingData, []);
+  });
+
+  test("BIB segnala l'assenza della bolletta acqua senza inventare un costo", () => {
+    const cost = calculateBeveragePortionCost({
+      lineType: "bib",
+      purchasePriceNet: "50",
+      sourceVolumeLiters: "10",
+      lossPercentage: "0",
+      dilutionWaterRatio: "4",
+      co2CostPerLiter: "0",
+      coolerKwhPerLiter: "0",
+      cellarKwhPerLiter: "0",
+    }, "0.2", {});
+
+    assert.equal(cost.waterCost, "0.000000");
+    assert.ok(cost.missingData.includes("BEVERAGE_WATER_BILL_MISSING"));
+  });
+
+  test("lo spreco BIB aumenta solo il concentrato, non l'acqua servita", () => {
+    const cost = calculateBeveragePortionCost({
+      lineType: "bib",
+      purchasePriceNet: "60",
+      sourceVolumeLiters: "10",
+      lossPercentage: "10",
+      dilutionWaterRatio: "5",
+      co2CostPerLiter: "0",
+      coolerKwhPerLiter: "0",
+      cellarKwhPerLiter: "0",
+    }, "0.6", { waterCostPerLiter: "0.003" });
+
+    assert.equal(cost.sourceLiters, "0.111111");
+    assert.equal(cost.waterLiters, "0.500000");
+    assert.equal(cost.sourceCost, "0.666666");
+    assert.equal(cost.waterCost, "0.001500");
+  });
+
+  test("la quota beverage diretta viene sottratta una sola volta dalla bolletta", () => {
+    assert.equal(utilityCostAfterDirectBeverage("100", "60", "12"), "88.000000");
+    // Se la stima diretta supera il variabile, canoni fissi e oneri rimangono
+    // comunque allocati ai coperti senza produrre un costo negativo.
+    assert.equal(utilityCostAfterDirectBeverage("100", "60", "75"), "40.000000");
   });
 });
 

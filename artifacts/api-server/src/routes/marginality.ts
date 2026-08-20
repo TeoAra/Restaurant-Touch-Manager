@@ -1,5 +1,7 @@
 import { Router } from "express";
 import {
+  beverageLinesTable,
+  beverageProductMappingsTable,
   costConfigurationsTable,
   coverCostItemsTable,
   db,
@@ -15,6 +17,7 @@ import {
   utilityTypesTable,
 } from "@workspace/db";
 import { and, desc, eq } from "drizzle-orm";
+import { calculateBeveragePortionCost } from "../lib/beverage-costs.js";
 import {
   enqueueRecalculation,
   getMarginOrderDetail,
@@ -49,6 +52,12 @@ function strictlyPositiveDecimal(value: unknown, label: string): string {
   return parsed;
 }
 
+function nonNegativeDecimal(value: unknown, label: string): string {
+  const parsed = decimal(value, "0");
+  if (FixedDecimal.from(parsed).isNegative()) throw new Error(`${label} non può essere negativo`);
+  return parsed;
+}
+
 function withUtilityRates<T extends { consumptionQuantity: string; variableCost: string; totalCost: string }>(bill: T) {
   const consumption = FixedDecimal.from(bill.consumptionQuantity);
   return {
@@ -56,6 +65,38 @@ function withUtilityRates<T extends { consumptionQuantity: string; variableCost:
     variableUnitCost: consumption.isPositive() ? FixedDecimal.from(bill.variableCost).div(consumption).toString() : null,
     totalUnitCost: consumption.isPositive() ? FixedDecimal.from(bill.totalCost).div(consumption).toString() : null,
   };
+}
+
+function isElectricityUtility(type: { code: string; measurementUnit: string } | undefined): boolean {
+  return type?.measurementUnit.trim().toLowerCase() === "kwh";
+}
+
+function isWaterUtility(type: { code: string; name: string; measurementUnit: string } | undefined): boolean {
+  const code = `${type?.code ?? ""} ${type?.name ?? ""}`.toLowerCase();
+  const unit = type?.measurementUnit.trim().toLowerCase().replace("³", "3") ?? "";
+  return code.includes("acqua") || code.includes("water") || unit === "l" || unit === "litri" || unit === "m3";
+}
+
+function waterCostPerLiter(
+  bill: { consumptionQuantity: string; variableCost: string },
+  type: { code: string; name: string; measurementUnit: string } | undefined,
+): string | undefined {
+  const unit = type?.measurementUnit.trim().toLowerCase().replace("³", "3") ?? "";
+  const consumption = FixedDecimal.from(bill.consumptionQuantity);
+  if (!consumption.isPositive() || !isWaterUtility(type)) return undefined;
+  const perUnit = FixedDecimal.from(bill.variableCost).div(consumption);
+  return unit === "m3" ? perUnit.div(FixedDecimal.from("1000")).toString() : perUnit.toString();
+}
+
+function newestBillFor(
+  bills: Array<{ utilityTypeId: number; periodEnd: string; consumptionQuantity: string; variableCost: string }>,
+  types: Array<{ id: number; code: string; name: string; measurementUnit: string }>,
+  matcher: (type: { code: string; name: string; measurementUnit: string } | undefined) => boolean,
+) {
+  const typeById = new Map(types.map((type) => [type.id, type]));
+  return bills
+    .filter((bill) => FixedDecimal.from(bill.consumptionQuantity).isPositive() && matcher(typeById.get(bill.utilityTypeId)))
+    .sort((left, right) => right.periodEnd.localeCompare(left.periodEnd))[0];
 }
 
 function isStandardFriedSauce(name: string): boolean {
@@ -103,7 +144,7 @@ router.post("/orders/:orderId/recalculate", async (req, res): Promise<void> => {
 });
 
 router.get("/catalog", async (_req, res): Promise<void> => {
-  const [ingredients, categories, products, productVariations, recipes, recipeItems, configurations, coverCostItems, utilityTypes, utilityBills] = await Promise.all([
+  const [ingredients, categories, products, productVariations, recipes, recipeItems, configurations, coverCostItems, utilityTypes, utilityBills, beverageLines, beverageProductMappings] = await Promise.all([
     db.select().from(ingredientsTable).orderBy(ingredientsTable.name),
     db.select().from(categoriesTable).orderBy(categoriesTable.sortOrder, categoriesTable.name),
     db.select().from(productsTable).orderBy(productsTable.categoryId, productsTable.sortOrder, productsTable.name),
@@ -114,7 +155,35 @@ router.get("/catalog", async (_req, res): Promise<void> => {
     db.select().from(coverCostItemsTable).orderBy(coverCostItemsTable.name),
     db.select().from(utilityTypesTable).orderBy(utilityTypesTable.name),
     db.select().from(utilityBillsTable).orderBy(desc(utilityBillsTable.periodStart)),
+    db.select().from(beverageLinesTable).orderBy(beverageLinesTable.name),
+    db.select().from(beverageProductMappingsTable),
   ]);
+  const typeById = new Map(utilityTypes.map((type) => [type.id, type]));
+  const electricityBill = newestBillFor(utilityBills, utilityTypes, isElectricityUtility);
+  const waterBill = newestBillFor(utilityBills, utilityTypes, isWaterUtility);
+  const today = new Date().toISOString().slice(0, 10);
+  const currentConfiguration = configurations.find((configuration) =>
+    configuration.validFrom <= today && (!configuration.validTo || configuration.validTo >= today),
+  );
+  const electricityCostPerKwh = electricityBill
+    ? FixedDecimal.from(electricityBill.variableCost).div(FixedDecimal.from(electricityBill.consumptionQuantity)).toString()
+    : (currentConfiguration ? currentConfiguration.electricityCostPerKwh : undefined);
+  const waterRate = waterBill ? waterCostPerLiter(waterBill, typeById.get(waterBill.utilityTypeId)) : undefined;
+  const beverageCostPreviews = beverageLines.map((line) => {
+    const cost = calculateBeveragePortionCost(line, "1", {
+      waterCostPerLiter: waterRate,
+      electricityCostPerKwh,
+    });
+    return {
+      beverageLineId: line.id,
+      costPerLiter: cost.totalCost,
+      sourceCostPerLiter: cost.sourceCost,
+      waterCostPerLiter: cost.waterCost,
+      co2CostPerLiter: cost.co2Cost,
+      energyCostPerLiter: cost.energyCost,
+      missingData: cost.missingData,
+    };
+  });
   res.json({
     ingredients,
     categories,
@@ -131,7 +200,68 @@ router.get("/catalog", async (_req, res): Promise<void> => {
     })),
     utilityTypes,
     utilityBills: utilityBills.map(withUtilityRates),
+    beverageLines,
+    beverageProductMappings,
+    beverageCostPreviews,
   });
+});
+
+router.post("/beverage-lines", async (req, res): Promise<void> => {
+  try {
+    const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+    const lineType = req.body?.lineType === "beer" || req.body?.lineType === "bib" ? req.body.lineType : null;
+    if (!name || !lineType) throw new Error("Nome e tipo di linea sono obbligatori");
+    const lossPercentage = nonNegativeDecimal(req.body.lossPercentage, "Le perdite");
+    if (FixedDecimal.from(lossPercentage).isNegative() || !FixedDecimal.from(lossPercentage).lessThan(FixedDecimal.from("100"))) {
+      throw new Error("Le perdite devono essere comprese tra 0 e 100%");
+    }
+    const dilutionWaterRatio = nonNegativeDecimal(req.body.dilutionWaterRatio, "Il rapporto acqua");
+    const [line] = await db.insert(beverageLinesTable).values({
+      name,
+      lineType,
+      purchasePriceNet: strictlyPositiveDecimal(req.body.purchasePriceNet, "Il costo imponibile"),
+      vatRate: nonNegativeDecimal(req.body.vatRate, "L'IVA"),
+      sourceVolumeLiters: strictlyPositiveDecimal(req.body.sourceVolumeLiters, "Il volume della fonte"),
+      lossPercentage,
+      dilutionWaterRatio: lineType === "bib" ? dilutionWaterRatio : "0",
+      co2CostPerLiter: nonNegativeDecimal(req.body.co2CostPerLiter, "Il costo CO₂"),
+      coolerKwhPerLiter: nonNegativeDecimal(req.body.coolerKwhPerLiter, "Il consumo del cooler"),
+      cellarKwhPerLiter: nonNegativeDecimal(req.body.cellarKwhPerLiter, "Il consumo della cella"),
+      active: req.body?.active !== false,
+    }).returning();
+    res.status(201).json(line);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Linea beverage non valida" });
+  }
+});
+
+router.post("/beverage-product-mappings", async (req, res): Promise<void> => {
+  try {
+    const productId = positiveId(req.body?.productId);
+    const beverageLineId = positiveId(req.body?.beverageLineId);
+    if (!productId || !beverageLineId) throw new Error("Prodotto e linea beverage sono obbligatori");
+    const [[product], [line]] = await Promise.all([
+      db.select({ id: productsTable.id }).from(productsTable).where(eq(productsTable.id, productId)).limit(1),
+      db.select({ id: beverageLinesTable.id }).from(beverageLinesTable).where(eq(beverageLinesTable.id, beverageLineId)).limit(1),
+    ]);
+    if (!product) throw new Error("Prodotto menu non trovato");
+    if (!line) throw new Error("Linea beverage non trovata");
+    const [mapping] = await db.insert(beverageProductMappingsTable).values({
+      productId,
+      beverageLineId,
+      servingVolumeLiters: strictlyPositiveDecimal(req.body?.servingVolumeLiters, "I litri del formato"),
+    }).onConflictDoUpdate({
+      target: beverageProductMappingsTable.productId,
+      set: {
+        beverageLineId,
+        servingVolumeLiters: strictlyPositiveDecimal(req.body?.servingVolumeLiters, "I litri del formato"),
+        updatedAt: new Date(),
+      },
+    }).returning();
+    res.status(201).json(mapping);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Associazione beverage non valida" });
+  }
 });
 
 router.post("/cover-cost-items", async (req, res): Promise<void> => {

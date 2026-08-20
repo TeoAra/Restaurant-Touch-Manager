@@ -1,4 +1,6 @@
 import {
+  beverageLinesTable,
+  beverageProductMappingsTable,
   db,
   costConfigurationsTable,
   coverCostItemsTable,
@@ -21,6 +23,7 @@ import {
   utilityTypesTable,
 } from "@workspace/db";
 import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { calculateBeveragePortionCost, type BeverageLineCostInput, utilityCostAfterDirectBeverage } from "./beverage-costs.js";
 import { FixedDecimal } from "./fixed-decimal.js";
 import { calculateActualPrepMinutes } from "./kitchen-domain.js";
 import { calculateMargin, type MarginCalculatorOutput, type MarginProductLine } from "./margin-calculator.js";
@@ -72,6 +75,76 @@ function paymentFeePercentage(method: string, config: {
     return amount(config.cardFeePercentage);
   }
   return amount(config.otherFeePercentage);
+}
+
+type UtilityTypeRow = { id: number; code: string; name: string; measurementUnit: string };
+type UtilityBillRow = {
+  id: number;
+  utilityTypeId: number;
+  periodStart: string;
+  periodEnd: string;
+  consumptionQuantity: string;
+  variableCost: string;
+  fixedCost: string;
+  taxesAndFees: string;
+  totalCost: string;
+};
+
+function isElectricityUtility(type: UtilityTypeRow | undefined): boolean {
+  return type?.measurementUnit.trim().toLowerCase() === "kwh";
+}
+
+function isWaterUtility(type: UtilityTypeRow | undefined): boolean {
+  const code = `${type?.code ?? ""} ${type?.name ?? ""}`.toLowerCase();
+  const unit = type?.measurementUnit.trim().toLowerCase().replace("³", "3") ?? "";
+  return code.includes("acqua") || code.includes("water") || unit === "l" || unit === "litri" || unit === "m3";
+}
+
+function waterCostPerLiter(bill: UtilityBillRow, type: UtilityTypeRow | undefined): FixedDecimal | undefined {
+  const unit = type?.measurementUnit.trim().toLowerCase().replace("³", "3") ?? "";
+  const consumption = amount(bill.consumptionQuantity);
+  if (!consumption.isPositive() || !isWaterUtility(type)) return undefined;
+  const rate = amount(bill.variableCost).div(consumption);
+  return unit === "m3" ? rate.div(FixedDecimal.from("1000")) : rate;
+}
+
+function utilityBillForDate(
+  bills: UtilityBillRow[],
+  types: Map<number, UtilityTypeRow>,
+  at: string,
+  matcher: (type: UtilityTypeRow | undefined) => boolean,
+): UtilityBillRow | undefined {
+  return bills
+    .filter((bill) => at >= bill.periodStart && at <= bill.periodEnd && amount(bill.consumptionQuantity).isPositive() && matcher(types.get(bill.utilityTypeId)))
+    .sort((a, b) => b.periodStart.localeCompare(a.periodStart))[0];
+}
+
+function directBeverageUtilityCostForBill(
+  bill: UtilityBillRow,
+  type: UtilityTypeRow | undefined,
+  paidFacts: Array<{ fact: { productId: number; quantity: number }; order: { createdAt: Date } }>,
+  beverageMappingsByProduct: Map<number, { beverageLineId: number; servingVolumeLiters: string }>,
+  beverageLinesById: Map<number, BeverageLineCostInput>,
+): FixedDecimal {
+  const isElectricity = isElectricityUtility(type);
+  const waterRate = waterCostPerLiter(bill, type);
+  if (!isElectricity && !waterRate) return ZERO;
+  const electricityRate = isElectricity && amount(bill.consumptionQuantity).isPositive()
+    ? amount(bill.variableCost).div(amount(bill.consumptionQuantity))
+    : undefined;
+  return paidFacts.reduce((total, entry) => {
+    const date = dateKey(entry.order.createdAt);
+    if (date < bill.periodStart || date > bill.periodEnd) return total;
+    const mapping = beverageMappingsByProduct.get(entry.fact.productId);
+    const line = mapping ? beverageLinesById.get(mapping.beverageLineId) : undefined;
+    if (!mapping || !line) return total;
+    const cost = calculateBeveragePortionCost(line, mapping.servingVolumeLiters, {
+      waterCostPerLiter: waterRate?.toString(),
+      electricityCostPerKwh: electricityRate?.toString(),
+    });
+    const perUnit = isElectricity ? amount(cost.energyCost) : amount(cost.waterCost);
+    return total.add(perUnit.mul(amount(entry.fact.quantity)));
+  }, ZERO);
 }
 
 /**
@@ -216,7 +289,7 @@ async function buildCalculation(orderId: number): Promise<{
   if (!order) throw new Error(`Order ${orderId} not found`);
 
   const at = dateKey(order.createdAt);
-  const [facts, products, recipes, recipeItems, ingredients, costHistory, equipment, productEquipment, oilCycles, configurations, coverCostItems, payments, indirectAllocations, utilityBills, utilityTypes, paidOrders] = await Promise.all([
+  const [facts, products, recipes, recipeItems, ingredients, costHistory, equipment, productEquipment, oilCycles, configurations, coverCostItems, payments, indirectAllocations, utilityBills, utilityTypes, paidOrders, beverageLines, beverageProductMappings, paidFacts] = await Promise.all([
     db.select().from(marginOrderItemFactsTable).where(eq(marginOrderItemFactsTable.orderId, orderId)),
     db.select().from(productsTable),
     db.select().from(recipesTable),
@@ -234,6 +307,12 @@ async function buildCalculation(orderId: number): Promise<{
     db.select().from(utilityBillsTable),
     db.select().from(utilityTypesTable),
     db.select({ createdAt: ordersTable.createdAt, covers: ordersTable.covers }).from(ordersTable).where(eq(ordersTable.status, "paid")),
+    db.select().from(beverageLinesTable),
+    db.select().from(beverageProductMappingsTable),
+    db.select({ fact: marginOrderItemFactsTable, order: ordersTable })
+      .from(marginOrderItemFactsTable)
+      .innerJoin(ordersTable, eq(marginOrderItemFactsTable.orderId, ordersTable.id))
+      .where(eq(ordersTable.status, "paid")),
   ]);
 
   const config = configurations
@@ -248,16 +327,15 @@ async function buildCalculation(orderId: number): Promise<{
   const activeOilCycle = oilCycles
     .filter((cycle) => cycle.openedAt <= order.createdAt && cycle.portionsProduced > 0)
     .sort((a, b) => b.openedAt.getTime() - a.openedAt.getTime())[0];
-  const utilityTypeById = new Map(utilityTypes.map((utilityType) => [utilityType.id, utilityType]));
-  const electricityBill = utilityBills
-    .filter((bill) => {
-      const type = utilityTypeById.get(bill.utilityTypeId);
-      return at >= bill.periodStart
-        && at <= bill.periodEnd
-        && type?.measurementUnit.trim().toLowerCase() === "kwh"
-        && amount(bill.consumptionQuantity).isPositive();
-    })
-    .sort((a, b) => b.periodStart.localeCompare(a.periodStart))[0];
+  const utilityTypeById = new Map<number, UtilityTypeRow>(utilityTypes.map((utilityType) => [utilityType.id, utilityType]));
+  const typedUtilityBills = utilityBills as UtilityBillRow[];
+  const electricityBill = utilityBillForDate(typedUtilityBills, utilityTypeById, at, isElectricityUtility);
+  const waterBill = utilityBillForDate(
+    typedUtilityBills,
+    utilityTypeById,
+    at,
+    isWaterUtility,
+  );
   // Una bolletta valida è il consuntivo dell'utenza e viene allocata per
   // coperto: non la sommiamo alla stima tecnica delle apparecchiature, per non
   // conteggiare due volte la stessa energia. La stima €/kWh resta il fallback.
@@ -265,6 +343,9 @@ async function buildCalculation(orderId: number): Promise<{
   const electricityCostPerKwh = electricityBill
     ? amount(electricityBill.variableCost).div(amount(electricityBill.consumptionQuantity))
     : (config ? amount(config.electricityCostPerKwh) : ZERO);
+  const waterRate = waterBill ? waterCostPerLiter(waterBill, utilityTypeById.get(waterBill.utilityTypeId)) : undefined;
+  const beverageLinesById = new Map<number, BeverageLineCostInput>(beverageLines.map((line) => [line.id, line]));
+  const beverageMappingsByProduct = new Map(beverageProductMappings.map((mapping) => [mapping.productId, mapping]));
 
   const lines: MarginProductLine[] = facts.map((fact) => {
     if (fact.productId === 0) {
@@ -283,9 +364,12 @@ async function buildCalculation(orderId: number): Promise<{
     }
     const product = productById.get(fact.productId);
     const recipe = selectRecipeForDate(recipes, fact.productId, at);
+    const beverageMapping = beverageMappingsByProduct.get(fact.productId);
+    const beverageLine = beverageMapping ? beverageLinesById.get(beverageMapping.beverageLineId) : undefined;
     const localMissing: string[] = [];
     if (!product) localMissing.push(`PRODUCT_${fact.productId}_MISSING`);
-    if (!recipe) localMissing.push(`RECIPE_${fact.productId}_MISSING`);
+    if (!recipe && !beverageMapping) localMissing.push(`RECIPE_${fact.productId}_MISSING`);
+    if (beverageMapping && !beverageLine) localMissing.push(`BEVERAGE_LINE_${beverageMapping.beverageLineId}_MISSING`);
 
     let ingredientCost = ZERO;
     let packagingCost: FixedDecimal | undefined;
@@ -311,7 +395,17 @@ async function buildCalculation(orderId: number): Promise<{
       } catch { /* ignore malformed JSON */ }
     }
 
-    if (recipe) {
+    if (beverageMapping && beverageLine) {
+      const beverageCost = calculateBeveragePortionCost(beverageLine, beverageMapping.servingVolumeLiters, {
+        waterCostPerLiter: waterRate?.toString(),
+        electricityCostPerKwh: electricityBill || config ? electricityCostPerKwh.toString() : undefined,
+      });
+      ingredientCost = amount(beverageCost.sourceCost)
+        .add(amount(beverageCost.waterCost))
+        .add(amount(beverageCost.co2Cost));
+      energyCost = amount(beverageCost.energyCost);
+      localMissing.push(...beverageCost.missingData);
+    } else if (recipe) {
       const recipeRows = recipeItems.filter((item) => item.recipeId === recipe.id);
       if (!recipeRows.length) localMissing.push(`RECIPE_${fact.productId}_EMPTY`);
 
@@ -385,7 +479,7 @@ async function buildCalculation(orderId: number): Promise<{
       grossRevenue: fact.subtotal,
       quantity: fact.quantity,
       vatRate: fact.vatRate || product?.iva || "0",
-      ingredientCostPerUnit: recipe ? ingredientCost.toString() : undefined,
+      ingredientCostPerUnit: recipe || beverageLine ? ingredientCost.toString() : undefined,
       packagingCostPerUnit: packagingCost?.toString(),
       fryerOilCostPerUnit: fryerOilCost?.toString(),
       energyCostPerUnit: energyCost.toString(),
@@ -414,10 +508,29 @@ async function buildCalculation(orderId: number): Promise<{
     }).reduce((total, paid) => total.add(amount(paid.covers)), ZERO);
     if (!coversInPeriod.isPositive() || order.covers <= 0) return [];
     const utilityType = utilityTypeById.get(bill.utilityTypeId);
+    // Acqua e corrente che servono direttamente alla spina sono già inclusi
+    // nella riga prodotto. Dal riparto generico sottraiamo esattamente quella
+    // quota variabile sull'intero periodo della bolletta, lasciando invariati
+    // canoni fissi e imposte da distribuire sui coperti.
+    const directCost = directBeverageUtilityCostForBill(
+      bill as UtilityBillRow,
+      utilityType,
+      paidFacts,
+      beverageMappingsByProduct,
+      beverageLinesById,
+    );
+    const directVariableCost = directCost.greaterThan(amount(bill.variableCost)) ? amount(bill.variableCost) : directCost;
+    const distributableAmount = amount(utilityCostAfterDirectBeverage(
+      bill.totalCost,
+      bill.variableCost,
+      directCost.toString(),
+    ));
     return [{
       code: `utility:${bill.id}`,
-      amount: amount(bill.totalCost).div(coversInPeriod).mul(amount(order.covers)).toString(),
-      source: `Bolletta ${utilityType?.name ?? bill.utilityTypeId}, ripartita per coperto`,
+      amount: distributableAmount.div(coversInPeriod).mul(amount(order.covers)).toString(),
+      source: directVariableCost.isPositive()
+        ? `Bolletta ${utilityType?.name ?? bill.utilityTypeId}, al netto dei consumi beverage diretti`
+        : `Bolletta ${utilityType?.name ?? bill.utilityTypeId}, ripartita per coperto`,
       reliabilityLevel: "estimated" as const,
     }];
   });
