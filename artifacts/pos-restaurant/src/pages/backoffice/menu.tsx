@@ -22,7 +22,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Pencil, Trash2, Package, Settings2, X, GripVertical, ChevronDown, ChevronUp, ChevronRight, Search, Eye, EyeOff } from "lucide-react";
+import { Plus, Pencil, Trash2, Package, Settings2, X, GripVertical, ChevronDown, ChevronUp, ChevronRight, Search, Check, Ban } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
@@ -74,11 +74,9 @@ async function deleteVariation(productId: number, varId: number): Promise<void> 
 
 // ── CategoryForm ──────────────────────────────────────────────────────────────
 type SimplePrinter = { id: number; name: string };
-type ProductionDepartment = { id: number; productionType: string; printerId: number | null };
-function CategoryForm({ initial, printers, kitchenPrinterIds, onSave, onClose }: {
+function CategoryForm({ initial, printers, onSave, onClose }: {
   initial?: Category;
   printers: SimplePrinter[];
-  kitchenPrinterIds: ReadonlySet<number>;
   onSave: (data: { name: string; color: string; sortOrder: number; printerId: number | null }) => void;
   onClose: () => void;
 }) {
@@ -86,7 +84,6 @@ function CategoryForm({ initial, printers, kitchenPrinterIds, onSave, onClose }:
   const [color, setColor] = useState(initial?.color ?? "#f59e0b");
   const [sortOrder, setSortOrder] = useState(initial?.sortOrder ?? 0);
   const [printerId, setPrinterId] = useState<number | null>((initial as Category & { printerId?: number | null })?.printerId ?? null);
-  const goesToKitchenTablet = printerId !== null && kitchenPrinterIds.has(printerId);
 
   return (
     <div className="space-y-4">
@@ -106,7 +103,7 @@ function CategoryForm({ initial, printers, kitchenPrinterIds, onSave, onClose }:
         <Input type="number" value={sortOrder} onChange={(e) => setSortOrder(Number(e.target.value))} className="mt-1" />
       </div>
       <div>
-        <Label>Reparto / stampante comanda</Label>
+        <Label>Stampante comanda</Label>
         <select
           value={printerId ?? ""}
           onChange={e => setPrinterId(e.target.value ? Number(e.target.value) : null)}
@@ -118,9 +115,7 @@ function CategoryForm({ initial, printers, kitchenPrinterIds, onSave, onClose }:
           ))}
         </select>
         <p className="text-[11px] text-slate-400 mt-1">
-          {goesToKitchenTablet
-            ? "Questa categoria verrà stampata e visualizzata sul tablet della cucina."
-            : "Solo le categorie assegnate a una stampante di un reparto Cucina appaiono sul tablet cucina."}
+          Le comande di questa categoria vengono stampate su questa stampante
         </p>
       </div>
       <DialogFooter>
@@ -138,7 +133,7 @@ function ProductForm({ initial, defaultCategoryId, categories, onSave, onClose }
   initial?: Product;
   defaultCategoryId?: number | null;
   categories: Category[];
-  onSave: (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; visibleInFrontOffice: boolean; sortOrder: number; sku: string | null; barcode: string | null; allergeni: string | null }) => void;
+  onSave: (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; available: boolean; sortOrder: number; sku: string | null; barcode: string | null; allergeni: string | null }) => void;
   onClose: () => void
 }) {
   const ext = initial as ProductExt | undefined;
@@ -149,7 +144,7 @@ function ProductForm({ initial, defaultCategoryId, categories, onSave, onClose }
   const [price4, setPrice4] = useState(ext?.price4 ?? "0.00");
   const [categoryId, setCategoryId] = useState<number | null>(ext?.categoryId ?? defaultCategoryId ?? null);
   const [description, setDescription] = useState(ext?.description ?? "");
-  const [visibleInFrontOffice, setVisibleInFrontOffice] = useState(ext?.visibleInFrontOffice ?? true);
+  const [available, setAvailable] = useState(ext?.available ?? true);
   const [sortOrder, setSortOrder] = useState(ext?.sortOrder ?? 0);
   const [sku, setSku] = useState(ext?.sku ?? "");
   const [barcode, setBarcode] = useState(ext?.barcode ?? "");
@@ -169,9 +164,6 @@ function ProductForm({ initial, defaultCategoryId, categories, onSave, onClose }
             <option value="">Nessuna</option>
             {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          <p className="mt-1 text-[11px] text-slate-400">
-            Collega gli ingredienti in <strong>Marginalità → Ricette</strong>: diventano variazioni automatiche “Senza …” nella cassa e aggiornano i costi della marginalità.
-          </p>
         </div>
       </div>
 
@@ -224,16 +216,13 @@ function ProductForm({ initial, defaultCategoryId, categories, onSave, onClose }
         <p className="text-[11px] text-muted-foreground mt-1">Separati da virgola — verranno stampati in cucina</p>
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <div className="flex items-center gap-2">
-          <Switch checked={visibleInFrontOffice} onCheckedChange={setVisibleInFrontOffice} id="visible-in-front-office" />
-          <Label htmlFor="visible-in-front-office">Mostra nel Front Office</Label>
-        </div>
-        <p className="mt-1 text-[11px] text-slate-500">Nascondi qui prodotti stagionali, birre sostituite o voci che non vuoi più proporre, senza cancellare prezzi, ricette o storico.</p>
+      <div className="flex items-center gap-2">
+        <Switch checked={available} onCheckedChange={setAvailable} id="available" />
+        <Label htmlFor="available">Disponibile</Label>
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Annulla</Button>
-        <Button onClick={() => onSave({ name, price, price2, price3, price4, categoryId, description: description || null, visibleInFrontOffice, sortOrder, sku: sku || null, barcode: barcode || null, allergeni: allergeni.trim() || null })} disabled={!name || !price}>Salva</Button>
+        <Button onClick={() => onSave({ name, price, price2, price3, price4, categoryId, description: description || null, available, sortOrder, sku: sku || null, barcode: barcode || null, allergeni: allergeni.trim() || null })} disabled={!name || !price}>Salva</Button>
       </DialogFooter>
     </div>
   );
@@ -675,14 +664,6 @@ export default function MenuPage() {
   const { data: products = [] } = useListProducts(filterCatId != null ? { categoryId: filterCatId } : undefined);
   const { data: allProducts = [] } = useListProducts();
   const { data: printers = [] } = useQuery<SimplePrinter[]>({ queryKey: ["printers"], queryFn: () => fetch(`${API}/printers`).then(r => r.json()) });
-  const { data: departments = [] } = useQuery<ProductionDepartment[]>({ queryKey: ["departments"], queryFn: () => fetch(`${API}/departments`).then(r => r.json()) });
-  const kitchenPrinterIds = new Set<number>(
-    departments.flatMap(department =>
-      department.productionType === "kitchen" && typeof department.printerId === "number"
-        ? [department.printerId]
-        : [],
-    ),
-  );
 
   const createCat = useCreateCategory();
   const updateCat = useUpdateCategory();
@@ -707,7 +688,7 @@ export default function MenuPage() {
     }
   };
 
-  const handleSaveProduct = (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; visibleInFrontOffice: boolean; sortOrder: number; sku: string | null; barcode: string | null; allergeni: string | null }) => {
+  const handleSaveProduct = (data: { name: string; price: string; price2: string; price3: string; price4: string; categoryId: number | null; description: string | null; available: boolean; sortOrder: number; sku: string | null; barcode: string | null; allergeni: string | null }) => {
     const opts = {
       onSuccess: () => {
         toast({ title: "Prodotto salvato" });
@@ -791,7 +772,7 @@ export default function MenuPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-foreground text-sm">{p.name}</span>
-                        {p.visibleInFrontOffice === false && <Badge variant="outline" className="text-xs border-slate-300 text-slate-500">Nascosto al Front Office</Badge>}
+                        {!p.available && <Badge variant="outline" className="text-xs text-muted-foreground">Non disp.</Badge>}
                         {cat && (
                           <span className="text-xs px-2 py-0.5 rounded-full hidden sm:inline" style={{ backgroundColor: cat.color + "30", color: cat.color }}>
                             {cat.name}
@@ -803,29 +784,28 @@ export default function MenuPage() {
                     <div className="text-primary font-bold text-sm shrink-0">€ {p.price}</div>
                     <div className="flex gap-1 shrink-0">
                       <button
-                        title={p.visibleInFrontOffice === false ? "Mostra nel Front Office" : "Nascondi dal Front Office"}
+                        title={p.available ? "Segna come esaurito" : "Segna come disponibile"}
                         disabled={togglingId === p.id}
                         onClick={async () => {
                           setTogglingId(p.id);
                           try {
-                            const nextVisible = p.visibleInFrontOffice === false;
                             const res = await fetch(`${API}/products/${p.id}`, {
                               method: "PATCH",
                               headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ visibleInFrontOffice: nextVisible }),
+                              body: JSON.stringify({ available: !p.available }),
                             });
                             if (!res.ok) throw new Error(`HTTP ${res.status}`);
                             queryClient.invalidateQueries({ queryKey: getListProductsQueryKey() });
-                            toast({ title: nextVisible ? "Prodotto visibile nel Front Office" : "Prodotto nascosto dal Front Office" });
+                            toast({ title: p.available ? "Prodotto segnato come esaurito" : "Prodotto disponibile" });
                           } catch (e) {
-                            toast({ title: "Errore aggiornamento visibilità", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+                            toast({ title: "Errore aggiornamento disponibilità", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
                           } finally {
                             setTogglingId(null);
                           }
                         }}
-                        className={`h-8 w-8 flex items-center justify-center rounded transition-colors disabled:opacity-50 ${p.visibleInFrontOffice === false ? "text-slate-400 hover:bg-slate-100" : "text-sky-600 hover:bg-sky-50"}`}
+                        className={`h-8 w-8 flex items-center justify-center rounded transition-colors disabled:opacity-50 ${p.available ? "text-emerald-600 hover:bg-emerald-50" : "text-amber-600 hover:bg-amber-50"}`}
                       >
-                        {p.visibleInFrontOffice === false ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        {p.available ? <Check className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
                       </button>
                       <button
                         title="Variazioni"
@@ -873,7 +853,6 @@ export default function MenuPage() {
               {categories.map((c) => {
                 const printerId = (c as unknown as { printerId?: number | null }).printerId;
                 const assignedPrinter = printerId ? printers.find(p => p.id === printerId) : null;
-                const goesToKitchenTablet = printerId !== null && printerId !== undefined && kitchenPrinterIds.has(printerId);
                 return (
                 <div key={c.id} className="flex items-center gap-3 p-3 rounded-lg bg-card border border-border">
                   <div className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
@@ -882,14 +861,9 @@ export default function MenuPage() {
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-xs text-muted-foreground">Ordine: {c.sortOrder}</span>
                       {assignedPrinter ? (
-                        <>
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                            🖨 {assignedPrinter.name}
-                          </span>
-                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${goesToKitchenTablet ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-50 text-slate-500 border-slate-200"}`}>
-                            {goesToKitchenTablet ? "Tablet cucina" : "Fuori dal tablet cucina"}
-                          </span>
-                        </>
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                          🖨 {assignedPrinter.name}
+                        </span>
                       ) : (
                         <span className="text-[10px] text-slate-300 italic">nessuna stampante</span>
                       )}
@@ -952,7 +926,7 @@ export default function MenuPage() {
           <DialogHeader>
             <DialogTitle>{catDialog.item ? "Modifica Categoria" : "Nuova Categoria"}</DialogTitle>
           </DialogHeader>
-          <CategoryForm initial={catDialog.item} printers={printers} kitchenPrinterIds={kitchenPrinterIds} onSave={handleSaveCategory} onClose={() => setCatDialog({ open: false })} />
+          <CategoryForm initial={catDialog.item} printers={printers} onSave={handleSaveCategory} onClose={() => setCatDialog({ open: false })} />
         </DialogContent>
       </Dialog>
 

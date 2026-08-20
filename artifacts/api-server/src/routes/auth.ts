@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { clearAuthenticatedSession, setAuthenticatedSession } from "../lib/session-auth";
 
 const router = Router();
 
@@ -16,7 +15,6 @@ router.post("/login", async (req, res) => {
     .where(eq(usersTable.pin, pin));
 
   if (!user) return res.status(401).json({ error: "PIN non valido" });
-  setAuthenticatedSession(res, user.id);
   return res.json(user);
 });
 
@@ -36,11 +34,6 @@ router.post("/users", async (req, res) => {
     id: usersTable.id, name: usersTable.name, role: usersTable.role,
   });
   res.status(201).json(user);
-});
-
-router.post("/logout", (_req, res) => {
-  clearAuthenticatedSession(res);
-  res.status(204).end();
 });
 
 // DELETE /api/auth/users/:id — delete user

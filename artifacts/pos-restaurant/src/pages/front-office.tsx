@@ -12,8 +12,6 @@ import {
   useUpdateOrderItem,
   useDeleteOrderItem,
   useCreatePayment,
-  useGetProductIngredients,
-  getGetProductIngredientsQueryKey,
 } from "@workspace/api-client-react";
 import type { TableStatus } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -29,7 +27,7 @@ import {
   Users, Plus, Minus, CreditCard, Banknote, Wallet,
   ShoppingBag, Truck, Clock, Send, FileText, Divide,
   ChevronLeft, ChevronRight, Search, X, UtensilsCrossed, Zap, Map as MapIcon,
-   AlertTriangle, CheckCircle2, User, LogOut, Building2, Pencil, Settings2,
+  AlertTriangle, CheckCircle2, User, LogOut, Building2, Pencil,
   ArrowRightFromLine, ArrowLeftRight, GitMerge, ReceiptText, Trash2, BadgePercent, StickyNote, Ticket,
   ScrollText, Hash, Euro, RefreshCw, CalendarClock, ArrowRight, BookOpen,
   Loader2, XCircle, Printer,
@@ -2331,7 +2329,7 @@ ${covers > 0 ? `<p>${covers} coperti${coverPrice > 0 ? ` × €${coverPrice.toFi
 // ─── Split Bill: body riusabile (dialog + tab "tot" inline) ───────────────────
 function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId }: {
   items: Array<{ id: number; productName: string; quantity: number; unitPrice: string; subtotal: string }>;
-  onPay: (method: string, amount: number, itemIds: number[], coversToDeduct: number, itemQuantities: Record<number, number>, splitRequestId: string) => void;
+  onPay: (method: string, amount: number, itemIds: number[], coversToDeduct: number) => void;
   onCancel: () => void;
   coverPrice: number; coverCount: number; orderId?: number;
 }) {
@@ -2348,7 +2346,6 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
 
   // qty[id] = selected quantity for this row (0 = not included)
   const [qty, setQty] = useState<Record<number, number>>({});
-  const splitRequestIdRef = useRef<string | null>(null);
   const [method, setMethod] = useState<"cash" | "card" | "ticket" | "other">("cash");
   const { data: sbSettings = {} } = useSettings();
   const sbBuoniPastoOn = sbSettings["feat_buoni_pasto"] === "true";
@@ -2363,13 +2360,8 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
   function doIncassaFinale() {
     const ids = allRows.filter(r => (qty[r.id] ?? 0) > 0 && !r.isCover).map(r => r.id);
     const coversToDeduct = coverRows.filter(r => (qty[r.id] ?? 0) > 0).length;
-    const itemQuantities = Object.fromEntries(allRows
-      .filter(row => !row.isCover && (qty[row.id] ?? 0) > 0)
-      .map(row => [row.id, qty[row.id] ?? 0]));
     setSbPosPhase("idle");
-    const splitRequestId = splitRequestIdRef.current ?? crypto.randomUUID();
-    splitRequestIdRef.current = splitRequestId;
-    onPay(method, splitTotal, ids, coversToDeduct, itemQuantities, splitRequestId);
+    onPay(method, splitTotal, ids, coversToDeduct);
   }
 
   async function handleIncassa() {
@@ -2562,7 +2554,7 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
 function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }: {
   open: boolean; onClose: () => void;
   items: Array<{ id: number; productName: string; quantity: number; unitPrice: string; subtotal: string }>;
-  onPay: (method: string, amount: number, itemIds: number[], coversToDeduct: number, itemQuantities: Record<number, number>, splitRequestId: string) => void;
+  onPay: (method: string, amount: number, itemIds: number[], coversToDeduct: number) => void;
   coverPrice: number; coverCount: number;
 }) {
   return (
@@ -2574,7 +2566,7 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
             items={items}
             coverPrice={coverPrice}
             coverCount={coverCount}
-            onPay={(m, a, ids, c, quantities, splitRequestId) => { onPay(m, a, ids, c, quantities, splitRequestId); onClose(); }}
+            onPay={(m, a, ids, c) => { onPay(m, a, ids, c); onClose(); }}
             onCancel={onClose}
           />
         )}
@@ -2589,7 +2581,7 @@ type EditableItem = { id: number; productName: string; quantity: number; unitPri
 function ItemEditDialog({ open, onClose, item, onSave }: {
   open: boolean; onClose: () => void;
   item: EditableItem | null;
-  onSave: (itemId: number, unitPrice: string) => Promise<void>;
+  onSave: (itemId: number, unitPrice: string) => void;
 }) {
   const [price, setPrice] = useState("");
 
@@ -2654,15 +2646,7 @@ function ItemEditDialog({ open, onClose, item, onSave }: {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Annulla</Button>
-          <Button onClick={async () => {
-            if (!Number.isFinite(parseFloat(price)) || parseFloat(price) < 0) return;
-            try {
-              await onSave(item.id, parseFloat(price).toFixed(2));
-              onClose();
-            } catch {
-              // Il dialog resta aperto; handleSaveItemEdit mostra l'errore.
-            }
-          }}>Salva</Button>
+          <Button onClick={() => { onSave(item.id, parseFloat(price).toFixed(2)); onClose(); }}>Salva</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -2683,24 +2667,50 @@ function CategoryButton({ cat, onClick }: { cat: PosCategory; onClick: () => voi
 }
 
 // ─── Product Card ──────────────────────────────────────────────────────────────
-type PosProduct = { id: number; name: string; price: string; price2?: string; price3?: string; price4?: string; visibleInFrontOffice?: boolean; allergeni?: string | null };
-function ProductCard({ product, onAdd, activePriceList }: {
+type PosProduct = { id: number; name: string; price: string; price2?: string; price3?: string; price4?: string; available: boolean; allergeni?: string | null };
+function ProductCard({ product, onAdd, activePriceList, onToggleEsaurito }: {
   product: PosProduct;
   activePriceList: number;
   onAdd: (id: number, unitPrice: string) => void;
+  onToggleEsaurito?: (id: number, available: boolean) => void;
 }) {
   const priceFields = ["price", "price2", "price3", "price4"] as const;
   const fieldVal = product[priceFields[activePriceList]];
   const rawPrice = (fieldVal && parseFloat(fieldVal) > 0) ? fieldVal : product.price;
   const displayPrice = parseFloat(rawPrice || "0");
+  const isAvailable = (product as unknown as { available?: boolean }).available !== false;
+
+  // Long-press per toggle Esaurito
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressed = useRef(false);
+  const startPress = () => {
+    longPressed.current = false;
+    if (!onToggleEsaurito) return;
+    pressTimer.current = setTimeout(() => {
+      longPressed.current = true;
+      onToggleEsaurito(product.id, !isAvailable);
+    }, 600);
+  };
+  const cancelPress = () => {
+    if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
+  };
+
   return (
     <button
-      onClick={() => onAdd(product.id, rawPrice)}
+      onClick={() => { if (!longPressed.current && isAvailable) onAdd(product.id, rawPrice); }}
+      onPointerDown={startPress}
+      onPointerUp={cancelPress}
+      onPointerLeave={cancelPress}
+      onContextMenu={(e) => { e.preventDefault(); onToggleEsaurito?.(product.id, !isAvailable); }}
       className={cn(
         "relative bg-[#22263a] rounded-xl border-2 p-3 text-left hover:shadow-lg hover:shadow-primary/10 active:scale-95 transition-all group min-h-[88px] flex flex-col justify-between",
-        "border-[#2d3044] hover:border-primary"
+        isAvailable ? "border-[#2d3044] hover:border-primary" : "border-red-900 opacity-60 grayscale"
       )}
+      title={isAvailable ? "Tocca a lungo per segnare come Esaurito" : "Esaurito — tocca a lungo per ripristinare"}
     >
+      {!isAvailable && (
+        <span className="absolute top-1 right-1 px-1.5 py-0.5 rounded-md bg-red-700 text-white text-[9px] font-bold uppercase tracking-wide">Esaurito</span>
+      )}
       {product.allergeni && product.allergeni.trim() && (
         <span
           className="absolute top-1 left-1 h-4 w-4 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center shadow-md ring-1 ring-red-300"
@@ -3009,16 +3019,13 @@ export default function FrontOffice() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [comandaBanner, setComandaBanner] = useState<string | null>(null);
 
-  type FEModifier = { id: number; label: string; type: string; priceExtra: string; ingredientId?: number; source?: string };
-  const modifierPickerCategoryId = modifierPicker
-    ? products.find(product => product.id === modifierPicker.productId)?.categoryId ?? selectedCategoryId
-    : selectedCategoryId;
+  type FEModifier = { id: number; label: string; type: string; priceExtra: string };
   const { data: categoryModifiers = [] } = useQuery<FEModifier[]>({
-    queryKey: ["category-modifiers", modifierPickerCategoryId],
-    queryFn: () => modifierPickerCategoryId
-      ? fetch(`${API}/modifiers/by-category/${modifierPickerCategoryId}`).then(r => r.json())
+    queryKey: ["category-modifiers", selectedCategoryId],
+    queryFn: () => selectedCategoryId
+      ? fetch(`${API}/modifiers/by-category/${selectedCategoryId}`).then(r => r.json())
       : Promise.resolve([]),
-    enabled: !!modifierPickerCategoryId,
+    enabled: !!selectedCategoryId,
     staleTime: 30000,
   });
 
@@ -3031,11 +3038,7 @@ export default function FrontOffice() {
     staleTime: 30000,
   });
 
-  const { data: productIngredients = [] } = useGetProductIngredients(modifierPicker?.productId ?? 0, {
-    query: { enabled: !!modifierPicker, queryKey: getGetProductIngredientsQueryKey(modifierPicker?.productId ?? 0) }
-  });
-
-  const activeTableEntry = tablesStatus.find((t: any) => t.id === selectedTableId) as FETable | undefined;
+  const activeTableEntry = tablesStatus.find(t => t.id === selectedTableId) as FETable | undefined;
   const activeOrderId = isQuickMode
     ? quickOrderId ?? undefined
     : (activeTableEntry?.activeOrderId as number | undefined);
@@ -3068,24 +3071,6 @@ export default function FrontOffice() {
   useEffect(() => { hasDraftItemsRef.current = hasDraftItems; }, [hasDraftItems]);
 
   const selectedItem = items.find(i => i.id === selectedItemId);
-  const selectedItemStatus = (selectedItem as never as { status?: string })?.status;
-  const selectedItemCanAmend = selectedItemStatus === "draft" || selectedItemStatus === "sent";
-  const selectedItemCanDelete = selectedItemStatus === "draft";
-  const { data: selectedItemIngredients = [] } = useGetProductIngredients(selectedItem?.productId ?? 0, {
-    query: {
-      enabled: !!selectedItem,
-      queryKey: getGetProductIngredientsQueryKey(selectedItem?.productId ?? 0),
-    },
-  });
-  const selectedItemRecipeModifiers: FEModifier[] = selectedItemIngredients.map(ingredient => ({
-    id: -ingredient.ingredientId,
-    label: `Senza ${ingredient.name}`,
-    type: "minus",
-    priceExtra: "0.00",
-    ingredientId: ingredient.ingredientId,
-    source: "recipe",
-  }));
-  const selectedItemAvailableModifiers = [...selectedItemModifiers, ...selectedItemRecipeModifiers];
   useEffect(() => {
     if (!selectedItem) { setSelectedItemCategoryId(null); return; }
     fetch(`${API}/products/${selectedItem.productId}`)
@@ -3386,47 +3371,36 @@ export default function FrontOffice() {
       setMobilePanel("left");
       orderId = order.id;
     }
-    const modJson = JSON.stringify(mods.map(m => ({ id: m.id, label: m.label, type: m.type, priceExtra: m.priceExtra, ingredientId: (m as any).ingredientId, source: (m as any).source })));
+    const modJson = JSON.stringify(mods.map(m => ({ id: m.id, label: m.label, type: m.type, priceExtra: m.priceExtra })));
     const effectivePrice = mods.reduce((acc, m) => acc + parseFloat(m.priceExtra || "0"), parseFloat(unitPrice));
     const finalPrice = effectivePrice.toFixed(2);
     const kpNote = notes?.trim() || undefined;
-    // Ogni tocco crea una riga indipendente: le variazioni devono restare
-    // sempre collegate al singolo prodotto e non a una quantità accorpata.
-    await addItem.mutateAsync({
-      orderId: orderId!,
-      data: { productId, quantity: qty, unitPrice: finalPrice, phase: activePriceList, modifiers: modJson, notes: kpNote ?? null } as never
-    });
+    // Only merge into existing item if no modifiers and no KP note
+    const existing = (mods.length === 0 && !kpNote) ? items.find(i =>
+      i.productId === productId &&
+      (i as never as { phase: number }).phase === activePriceList &&
+      i.unitPrice === unitPrice &&
+      ((i as never as { modifiers?: string }).modifiers ?? "[]") === "[]" &&
+      !(i as never as { notes?: string }).notes &&
+      (i as never as { status: string }).status === "draft"
+    ) : null;
+    if (existing && orderId === activeOrderId && qty === 1) {
+      await updateItem.mutateAsync({ orderId: orderId!, itemId: existing.id, data: { quantity: existing.quantity + 1 } });
+    } else {
+      await addItem.mutateAsync({ orderId: orderId!, data: { productId, quantity: qty, unitPrice: finalPrice, phase: activePriceList, modifiers: modJson, notes: kpNote ?? null } as never });
+    }
     refresh();
   }
 
   async function handleAddProduct(productId: number, unitPrice: string) {
-    // Un prodotto viene aggiunto subito. Le variazioni si applicano in un
-    // secondo momento dalla sua riga nel pannello ordine a sinistra.
-    await doAddProduct(productId, unitPrice, []);
+    await doAddProduct(productId, unitPrice, [], undefined);
   }
 
   async function confirmModifiers(withMods: boolean) {
     if (!modifierPicker) return;
-
-    const recipeMods = productIngredients.map(ing => ({
-      id: -ing.ingredientId,
-      label: `Senza ${ing.name}`,
-      type: "minus",
-      priceExtra: "0.00",
-      ingredientId: ing.ingredientId,
-      source: "recipe"
-    }));
-
     if (modifierPicker.itemId && activeOrderId) {
-      const existingItem = items.find(item => item.id === modifierPicker.itemId);
-      const existingStatus = (existingItem as never as { status?: string })?.status;
-      if (existingStatus !== "draft" && existingStatus !== "sent") {
-        toast({ title: "Riga non modificabile", description: "La preparazione è già iniziata.", variant: "destructive" });
-        setModifierPicker(null);
-        return;
-      }
       // Editing an existing item's modifiers
-      const availableMods = [...(selectedItemModifiers.length > 0 ? selectedItemModifiers : categoryModifiers), ...recipeMods];
+      const availableMods = selectedItemModifiers.length > 0 ? selectedItemModifiers : categoryModifiers;
       const mods = withMods ? availableMods.filter(m => selectedModifierIds.has(m.id)) : [];
       const baseItem = items.find(i => i.id === modifierPicker.itemId);
       const basePrice = parseFloat((baseItem as never as { productPrice?: string })?.productPrice || baseItem?.unitPrice || modifierPicker.unitPrice);
@@ -3436,7 +3410,7 @@ export default function FrontOffice() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          modifiers: JSON.stringify(mods.map(m => ({ id: m.id, label: m.label, type: m.type, priceExtra: m.priceExtra, ingredientId: (m as any).ingredientId, source: (m as any).source }))),
+          modifiers: JSON.stringify(mods.map(m => ({ id: m.id, label: m.label, type: m.type, priceExtra: m.priceExtra }))),
           unitPrice: newPrice,
           notes: pickerKpNote.trim() || null,
         }),
@@ -3445,8 +3419,7 @@ export default function FrontOffice() {
       setModifierPicker(null);
     } else {
       // Adding a new item
-      const availableMods = [...categoryModifiers, ...recipeMods];
-      const mods = withMods ? availableMods.filter(m => selectedModifierIds.has(m.id)) : [];
+      const mods = withMods ? categoryModifiers.filter(m => selectedModifierIds.has(m.id)) : [];
       setModifierPicker(null);
       await doAddProduct(modifierPicker.productId, modifierPicker.unitPrice, mods, pickerKpNote);
     }
@@ -3455,61 +3428,31 @@ export default function FrontOffice() {
   async function handleQty(itemId: number, qty: number) {
     if (!activeOrderId) return;
     const item = items.find(i => i.id === itemId);
-    if (!item) return;
-    const itemStatus = (item as never as { status?: string })?.status;
-    if (qty > item.quantity && itemStatus !== "draft" && itemStatus !== "sent") {
-      toast({ title: "Riga non modificabile", description: "La preparazione è già iniziata.", variant: "destructive" });
-      return;
-    }
-    if (qty < item.quantity && itemStatus !== "draft") {
-      const quantityToVoid = item.quantity - Math.max(0, qty);
-      try {
-        const response = await fetch(`${API}/orders/${activeOrderId}/items/${itemId}/void`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ quantity: quantityToVoid }),
-        });
-        if (!response.ok) {
-          const payload = await response.json().catch(() => null) as { error?: string } | null;
-          throw new Error(payload?.error ?? "Storno non riuscito");
-        }
-        addLog("info", `Articolo stornato: ${item.productName} × ${quantityToVoid}`);
-        if (qty <= 0) selectNextAfter(itemId);
-        refresh();
-        toast({
-          title: qty <= 0 ? "Articolo annullato" : "Quantità ridotta",
-          description: "Il ticket di storno è stato inviato al reparto.",
-        });
-      } catch (error) {
-        toast({
-          title: "Storno non riuscito",
-          description: error instanceof Error ? error.message : "Aggiorna e riprova.",
-          variant: "destructive",
-        });
-      }
-      return;
-    }
+    const wasSent = item && (item as never as { status: string }).status === "sent";
     if (qty <= 0) {
+      // Conferma sempre la cancellazione (sia draft che sent) per evitare tap accidentali
       setDeleteConfirm({ itemId, name: item?.productName ?? "Articolo" });
       return;
     } else {
       addLog("info", `Qtà modificata: ${item?.productName} → ${qty}`);
       await updateItem.mutateAsync({ orderId: activeOrderId, itemId, data: { quantity: qty } });
-      if (itemStatus === "sent") setKpResendPending(true);
+      if (wasSent) setKpResendPending(true);
     }
     refresh();
   }
 
-  async function confirmDelete() {
+  async function confirmDelete(notify: boolean) {
     if (!deleteConfirm || !activeOrderId) return;
-    addLog("info", `Articolo rimosso: ${deleteConfirm.name}`);
-    try {
-      await deleteItem.mutateAsync({ orderId: activeOrderId, itemId: deleteConfirm.itemId });
-      refresh();
-      setDeleteConfirm(null);
-    } catch (error) {
-      toast({ title: "Articolo non eliminato", description: error instanceof Error ? error.message : "Aggiorna e riprova.", variant: "destructive" });
+    const item = items.find(i => i.id === deleteConfirm.itemId);
+    const wasSent = item && (item as never as { status: string }).status === "sent";
+    if (notify && wasSent) {
+      await fetch(`${API}/orders/${activeOrderId}/items/${deleteConfirm.itemId}/void`, { method: "POST" }).catch(() => {});
+      toast({ title: "Avviso inviato al reparto", description: "Comanda di annullamento generata" });
     }
+    addLog("info", `Articolo rimosso: ${deleteConfirm.name}`);
+    await deleteItem.mutateAsync({ orderId: activeOrderId, itemId: deleteConfirm.itemId });
+    refresh();
+    setDeleteConfirm(null);
   }
 
   function selectNextAfter(removedId: number) {
@@ -3529,8 +3472,13 @@ export default function FrontOffice() {
     if (!selectedItemId) return;
     const item = items.find(i => i.id === selectedItemId);
     if (!item) return;
-    const itemStatus = (item as never as { status: string }).status;
-    handleQty(item.id, 0);
+    const wasSent = (item as never as { status: string }).status === "sent";
+    selectNextAfter(selectedItemId);
+    if (wasSent) {
+      setDeleteConfirm({ itemId: item.id, name: item.productName });
+    } else {
+      handleQty(item.id, 0);
+    }
   }
 
   /**
@@ -3540,10 +3488,7 @@ export default function FrontOffice() {
    */
   async function handleExplodeAll() {
     if (!activeOrderId) return;
-    const explodable = items.filter(i => {
-      const status = (i as never as { status?: string }).status;
-      return i.quantity > 1 && (status === "draft" || status === "sent");
-    });
+    const explodable = items.filter(i => i.quantity > 1);
     if (explodable.length === 0) {
       toast({ title: "Niente da esplodere", description: "Tutti gli articoli hanno già quantità 1" });
       return;
@@ -3584,20 +3529,15 @@ export default function FrontOffice() {
     }
   }
 
-  async function handleSaveItemEdit(itemId: number, unitPrice: string): Promise<void> {
+  async function handleSaveItemEdit(itemId: number, unitPrice: string) {
     if (!activeOrderId) return;
-    try {
-      await updateItem.mutateAsync({
-        orderId: activeOrderId,
-        itemId,
-        data: { unitPrice } as never,
-      });
-      refresh();
-      toast({ title: "Prezzo aggiornato" });
-    } catch (error) {
-      toast({ title: "Prezzo non aggiornato", description: error instanceof Error ? error.message : "Aggiorna e riprova.", variant: "destructive" });
-      throw error;
-    }
+    await updateItem.mutateAsync({
+      orderId: activeOrderId,
+      itemId,
+      data: { unitPrice } as never,
+    });
+    refresh();
+    toast({ title: "Prezzo aggiornato" });
   }
 
   async function handleSendComanda() {
@@ -3640,14 +3580,14 @@ export default function FrontOffice() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ unitPrice: val.toFixed(2) }),
       });
-    const item = items.find(i => i.id === selectedItemId);
-    addLog("info", `Prezzo modificato: ${item?.productName} → €${val.toFixed(2)}`);
+      const item = items.find(i => i.id === selectedItemId);
+      addLog("info", `Prezzo modificato: ${item?.productName} → €${val.toFixed(2)}`);
       refresh();
       if (item && (item as never as { status: string }).status === "sent") setKpResendPending(true);
     }
   }
 
-  async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number, ragioneSocialeCliente?: string, itemIds?: number[], coversToDeduct = 0, itemQuantities?: Record<number, number>, splitRequestId?: string) {
+  async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number, ragioneSocialeCliente?: string, itemIds?: number[], coversToDeduct = 0) {
     if (!activeOrderId) return;
     setShowPayment(false);
     const isGestionale = !!invoiceCustomerId;
@@ -3705,39 +3645,6 @@ export default function FrontOffice() {
     // dove non passa per handleExitOrder).
     const lotteriaOneShot = lotteriaCodice || undefined;
     if (lotteriaOneShot) { setLotteriaCodice(""); setLotteriaInput(""); }
-
-    // ── Payload fattura: inviato INSIEME al pagamento ─────────────────────
-    // Il server crea pagamento + fattura nella stessa transazione: la fattura
-    // non può più andare persa se il browser si blocca dopo il pagamento.
-    let invoicePayload: Record<string, unknown> | undefined;
-    if (invoiceCustomerId && items.length > 0) {
-      const righe = items.map(i => ({
-        descrizione: (i as never as { productName: string }).productName,
-        quantita: (i as never as { quantity: number }).quantity,
-        prezzoUnitario: (i as never as { unitPrice: string }).unitPrice,
-        aliquotaIva: "22",
-        // `importo` è il totale riga richiesto dall'XML FatturaPA (PrezzoTotale)
-        importo: (i as never as { subtotal: string }).subtotal,
-        imponibile: (i as never as { subtotal: string }).subtotal,
-      }));
-      const imponibile = righe.reduce((s, r) => s + parseFloat(r.imponibile || "0"), 0);
-      const iva = imponibile * 0.22;
-      const nParsed = parseInt(invoiceNumero, 10);
-      const aParsed = parseInt(invoiceAnno, 10);
-      invoicePayload = {
-        customerId: invoiceCustomerId,
-        orderId: activeOrderId,
-        tipoDocumento: "TD01",
-        imponibile: imponibile.toFixed(2),
-        aliquotaIva: "22",
-        iva: iva.toFixed(2),
-        totale: (imponibile + iva).toFixed(2),
-        righe,
-        ...(!isNaN(nParsed) && invoiceNumero ? { numero: nParsed } : {}),
-        ...(!isNaN(aParsed) && invoiceAnno ? { anno: aParsed } : {}),
-      };
-    }
-
     let paymentRes: unknown;
     try {
       paymentRes = await createPayment.mutateAsync({
@@ -3753,11 +3660,8 @@ export default function FrontOffice() {
         // e flag `partial` così il backend NON chiude l'ordine intero anche
         // quando l'utente paga solo coperti (caso senza itemIds).
         itemIds: itemIds && itemIds.length > 0 ? itemIds : undefined,
-        itemQuantities: itemQuantities && Object.keys(itemQuantities).length > 0 ? itemQuantities : undefined,
-        splitRequestId: splitRequestId || undefined,
         coversCount: coversToDeduct > 0 ? coversToDeduct : undefined,
         partial: isSplitPay || undefined,
-        invoice: invoicePayload,
         } as never
       });
     } catch (e) {
@@ -3771,7 +3675,7 @@ export default function FrontOffice() {
       return;
     }
     // Mostra risultato RT
-    const fiscal = (paymentRes as never as { fiscal?: { rtOk?: boolean; rtError?: string; rtIp?: string; receiptId?: number; nonFiscale?: boolean; splitSettled?: boolean; settlementError?: string } }).fiscal;
+    const fiscal = (paymentRes as never as { fiscal?: { rtOk?: boolean; rtError?: string; rtIp?: string; receiptId?: number; nonFiscale?: boolean } }).fiscal;
     if (fiscal) {
       if (fiscal.rtOk) {
         if (fiscal.nonFiscale) {
@@ -3793,76 +3697,116 @@ export default function FrontOffice() {
       addLog("info", `Pagamento €${payAmount.toFixed(2)} — ${method} — ${orderLabel}`);
     }
     setInvoiceCustomer(null);
-    if (invoicePayload) {
-      // ── Fattura creata dal server insieme al pagamento ──────────────────
-      // Qui gestiamo solo il download dell'XML: la fattura è GIÀ salvata sul
-      // server (stessa transazione del pagamento), quindi anche se il download
-      // fallisce resta recuperabile da Backoffice → Fatture.
-      const invData = (paymentRes as never as {
-        invoice?: { id: number; numero: number; anno: number; xml?: string; fileName?: string; emitError?: string; numeroFallback?: boolean };
-      }).invoice;
-      if (invData) {
-        if (invData.numeroFallback) {
-          addLog("error", `Numero fattura manuale già usato — assegnato automaticamente ${invData.numero}/${invData.anno}`);
-        }
-        if (invData.xml && invData.fileName) {
-          try {
-            const blob = new Blob([invData.xml], { type: "application/xml" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = invData.fileName;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-          } catch { /* download fallito: XML comunque recuperabile dal Backoffice */ }
-          toast({ title: "Fattura emessa", description: `N. ${invData.numero}/${invData.anno} — XML scaricato` });
-        } else {
-          addLog("error", `Fattura ${invData.numero}/${invData.anno} salvata ma XML non generato${invData.emitError ? ` (${invData.emitError})` : ""}`);
-          toast({
-            title: "Fattura salvata ma non emessa",
-            description: `N. ${invData.numero}/${invData.anno} — scarica l'XML da Backoffice → Fatture.`,
-            variant: "destructive",
+    if (invoiceCustomerId && items.length > 0) {
+      try {
+        const righe = items.map(i => ({
+          descrizione: (i as never as { productName: string }).productName,
+          quantita: (i as never as { quantity: number }).quantity,
+          prezzoUnitario: (i as never as { unitPrice: string }).unitPrice,
+          aliquotaIva: "22",
+          imponibile: (i as never as { subtotal: string }).subtotal,
+        }));
+        const imponibile = righe.reduce((s, r) => s + parseFloat(r.imponibile || "0"), 0);
+        const iva = imponibile * 0.22;
+        const nParsed = parseInt(invoiceNumero, 10);
+        const aParsed = parseInt(invoiceAnno, 10);
+        const invoicePayload = {
+          customerId: invoiceCustomerId,
+          orderId: activeOrderId,
+          tipoDocumento: "TD01",
+          imponibile: imponibile.toFixed(2),
+          aliquotaIva: "22",
+          iva: iva.toFixed(2),
+          totale: (imponibile + iva).toFixed(2),
+          righe,
+        };
+        let invRes = await fetch(`${API}/invoices`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...invoicePayload,
+            ...(!isNaN(nParsed) && invoiceNumero ? { numero: nParsed } : {}),
+            ...(!isNaN(aParsed) && invoiceAnno ? { anno: aParsed } : {}),
+          }),
+        });
+        if (invRes.status === 409 && !isNaN(nParsed)) {
+          // Numero manuale già usato: riprova con numerazione automatica
+          addLog("error", `Numero fattura ${nParsed} già usato — riprovo con numerazione automatica`);
+          invRes = await fetch(`${API}/invoices`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(invoicePayload),
           });
         }
-      } else {
-        // Non dovrebbe succedere: il server avrebbe fallito l'intero pagamento
-        addLog("error", "Risposta pagamento senza dati fattura — verifica in Backoffice → Fatture");
+        if (!invRes.ok) {
+          const err = await invRes.json().catch(() => ({} as { error?: string }));
+          const msg = (err as { error?: string }).error ?? `Errore server (${invRes.status})`;
+          addLog("error", `Fattura NON creata: ${msg}`);
+          toast({
+            title: "Fattura NON creata",
+            description: `${msg} — il pagamento è registrato. Crea la fattura da Backoffice → Fatture.`,
+            variant: "destructive",
+          });
+        } else {
+          const inv = await invRes.json();
+          const emitRes = await fetch(`${API}/invoices/${inv.id}/emit`, { method: "POST" });
+          if (emitRes.ok) {
+            const emitData = await emitRes.json() as { xml?: string; fileName?: string };
+            if (emitData.xml && emitData.fileName) {
+              const blob = new Blob([emitData.xml], { type: "application/xml" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = emitData.fileName;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }
+            toast({ title: "Fattura emessa", description: `N. ${inv.numero}/${inv.anno} — XML scaricato` });
+          } else {
+            addLog("error", `Fattura ${inv.numero}/${inv.anno} salvata ma emissione fallita (${emitRes.status})`);
+            toast({
+              title: "Fattura salvata ma non emessa",
+              description: `N. ${inv.numero}/${inv.anno} — scarica l'XML da Backoffice → Fatture.`,
+              variant: "destructive",
+            });
+          }
+        }
+      } catch (e) {
+        addLog("error", `Errore fattura: ${e instanceof Error ? e.message : String(e)}`);
         toast({
-          title: "Verifica fattura",
-          description: "Controlla in Backoffice → Fatture che la fattura sia presente.",
+          title: "Pagamento OK — errore fattura",
+          description: `${e instanceof Error ? e.message : String(e)} — crea la fattura da Backoffice → Fatture.`,
           variant: "destructive",
         });
+      } finally {
+        // Reset SEMPRE i campi fattura (anche su errore): un numero manuale
+        // obsoleto non deve propagarsi al pagamento successivo.
+        setInvoiceNumero("");
+        setInvoiceAnno(String(new Date().getFullYear()));
+        setInvoiceCustomer(null);
       }
-      // Reset SEMPRE i campi fattura: un numero manuale obsoleto non deve
-      // propagarsi al pagamento successivo.
-      setInvoiceNumero("");
-      setInvoiceAnno(String(new Date().getFullYear()));
-      setInvoiceCustomer(null);
-    } else if (isSplitPay && fiscal?.rtOk !== true) {
-      // Un pagamento esiste già, ma senza conferma RT le righe NON vengono
-      // tolte dal conto: l'operatore non deve incassare o stampare una seconda
-      // volta. Il server conserva il residuo per la verifica e la ripresa.
-      refresh();
-      toast({
-        title: "Conto separato da verificare",
-        description: "La RT non ha confermato lo scontrino: le righe restano visibili. Non incassare una seconda volta.",
-        variant: "destructive",
-      });
-      return;
-    } else if (isSplitPay && fiscal?.splitSettled === false) {
-      refresh();
-      toast({
-        title: "Scontrino emesso: aggiornamento da verificare",
-        description: fiscal.settlementError ?? "Le righe non sono state aggiornate. Non incassare una seconda volta.",
-        variant: "destructive",
-      });
-      return;
+    } else if (isSplitPay) {
+      // Elimina articoli pagati nel conto separato
+      if (itemIds?.length) {
+        await Promise.all(itemIds.map(itemId =>
+          fetch(`${API}/orders/${activeOrderId}/items/${itemId}`, { method: "DELETE" }).catch(() => {})
+        ));
+      }
+      // Scala i coperti pagati nel conto separato
+      if (coversToDeduct > 0) {
+        const newCovers = Math.max(0, coverCount - coversToDeduct);
+        await fetch(`${API}/orders/${activeOrderId}/covers`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ covers: newCovers }),
+        }).catch(() => {});
+      }
     }
     if (!isSplitPay) handleExitOrder();
     refresh();
-    toast({ title: isSplitPay ? "Conto separato aggiornato" : "Pagamento registrato", description: `€ ${payAmount.toFixed(2)} — ${method}` });
+    toast({ title: "Pagamento registrato", description: `€ ${payAmount.toFixed(2)} — ${method}` });
   }
 
   const searchQ = productSearch.trim().toLowerCase();
@@ -3871,11 +3815,7 @@ export default function FrontOffice() {
     : (selectedCategoryId != null
         ? products.filter(p => (p as unknown as { categoryId?: number }).categoryId === selectedCategoryId)
         : products)
-  ).filter(p => p.visibleInFrontOffice !== false);
-  const visibleCategories = categories.filter(category => products.some(product =>
-    (product as unknown as { categoryId?: number }).categoryId === category.id
-    && product.visibleInFrontOffice !== false,
-  ));
+  ).filter(p => p.available !== false);
 
   // ── Keyboard shortcut: "/" focuses product search, Esc clears it ─────────────
   useEffect(() => {
@@ -4108,6 +4048,7 @@ export default function FrontOffice() {
                     <div className="flex items-center gap-1 mt-0.5">
                       <span className="text-[10px] flex-1" style={{ color: isSelected ? 'rgb(148,163,184)' : 'rgb(100,116,139)' }}>
                         €{parseFloat(item.unitPrice).toFixed(2)} × {item.quantity}
+                        {isSelected && <span className="ml-1.5 text-[9px] text-primary/70 font-semibold">↑ tap → VAR</span>}
                       </span>
                       <button
                         onClick={e => { e.stopPropagation(); setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus }); }}
@@ -4116,22 +4057,6 @@ export default function FrontOffice() {
                           isSelected ? "hover:bg-primary/30 active:bg-primary/40" : "hover:bg-[#3a3f58] active:bg-[#444a6a]"
                         )}>
                         <Pencil className={cn("h-4 w-4", isSelected ? "text-primary" : "text-slate-400")} />
-                      </button>
-                      <button
-                        title="Variazioni e note"
-                        onClick={e => {
-                          e.stopPropagation();
-                          setSelectedItemId(item.id);
-                          setNumBuffer("");
-                          setNumpadMode("qty");
-                          setRightTab("var");
-                        }}
-                        className={cn(
-                          "h-9 w-9 rounded-md flex items-center justify-center transition-colors shrink-0",
-                          isSelected ? "hover:bg-primary/30 active:bg-primary/40" : "hover:bg-[#3a3f58] active:bg-[#444a6a]"
-                        )}
-                      >
-                        <Settings2 className={cn("h-4 w-4", isSelected ? "text-primary" : "text-slate-400")} />
                       </button>
                       <div className="flex items-center gap-1 shrink-0">
                         <button onClick={e => { e.stopPropagation(); handleQty(item.id, item.quantity - 1); }}
@@ -4314,10 +4239,7 @@ export default function FrontOffice() {
               Romana
             </button>
             <button
-              disabled={!items.some(i => {
-                const status = (i as never as { status?: string }).status;
-                return i.quantity > 1 && (status === "draft" || status === "sent");
-              })}
+              disabled={!items.some(i => i.quantity > 1)}
               onClick={handleExplodeAll}
               title="Espandi: ogni articolo con qty>1 viene separato in righe da 1 (utile per conto separato/romana)"
               className="h-10 rounded-lg flex items-center justify-center bg-indigo-800 text-indigo-200 hover:bg-indigo-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
@@ -4326,7 +4248,7 @@ export default function FrontOffice() {
 
             {/* Riga 4 */}
             <button
-              disabled={!selectedItemId || !selectedItemCanDelete}
+              disabled={!selectedItemId}
               onClick={handleDeleteSelected}
               title="Cancella l'articolo selezionato dall'ordine"
               className="h-10 rounded-lg flex items-center justify-center bg-red-900/80 text-red-300 hover:bg-red-800 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
@@ -4477,14 +4399,14 @@ export default function FrontOffice() {
         {rightTab === "grp" && (
           <ScrollArea className="flex-1 bg-[#151827]">
             <div className="p-4 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))" }}>
-              {visibleCategories.map(cat => (
+              {categories.map(cat => (
                 <CategoryButton key={cat.id} cat={cat} onClick={() => {
                   setSelectedCategoryId(cat.id);
                   setRightTab("art");
                   setProductSearch("");
                 }} />
               ))}
-              {visibleCategories.length === 0 && (
+              {categories.length === 0 && (
                 <div className="col-span-full text-center py-16 text-slate-600">
                   <UtensilsCrossed className="h-10 w-10 mx-auto mb-3 opacity-20" />
                   <div className="text-sm">Nessuna categoria nel menu</div>
@@ -4536,6 +4458,20 @@ export default function FrontOffice() {
                     product={p as PosProduct}
                     activePriceList={activePriceList}
                     onAdd={handleAddProduct}
+                    onToggleEsaurito={async (id, available) => {
+                      try {
+                        await fetch(`${API}/products/${id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ available }),
+                        });
+                        addLog("info", `${available ? "Disponibile" : "Esaurito"}: ${p.name}`);
+                        toast({ title: available ? "Prodotto disponibile" : "Prodotto segnato Esaurito" });
+                        await refresh();
+                      } catch {
+                        toast({ title: "Errore aggiornamento prodotto", variant: "destructive" });
+                      }
+                    }}
                   />
                 ))}
                 {visibleProducts.length === 0 && (
@@ -4577,7 +4513,7 @@ export default function FrontOffice() {
                   {/* Applied modifiers */}
                   {(() => {
                     try {
-                      const applied: FEModifier[] =
+                      const applied: Array<{ id: number; label: string; type: string; priceExtra: string }> =
                         JSON.parse((selectedItem as never as { modifiers?: string }).modifiers ?? "[]");
                       if (!applied.length) return null;
                       return (
@@ -4606,8 +4542,8 @@ export default function FrontOffice() {
                   })()}
 
                   {/* Available category modifiers */}
-                  {selectedItemAvailableModifiers.length > 0 && (
-                    <div className={cn("space-y-1.5", !selectedItemCanAmend && "pointer-events-none opacity-50")}>
+                  {selectedItemModifiers.length > 0 && (
+                    <div className="space-y-1.5">
                       <div className="flex items-center gap-2 flex-wrap">
                         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 flex-1">Variazioni disponibili</div>
                         {(["all", "plus", "minus"] as const).map(f => (
@@ -4624,12 +4560,12 @@ export default function FrontOffice() {
                           </button>
                         ))}
                       </div>
-                      {selectedItemAvailableModifiers.filter(m =>
+                      {selectedItemModifiers.filter(m =>
                         varModFilter === "all" ||
                         m.type === varModFilter ||
                         m.type === "both"
                       ).map(mod => {
-                        const currentMods: FEModifier[] = (() => {
+                        const currentMods: Array<{ id: number; label: string; type: string; priceExtra: string }> = (() => {
                           try { return JSON.parse((selectedItem as never as { modifiers?: string }).modifiers ?? "[]"); } catch { return []; }
                         })();
 
@@ -4639,7 +4575,7 @@ export default function FrontOffice() {
                           if (remove) {
                             next = currentMods.filter(m => !(m.id === mod.id && m.type === direction));
                           } else {
-                            next = [...currentMods, { ...mod, type: direction }];
+                            next = [...currentMods, { id: mod.id, label: mod.label, type: direction, priceExtra: mod.priceExtra }];
                           }
                           const priceAdj = next.reduce((acc, m) => acc + parseFloat(m.priceExtra || "0"), 0);
                           const basePrice = parseFloat((selectedItem as never as { productPrice: string }).productPrice || selectedItem.unitPrice);
@@ -4728,7 +4664,7 @@ export default function FrontOffice() {
                     </div>
                   )}
 
-                  {selectedItemAvailableModifiers.length === 0 && (selectedItemCategoryId || selectedItem) && (
+                  {selectedItemModifiers.length === 0 && selectedItemCategoryId && (
                     <div className="text-center py-6 text-slate-300 text-xs italic">
                       Nessuna variazione configurata per questa categoria
                     </div>
@@ -4744,13 +4680,12 @@ export default function FrontOffice() {
                     <textarea
                       value={kpComment}
                       onChange={e => setKpComment(e.target.value)}
-                      disabled={!selectedItemCanAmend}
                       rows={2}
                       placeholder="Es. senza cipolla, ben cotto, allergia…"
                       className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl resize-none outline-none focus:ring-2 focus:ring-teal-300 focus:border-teal-400 placeholder:text-slate-300"
                     />
                     <button
-                      disabled={kpSaving || !selectedItemCanAmend}
+                      disabled={kpSaving}
                       onClick={async () => {
                         if (!activeOrderId || !selectedItem) return;
                         setKpSaving(true);
@@ -4769,7 +4704,6 @@ export default function FrontOffice() {
 
                   {/* Modifica prezzo */}
                   <button
-                    disabled={!selectedItemCanAmend}
                     onClick={() => setEditingItem({
                       id: selectedItem.id,
                       productName: selectedItem.productName,
@@ -4778,7 +4712,7 @@ export default function FrontOffice() {
                       notes: (selectedItem as never as { notes?: string | null }).notes,
                       status: (selectedItem as never as { status: string }).status,
                     })}
-                    className="w-full py-3 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400 font-semibold text-sm hover:border-slate-400 hover:text-slate-600 transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-40">
+                    className="w-full py-3 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400 font-semibold text-sm hover:border-slate-400 hover:text-slate-600 transition-all active:scale-95">
                     ✎ Modifica prezzo…
                   </button>
                 </>
@@ -5023,13 +4957,13 @@ export default function FrontOffice() {
                 ) : (
                   <div className="bg-white rounded-2xl border border-slate-200 p-3">
                     <SplitBillBody
-                      key={`split-${activeOrderId}-${items.map(item => `${item.id}:${item.quantity}`).join(",")}-${coverCount}`}
+                      key={`split-${activeOrderId}`}
                       items={items as never}
                       coverPrice={coverPrice}
                       coverCount={coverCount}
                       orderId={activeOrderId ?? undefined}
-                      onPay={(method, amount, ids, coversToDeduct, itemQuantities, splitRequestId) => {
-                        handlePay(method, amount, undefined, undefined, ids, coversToDeduct, itemQuantities, splitRequestId);
+                      onPay={(method, amount, ids, coversToDeduct) => {
+                        handlePay(method, amount, undefined, undefined, ids, coversToDeduct);
                       }}
                       onCancel={() => setPaymentMode("full")}
                     />
@@ -5226,18 +5160,19 @@ export default function FrontOffice() {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-orange-500" /> Elimina articolo
+              <AlertTriangle className="h-5 w-5 text-orange-500" /> Articolo già inviato
             </DialogTitle>
           </DialogHeader>
           <div className="py-2 text-sm text-slate-600">
-            Vuoi eliminare <strong>"{deleteConfirm?.name}"</strong> dalla comanda?
+            <strong>"{deleteConfirm?.name}"</strong> è già stato inviato al reparto.
+            <br />Vuoi inviare un avviso di cancellazione?
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
-              Annulla
+          <DialogFooter className="flex flex-col gap-2">
+            <Button variant="outline" onClick={() => confirmDelete(false)} className="w-full">
+              Elimina senza avvisare
             </Button>
-            <Button variant="destructive" onClick={() => void confirmDelete()}>
-              Elimina
+            <Button onClick={() => confirmDelete(true)} className="w-full">
+              <Send className="h-4 w-4 mr-2" /> Invia avviso al reparto
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -5355,28 +5290,15 @@ export default function FrontOffice() {
         items={items as never}
         coverPrice={coverPrice}
         coverCount={coverCount}
-        onPay={(method, amount, itemIds, coversToDeduct, itemQuantities, splitRequestId) => handlePay(method, amount, undefined, undefined, itemIds, coversToDeduct, itemQuantities, splitRequestId)}
+        onPay={(method, amount, itemIds, coversToDeduct) => handlePay(method, amount, undefined, undefined, itemIds, coversToDeduct)}
       />
 
       {/* ── Modifier Picker ─────────────────────────────────────────── */}
       {(() => {
         const isEditing = !!modifierPicker?.itemId;
-        let baseMods = isEditing
+        const pickerMods = isEditing
           ? (selectedItemModifiers.length > 0 ? selectedItemModifiers : categoryModifiers)
           : categoryModifiers;
-
-        // Append recipe ingredients as "minus" modifiers
-        const recipeMods: FEModifier[] = productIngredients.map(ing => ({
-          id: -ing.ingredientId, // negative ID to avoid conflicts
-          label: `Senza ${ing.name}`,
-          type: "minus",
-          priceExtra: "0.00",
-          ingredientId: ing.ingredientId,
-          source: "recipe"
-        }));
-
-        const pickerMods = [...baseMods, ...recipeMods];
-
         return (
           <Dialog open={!!modifierPicker} onOpenChange={o => !o && setModifierPicker(null)}>
             <DialogContent className="max-w-sm p-0 overflow-hidden rounded-2xl">

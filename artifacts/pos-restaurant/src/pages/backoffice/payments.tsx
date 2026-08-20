@@ -2,31 +2,9 @@ import { useMemo, useState } from "react";
 import { useListPayments, useListOrders } from "@workspace/api-client-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { CreditCard, Banknote, Wallet, Receipt, Ticket, Download, ChevronRight, Loader2 } from "lucide-react";
+import { CreditCard, Banknote, Wallet, Receipt, Ticket, Download } from "lucide-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { downloadCsv, itNum } from "@/lib/csv";
-
-const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
-const API = `${BASE}/api`;
-
-type OrderItem = {
-  id: number;
-  productName?: string | null;
-  quantity: number;
-  unitPrice: string;
-  subtotal?: string | null;
-  modifiers?: string | null;
-};
-
-type OrderDetail = {
-  id: number;
-  tableName?: string | null;
-  covers?: number | null;
-  total?: string | null;
-  createdAt?: string;
-  items: OrderItem[];
-};
 
 const methodIcon: Record<string, React.ElementType> = {
   cash: Banknote,
@@ -50,21 +28,6 @@ export default function PaymentsPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [method, setMethod] = useState<string>("all");
-
-  // Dettaglio ordine (cosa ha preso il cliente)
-  const [detail, setDetail] = useState<{ open: boolean; loading: boolean; order?: OrderDetail; error?: string }>({ open: false, loading: false });
-
-  async function openDetail(orderId: number) {
-    setDetail({ open: true, loading: true });
-    try {
-      const res = await fetch(`${API}/orders/${orderId}`);
-      if (!res.ok) throw new Error(`Ordine #${orderId} non trovato (${res.status})`);
-      const order = await res.json() as OrderDetail;
-      setDetail({ open: true, loading: false, order });
-    } catch (e) {
-      setDetail({ open: true, loading: false, error: e instanceof Error ? e.message : String(e) });
-    }
-  }
 
   const orderMap = useMemo(() => new Map(orders.map((o) => [o.id, o])), [orders]);
 
@@ -179,11 +142,7 @@ export default function PaymentsPage() {
             const order = orderMap.get(p.orderId);
             const Icon = methodIcon[p.method] ?? Wallet;
             return (
-              <button
-                key={p.id}
-                onClick={() => openDetail(p.orderId)}
-                className="w-full text-left flex items-center gap-4 p-4 rounded-xl bg-card border border-border hover:border-primary/40 hover:bg-muted/40 transition-colors"
-              >
+              <div key={p.id} className="flex items-center gap-4 p-4 rounded-xl bg-card border border-border">
                 <div className="p-2.5 rounded-lg bg-primary/10 shrink-0">
                   <Icon className="h-5 w-5 text-primary" />
                 </div>
@@ -204,71 +163,11 @@ export default function PaymentsPage() {
                     <div className="text-xs text-muted-foreground">Resto: € {p.change}</div>
                   )}
                 </div>
-                <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-              </button>
+              </div>
             );
           })}
         </div>
       </ScrollArea>
-
-      {/* Dialog dettaglio ordine — cosa ha preso il cliente */}
-      <Dialog open={detail.open} onOpenChange={o => !o && setDetail({ open: false, loading: false })}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              {detail.order
-                ? `Dettaglio ordine #${detail.order.id}${detail.order.tableName ? ` — ${detail.order.tableName}` : ""}`
-                : "Dettaglio ordine"}
-            </DialogTitle>
-          </DialogHeader>
-          {detail.loading ? (
-            <div className="py-10 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
-          ) : detail.error ? (
-            <div className="py-6 text-sm text-destructive">{detail.error}</div>
-          ) : detail.order ? (
-            <div className="space-y-3">
-              <div className="text-xs text-muted-foreground flex items-center gap-3">
-                {detail.order.createdAt && <span>{new Date(detail.order.createdAt).toLocaleString("it-IT")}</span>}
-                {typeof detail.order.covers === "number" && detail.order.covers > 0 && <span>Coperti: {detail.order.covers}</span>}
-              </div>
-              {detail.order.items.length === 0 ? (
-                <div className="text-sm text-muted-foreground py-4">
-                  Nessun articolo presente su questo ordine (possibile conto separato: gli articoli pagati vengono rimossi).
-                </div>
-              ) : (
-                <div className="rounded-lg border border-border divide-y divide-border max-h-80 overflow-y-auto">
-                  {detail.order.items.map(it => {
-                    let mods: Array<{ label?: string }> = [];
-                    try { mods = it.modifiers ? JSON.parse(it.modifiers) : []; } catch { mods = []; }
-                    return (
-                      <div key={it.id} className="flex items-start justify-between gap-3 px-3 py-2 text-sm">
-                        <div className="min-w-0">
-                          <span className="font-medium">{it.quantity}× {it.productName ?? "Articolo"}</span>
-                          {mods.length > 0 && (
-                            <div className="text-xs text-muted-foreground truncate">
-                              {mods.map(m => m.label).filter(Boolean).join(", ")}
-                            </div>
-                          )}
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <div>€ {it.subtotal ?? (parseFloat(it.unitPrice) * it.quantity).toFixed(2)}</div>
-                          {it.quantity > 1 && <div className="text-xs text-muted-foreground">€ {it.unitPrice} cad.</div>}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {detail.order.total && (
-                <div className="flex justify-between text-sm font-bold pt-1">
-                  <span>Totale ordine</span>
-                  <span className="text-primary">€ {detail.order.total}</span>
-                </div>
-              )}
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
     </BackofficeShell>
   );
 }

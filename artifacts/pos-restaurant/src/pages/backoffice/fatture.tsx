@@ -44,10 +44,10 @@ function useCustomers() {
 
 type RigaFattura = { descrizione: string; quantita: string; prezzoUnitario: string; importo: string; aliquotaIva: string };
 
-const STATO_CFG: Record<string, { label: string; description: string; cls: string }> = {
-  bozza: { label: "Bozza", description: "Non ancora emessa", cls: "bg-slate-100 text-slate-600 border-slate-200" },
-  emessa: { label: "Emessa", description: "XML disponibile", cls: "bg-green-50 text-green-700 border-green-200" },
-  annullata: { label: "Annullata", description: "Documento annullato", cls: "bg-red-50 text-red-600 border-red-200" },
+const STATO_CFG: Record<string, { label: string; cls: string }> = {
+  bozza: { label: "Bozza", cls: "bg-slate-100 text-slate-600 border-slate-200" },
+  emessa: { label: "Emessa", cls: "bg-green-50 text-green-700 border-green-200" },
+  annullata: { label: "Annullata", cls: "bg-red-50 text-red-600 border-red-200" },
 };
 
 const TIPI_DOCUMENTO = [
@@ -71,7 +71,6 @@ export default function FatturePage() {
   const [customerDialog, setCustomerDialog] = useState<{ open: boolean; item?: Customer }>({ open: false });
   const [customerForm, setCustomerForm] = useState({ ...BLANK_CUSTOMER });
   const [customerSaving, setCustomerSaving] = useState(false);
-  const [printingInvoiceId, setPrintingInvoiceId] = useState<number | null>(null);
 
   const [form, setForm] = useState({
     numero: "",
@@ -179,27 +178,6 @@ export default function FatturePage() {
     triggerDownload(xml, inv ? `IT_fattura_${inv.anno}_${String(inv.numero).padStart(5, "0")}_001.xml` : filename);
     qc.invalidateQueries({ queryKey: ["invoices"] });
     return;
-  }
-
-  async function handleCourtesyPrint(id: number) {
-    setPrintingInvoiceId(id);
-    try {
-      const resp = await fetch(`${API}/invoices/${id}/courtesy-print`, { method: "POST" });
-      const result = await resp.json().catch(() => ({})) as { rtOk?: boolean; rtError?: string; error?: string };
-      if (!resp.ok || !result.rtOk) {
-        toast({
-          title: "Ristampa non completata",
-          description: result.error ?? result.rtError ?? "Verifica la stampante fiscale",
-          variant: "destructive",
-        });
-        return;
-      }
-      toast({ title: "Copia di cortesia ristampata sulla cassa" });
-    } catch {
-      toast({ title: "Errore di rete durante la ristampa", variant: "destructive" });
-    } finally {
-      setPrintingInvoiceId(null);
-    }
   }
 
   function triggerDownload(xml: string, filename: string) {
@@ -338,7 +316,7 @@ export default function FatturePage() {
               const stato = STATO_CFG[inv.stato] ?? STATO_CFG.bozza;
               return (
                 <div key={inv.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                  <div className="flex items-start gap-3 flex-wrap">
+                  <div className="flex items-start gap-3">
                     <div className="h-10 w-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0">
                       <FileText className="h-5 w-5 text-blue-600" />
                     </div>
@@ -347,9 +325,7 @@ export default function FatturePage() {
                         <span className="font-bold text-slate-800">
                           {inv.tipoDocumento} {inv.anno}/{String(inv.numero).padStart(4, "0")}
                         </span>
-                        <Badge variant="outline" className={cn("text-xs", stato.cls)}>
-                          {stato.label} · {stato.description}
-                        </Badge>
+                        <Badge variant="outline" className={cn("text-xs", stato.cls)}>{stato.label}</Badge>
                       </div>
                       <div className="text-xs text-slate-500 mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5">
                         <span>{inv.data}</span>
@@ -357,25 +333,16 @@ export default function FatturePage() {
                         <span className="font-semibold text-primary">€ {inv.totale}</span>
                       </div>
                     </div>
-                    <div className="flex gap-1.5 shrink-0 flex-wrap justify-start sm:justify-end w-full sm:w-auto sm:ml-[3.25rem] md:ml-0">
+                    <div className="flex gap-1 shrink-0 flex-wrap">
                       {inv.stato === "bozza" && (
                         <button onClick={() => handleEmit(inv.id)}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 transition-colors" title="Emetti fattura e stampa la copia di cortesia">
-                          <Send className="h-4 w-4" /> Emetti
+                          className="p-2 rounded-lg text-slate-500 hover:text-green-600 hover:bg-green-50 transition-colors" title="Emetti fattura + stampa gestionale">
+                          <Send className="h-4 w-4" />
                         </button>
                       )}
                       <button onClick={() => downloadXml(inv.id, inv.numero, inv.anno)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors" title="Scarica XML FatturaPA">
-                        <Download className="h-4 w-4" /> Scarica XML
-                      </button>
-                      <button
-                        onClick={() => handleCourtesyPrint(inv.id)}
-                        disabled={inv.stato !== "emessa" || printingInvoiceId === inv.id}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold text-violet-700 bg-violet-50 hover:bg-violet-100 transition-colors disabled:cursor-not-allowed disabled:opacity-45"
-                        title={inv.stato === "emessa" ? "Ristampa la copia di cortesia sulla cassa" : "Disponibile dopo l'emissione"}
-                      >
-                        <Printer className="h-4 w-4" />
-                        {printingInvoiceId === inv.id ? "Ristampa..." : "Ristampa cortesia"}
+                        className="p-2 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="Scarica XML Passepartout">
+                        <Download className="h-4 w-4" />
                       </button>
                       {inv.stato === "bozza" && (
                         <button onClick={() => handleDelete(inv.id)}

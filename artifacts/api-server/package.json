@@ -7,10 +7,7 @@
     "dev": "pnpm --filter @workspace/db run push-force; export NODE_ENV=development && pnpm run build && pnpm run start",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:marginality": "node --experimental-strip-types --loader ./src/lib/ts-node-loader.mjs --no-warnings src/lib/margin-calculator.test.ts",
-    "test:split": "node --experimental-strip-types --loader ./src/lib/ts-node-loader.mjs --no-warnings src/lib/split-payment.test.ts && node --experimental-strip-types --loader ./src/lib/ts-node-loader.mjs --no-warnings src/lib/split-reservation.test.ts",
-    "test:kitchen": "node --experimental-strip-types --loader ./src/lib/ts-node-loader.mjs --no-warnings src/lib/kitchen.test.ts"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@workspace/api-zod": "workspace:*",

@@ -1,11 +1,10 @@
 import { Router } from "express";
-import { db, ordersTable, orderItemsTable, tablesTable, roomsTable, productsTable, categoriesTable, printersTable, kitchenProductionEventsTable, kitchenCancellationEventsTable } from "@workspace/db";
-import { eq, and, sql, inArray, desc } from "drizzle-orm";
+import { db, ordersTable, orderItemsTable, tablesTable, roomsTable, productsTable, categoriesTable, printersTable } from "@workspace/db";
+import { eq, and, sql, inArray } from "drizzle-orm";
 import net from "net";
 import { emettiPreconto } from "../lib/fiscal-printer";
 import { getSettings } from "../lib/settings";
 import { logAudit } from "../lib/audit";
-import { canAmendOrderItem, canDeleteOrderItem } from "../lib/kitchen-domain.js";
 import {
   CreateOrderBody,
   UpdateOrderBody,
@@ -119,12 +118,6 @@ router.get("/:id", async (req, res) => {
 router.patch("/:id", async (req, res) => {
   const { id } = UpdateOrderParams.parse({ id: Number(req.params.id) });
   const body = UpdateOrderBody.parse(req.body);
-  if (body.status === "cancelled") {
-    return res.status(409).json({
-      error: "Per annullare un ordine usa il flusso dedicato: deve stampare gli storni ai reparti prima della cancellazione.",
-      code: "ORDER_CANCELLATION_REQUIRES_KITCHEN_VOID",
-    });
-  }
 
   // Read current order first (needed for table-reassign logic)
   const [currentOrder] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
@@ -197,7 +190,7 @@ router.patch("/:id", async (req, res) => {
   }
 
   // When paid/cancelled, free the table atomically if no other open orders
-  if (body.status === "paid" && order.tableId) {
+  if ((body.status === "paid" || body.status === "cancelled") && order.tableId) {
     await freeTableIfEmpty(order.tableId);
   }
 
@@ -213,34 +206,18 @@ router.delete("/:id", async (req, res) => {
     ? ((req.body as { reason: string }).reason).slice(0, 200)
     : null;
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
-  if (!order) return res.status(404).json({ error: "Order not found" });
-  const orderItems = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id));
-  const eventIds: number[] = [];
-  try {
-    for (const item of orderItems.filter(candidate => candidate.status !== "draft")) {
-      const event = await ensureKitchenCancellationPrinted(order, item, item.quantity);
-      eventIds.push(event.id);
-    }
-  } catch (error) {
-    return res.status(502).json({ error: error instanceof Error ? error.message : "Storno cucina non riuscito: ordine non annullato" });
-  }
-  await db.transaction(async (tx) => {
-    await tx.delete(orderItemsTable).where(eq(orderItemsTable.orderId, id));
-    await tx.delete(ordersTable).where(eq(ordersTable.id, id));
-    if (eventIds.length) {
-      await tx.update(kitchenCancellationEventsTable).set({ printStatus: "applied" })
-        .where(inArray(kitchenCancellationEventsTable.id, eventIds));
-    }
-  });
+  const itemCount = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id)).then(rows => rows.length);
+  await db.delete(orderItemsTable).where(eq(orderItemsTable.orderId, id));
+  await db.delete(ordersTable).where(eq(ordersTable.id, id));
   // Atomico: libera il tavolo solo se non ci sono altri open
   if (order?.tableId) await freeTableIfEmpty(order.tableId);
   void logAudit({ req, action: "order.cancel", entityType: "order", entityId: id, details: {
     tableId: order?.tableId ?? null,
     total: order?.total ?? null,
-    items: orderItems.length,
+    items: itemCount,
     reason,
   } });
-  return res.status(204).end();
+  res.status(204).end();
 });
 
 // List order items
@@ -289,27 +266,10 @@ router.patch("/:orderId/items/:itemId", async (req, res) => {
   });
   const body = UpdateOrderItemBody.parse(req.body);
 
-  const [[existing], [order]] = await Promise.all([
-    db.select().from(orderItemsTable).where(
-      and(eq(orderItemsTable.id, itemId), eq(orderItemsTable.orderId, orderId))
-    ).limit(1),
-    db.select().from(ordersTable)
-      .where(eq(ordersTable.id, orderId))
-      .limit(1),
-  ]);
+  const [existing] = await db.select().from(orderItemsTable).where(
+    and(eq(orderItemsTable.id, itemId), eq(orderItemsTable.orderId, orderId))
+  );
   if (!existing) return res.status(404).json({ error: "Order item not found" });
-  if (!order) return res.status(404).json({ error: "Order not found" });
-  const priceOnlyChange = body.unitPrice !== undefined
-    && body.quantity === undefined
-    && body.notes === undefined
-    && body.phase === undefined
-    && (req.body as { modifiers?: string }).modifiers === undefined;
-  if (order.status !== "open" || (!priceOnlyChange && !canAmendOrderItem(existing.status, order.status))) {
-    return res.status(409).json({
-      error: "La riga è già in preparazione o l'ordine è chiuso. Crea una nuova variazione invece di modificare lo storico.",
-      code: "ORDER_ITEM_NOT_AMENDABLE",
-    });
-  }
 
   const updateData: Record<string, unknown> = {};
   const effectiveUnitPrice = body.unitPrice ?? existing.unitPrice;
@@ -327,19 +287,8 @@ router.patch("/:orderId/items/:itemId", async (req, res) => {
   if (rawModifiers !== undefined) updateData.modifiers = rawModifiers;
 
   const [item] = await db.update(orderItemsTable).set(updateData)
-    .where(and(
-      eq(orderItemsTable.id, itemId),
-      eq(orderItemsTable.orderId, orderId),
-      eq(orderItemsTable.status, existing.status),
-      sql`EXISTS (SELECT 1 FROM orders WHERE id = ${orderId} AND status = 'open')`,
-    ))
+    .where(and(eq(orderItemsTable.id, itemId), eq(orderItemsTable.orderId, orderId)))
     .returning();
-  if (!item) {
-    return res.status(409).json({
-      error: "La riga o l'ordine sono cambiati su un altro dispositivo. Aggiorna e riprova.",
-      code: "ORDER_ITEM_CONFLICT",
-    });
-  }
 
   await recalcOrderTotal(orderId);
   return res.json(item);
@@ -351,38 +300,11 @@ router.delete("/:orderId/items/:itemId", async (req, res) => {
     orderId: Number(req.params.orderId),
     itemId: Number(req.params.itemId),
   });
-  const [[existing], [order]] = await Promise.all([
-    db.select({ status: orderItemsTable.status }).from(orderItemsTable).where(
-      and(eq(orderItemsTable.id, itemId), eq(orderItemsTable.orderId, orderId))
-    ).limit(1),
-    db.select().from(ordersTable)
-      .where(eq(ordersTable.id, orderId))
-      .limit(1),
-  ]);
-  if (!existing) return res.status(404).json({ error: "Order item not found" });
-  if (!order) return res.status(404).json({ error: "Order not found" });
-  if (!canDeleteOrderItem(existing.status, order.status)) {
-    return res.status(409).json({
-      error: "Una riga già inviata non può essere eliminata. Serve uno storno esplicito al reparto.",
-      code: "ORDER_ITEM_NOT_DELETABLE",
-    });
-  }
-  const deleted = await db.delete(orderItemsTable).where(
-    and(
-      eq(orderItemsTable.id, itemId),
-      eq(orderItemsTable.orderId, orderId),
-      eq(orderItemsTable.status, "draft"),
-      sql`EXISTS (SELECT 1 FROM orders WHERE id = ${orderId} AND status = 'open')`,
-    )
-  ).returning({ id: orderItemsTable.id });
-  if (!deleted.length) {
-    return res.status(409).json({
-      error: "La riga o l'ordine sono cambiati su un altro dispositivo. Aggiorna e riprova.",
-      code: "ORDER_ITEM_CONFLICT",
-    });
-  }
+  await db.delete(orderItemsTable).where(
+    and(eq(orderItemsTable.id, itemId), eq(orderItemsTable.orderId, orderId))
+  );
   await recalcOrderTotal(orderId);
-  return res.status(204).end();
+  res.status(204).end();
 });
 
 // ── ESC/POS helpers ──────────────────────────────────────────────────────────
@@ -409,7 +331,6 @@ function escposComanda(
   printerName?: string,
   orderId?: number,
   operatorName?: string,
-  title = "COMANDA",
 ): Buffer {
   const COLS = 42;
   const SEP  = Buffer.from("-".repeat(COLS) + "\n");
@@ -433,8 +354,7 @@ function escposComanda(
     init,
     SEP,
     center, bold_on,
-    Buffer.from(toAscii(title) + "\n"),
-    ...(printerName ? [Buffer.from(toAscii(`Reparto ${printerName}`) + "\n")] : []),
+    Buffer.from(toAscii(printerName ? `Comande ${printerName}` : "COMANDA") + "\n"),
     bold_off,
     SEP,
     left,
@@ -512,105 +432,17 @@ async function sendToPrinter(ip: string, port: number, data: Buffer, timeoutMs =
   });
 }
 
-async function ensureKitchenCancellationPrinted(
-  order: typeof ordersTable.$inferSelect,
-  item: typeof orderItemsTable.$inferSelect,
-  quantity: number,
-) {
-  const [alreadyPrinted] = await db.select().from(kitchenCancellationEventsTable).where(and(
-    eq(kitchenCancellationEventsTable.orderId, order.id),
-    eq(kitchenCancellationEventsTable.orderItemId, item.id),
-    eq(kitchenCancellationEventsTable.quantity, quantity),
-    eq(kitchenCancellationEventsTable.printStatus, "printed_pending_apply"),
-  )).orderBy(desc(kitchenCancellationEventsTable.id)).limit(1);
-  if (alreadyPrinted) return alreadyPrinted;
-
-  const [product] = await db.select({ categoryId: productsTable.categoryId }).from(productsTable)
-    .where(eq(productsTable.id, item.productId)).limit(1);
-  const [category] = product?.categoryId
-    ? await db.select({ printerId: categoriesTable.printerId }).from(categoriesTable)
-      .where(eq(categoriesTable.id, product.categoryId)).limit(1)
-    : [];
-  const [printer] = category?.printerId
-    ? await db.select().from(printersTable).where(eq(printersTable.id, category.printerId)).limit(1)
-    : [];
-  const [event] = await db.insert(kitchenCancellationEventsTable).values({
-    orderItemId: item.id,
-    orderId: order.id,
-    productName: item.productName,
-    quantity,
-    previousStatus: item.status,
-    printerId: printer?.id ?? null,
-  }).returning();
-  if (!printer) {
-    await db.update(kitchenCancellationEventsTable).set({
-      printStatus: "failed",
-      printError: "Nessuna stampante cucina associata alla categoria",
-    }).where(eq(kitchenCancellationEventsTable.id, event.id));
-    throw new Error(`Nessuna stampante cucina configurata per ${item.productName}`);
-  }
-
-  let tableLabel = order.notes ?? `Ordine ${order.id}`;
-  if (order.tableId) {
-    const [table] = await db.select({ name: tablesTable.name }).from(tablesTable)
-      .where(eq(tablesTable.id, order.tableId)).limit(1);
-    if (table) tableLabel = table.name;
-  }
-  const phaseLabels = ["F1", "F2", "F3", "F4"];
-  const data = escposComanda(
-    tableLabel,
-    [{
-      phase: phaseLabels[item.phase] ?? "F1",
-      items: [{ productName: item.productName, quantity, notes: "ANNULLARE / STORNARE", modifiers: item.modifiers }],
-    }],
-    printer.name,
-    order.id,
-    undefined,
-    "*** STORNO COMANDA ***",
-  );
-  try {
-    await sendToPrinter(printer.ip, printer.port, data);
-    const [printed] = await db.update(kitchenCancellationEventsTable).set({
-      printStatus: "printed_pending_apply",
-      printedAt: new Date(),
-      printError: null,
-    }).where(eq(kitchenCancellationEventsTable.id, event.id)).returning();
-    return printed;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await db.update(kitchenCancellationEventsTable).set({
-      printStatus: "failed",
-      printError: message,
-    }).where(eq(kitchenCancellationEventsTable.id, event.id));
-    throw new Error(`Stampa storno fallita su ${printer.name}: ${message}`);
-  }
-}
-
 // ── Send comanda ─────────────────────────────────────────────────────────────
 router.post("/:id/send-comanda", async (req, res) => {
   const id = Number(req.params.id);
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
   if (!order) return res.status(404).json({ error: "Order not found" });
 
-  // 1. Mark draft items as sent and persist the matching events atomically.
-  // Printer I/O remains outside this transaction and cannot revert the KDS state.
-  const sentItems = await db.transaction(async (tx) => {
-    const now = new Date();
-    const transitioned = await tx.update(orderItemsTable)
-      .set({ status: "sent", sentAt: now })
-      .where(and(eq(orderItemsTable.orderId, id), eq(orderItemsTable.status, "draft")))
-      .returning();
-    if (transitioned.length) {
-      await tx.insert(kitchenProductionEventsTable).values(transitioned.map(item => ({
-        orderItemId: item.id,
-        orderId: id,
-        fromStatus: "draft",
-        toStatus: "sent",
-        triggeredBy: "send-comanda",
-      }))).onConflictDoNothing();
-    }
-    return transitioned;
-  });
+  // 1. Mark draft items as sent and get them back
+  const sentItems = await db.update(orderItemsTable)
+    .set({ status: "sent" })
+    .where(and(eq(orderItemsTable.orderId, id), eq(orderItemsTable.status, "draft")))
+    .returning();
 
   if (sentItems.length === 0) {
     return res.json({ success: true, sentItems: 0, printers: [] });
@@ -916,63 +748,17 @@ router.post("/:fromId/items/move", async (req, res) => {
   return res.json({ ok: true, movedCount: valid.length, movedAmount: moved.toFixed(2) });
 });
 
-// Void item already sent to kitchen. This is intentionally separate from the
-// normal DELETE endpoint: a sent row must be removed through an explicit
-// cancellation path, while draft rows keep the simple delete behavior.
+// Void item: mark as deleted and optionally notify department (future: trigger print)
 router.post("/:orderId/items/:itemId/void", async (req, res) => {
   const orderId = Number(req.params.orderId);
   const itemId = Number(req.params.itemId);
-  const [[item], [order]] = await Promise.all([
-    db.select().from(orderItemsTable).where(
-      and(eq(orderItemsTable.id, itemId), eq(orderItemsTable.orderId, orderId))
-    ).limit(1),
-    db.select().from(ordersTable)
-      .where(eq(ordersTable.id, orderId)).limit(1),
-  ]);
+  const [item] = await db.select().from(orderItemsTable).where(
+    and(eq(orderItemsTable.id, itemId), eq(orderItemsTable.orderId, orderId))
+  );
   if (!item) return res.status(404).json({ error: "Item not found" });
-  if (!order || order.status !== "open") return res.status(409).json({ error: "L'ordine non è modificabile" });
-  const requestedQuantity = Number((req.body as { quantity?: unknown })?.quantity ?? item.quantity);
-  if (!Number.isInteger(requestedQuantity) || requestedQuantity <= 0 || requestedQuantity > item.quantity) {
-    return res.status(400).json({ error: "Quantità di storno non valida" });
-  }
-  const remainingQuantity = item.quantity - requestedQuantity;
-  let cancellationEvent: typeof kitchenCancellationEventsTable.$inferSelect;
-  try {
-    cancellationEvent = await ensureKitchenCancellationPrinted(order, item, requestedQuantity);
-  } catch (error) {
-    return res.status(502).json({ error: error instanceof Error ? error.message : "Stampa storno cucina non riuscita" });
-  }
-  try {
-    await db.transaction(async (tx) => {
-      const commonWhere = and(
-        eq(orderItemsTable.id, itemId),
-        eq(orderItemsTable.orderId, orderId),
-        eq(orderItemsTable.quantity, item.quantity),
-        eq(orderItemsTable.status, item.status),
-        sql`EXISTS (SELECT 1 FROM orders WHERE id = ${orderId} AND status = 'open')`,
-      );
-      const changed = remainingQuantity === 0
-        ? await tx.delete(orderItemsTable).where(commonWhere).returning({ id: orderItemsTable.id })
-        : await tx.update(orderItemsTable).set({
-          quantity: remainingQuantity,
-          subtotal: (Math.round(parseFloat(item.unitPrice) * 100) * remainingQuantity / 100).toFixed(2),
-        }).where(commonWhere).returning({ id: orderItemsTable.id });
-      if (!changed.length) throw new Error("La riga è cambiata su un altro dispositivo");
-      const sum = await tx.execute<{ total: string }>(sql`
-        SELECT COALESCE(SUM(subtotal::numeric), 0)::text AS total
-        FROM order_items WHERE order_id = ${orderId}
-      `);
-      await tx.update(ordersTable).set({ total: Number(sum.rows[0]?.total ?? 0).toFixed(2) })
-        .where(and(eq(ordersTable.id, orderId), eq(ordersTable.status, "open")));
-      await tx.update(kitchenCancellationEventsTable).set({ printStatus: "applied" })
-        .where(eq(kitchenCancellationEventsTable.id, cancellationEvent.id));
-    });
-  } catch (error) {
-    return res.status(409).json({ error: error instanceof Error ? error.message : "Storno stampato ma conto non aggiornato" });
-  }
-  console.log(`[VOID] Articolo stornato: ${item.productName} (qty: ${requestedQuantity}) — ordine ${orderId}`);
-  void logAudit({ req, action: "order.void_item", entityType: "order", entityId: orderId, details: { itemId, productName: item.productName, quantity: requestedQuantity, remainingQuantity } });
-  return res.json({ success: true, voidedItem: item, voidedQuantity: requestedQuantity, remainingQuantity });
+  // TODO: trigger void print to department printer
+  console.log(`[VOID] Articolo annullato: ${item.productName} (qty: ${item.quantity}) — ordine ${orderId}`);
+  return res.json({ success: true, voidedItem: item });
 });
 
 export default router;

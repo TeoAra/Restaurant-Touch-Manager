@@ -379,8 +379,7 @@ export default function OnboardingPage() {
             categoryId: cat.id,
             name: p.name,
             price: p.price.toFixed(2),
-            visibleInFrontOffice: true,
-            sortOrder: 0,
+            available: true,
           }),
         });
         created++;
