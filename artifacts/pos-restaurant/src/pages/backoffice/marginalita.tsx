@@ -43,7 +43,8 @@ type Catalog = {
   coverCostItems: Array<{ id: number; name: string; purchaseQuantity: string; purchaseUnit: string; purchasePrice: string; quantityPerCover: string; applicationScope: "cover" | "fried_order"; active: boolean }>;
   utilityTypes: Array<{ id: number; code: string; name: string; measurementUnit: string; active: boolean }>;
   utilityBills: Array<{ id: number; utilityTypeId: number; periodStart: string; periodEnd: string; consumptionQuantity: string; variableCost: string; fixedCost: string; taxesAndFees: string; totalCost: string; variableUnitCost: string | null; totalUnitCost: string | null }>;
-  beverageLines?: Array<{ id: number; name: string; lineType: 'beer'|'bib'; purchasePriceNet: string; vatRate: string; sourceVolumeLiters: string; lossPercentage: string; dilutionWaterRatio: string; co2CostPerLiter: string; coolerKwhPerLiter: string; cellarKwhPerLiter: string; active: boolean }>;
+  beverageLines?: Array<{ id: number; name: string; lineType: 'beer'|'bib'; purchasePriceNet: string; vatRate: string; sourceVolumeLiters: string; lossPercentage: string; dilutionWaterRatio: string; co2CostPerLiter: string; coolerKwhPerLiter: string; cellarKwhPerLiter: string; active: boolean; currentSupplyValidFrom: string | null }>;
+  beverageLineSupplyHistory?: Array<{ id: number; beverageLineId: number; purchasePriceNet: string; sourceVolumeLiters: string; validFrom: string }>;
   beverageProductMappings?: Array<{ id: number; productId: number; beverageLineId: number; servingVolumeLiters: string }>;
   beverageCostPreviews?: Array<{ beverageLineId: number; costPerLiter: string; sourceCostPerLiter: string; waterCostPerLiter: string; co2CostPerLiter: string; energyCostPerLiter: string; missingData: string[] }>;
 };
@@ -183,6 +184,7 @@ function BeverageLineForm({ onSubmit }: { onSubmit: (data: Record<string, unknow
         <SimpleInput label={`Volume ${lineType === "beer" ? "fusto" : "sacca"} (litri)`} name="sourceVolumeLiters" inputMode="decimal" required placeholder={lineType === "beer" ? "30" : "10"} />
         <SimpleInput label="Perdita stimata (Spreco %)" name="lossPercentage" inputMode="decimal" defaultValue="3" required />
       </div>
+      <SimpleInput label="Prezzo e volume validi dal" name="validFrom" type="date" defaultValue={today} required />
 
       {lineType === "bib" && (
         <div className="grid gap-3 sm:grid-cols-1">
@@ -202,6 +204,68 @@ function BeverageLineForm({ onSubmit }: { onSubmit: (data: Record<string, unknow
       </label>
 
       <SubmitButton>Salva linea</SubmitButton>
+    </form>
+  );
+}
+
+function BeverageSupplyUpdateForm({ line, onSubmit }: {
+  line: NonNullable<Catalog["beverageLines"]>[number];
+  onSubmit: (data: Record<string, unknown>) => Promise<boolean>;
+}) {
+  return (
+    <form
+      key={`${line.id}-${line.purchasePriceNet}-${line.sourceVolumeLiters}-${line.currentSupplyValidFrom ?? "legacy"}`}
+      onSubmit={async event => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        if (await onSubmit(Object.fromEntries(form))) event.currentTarget.reset();
+      }}
+      className="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-3"
+    >
+      <div className="mb-2 text-xs font-bold text-slate-800">Registra nuova fornitura</div>
+      <p className="mb-3 text-xs text-slate-600">Prezzo e volume restano tracciati dalla data indicata; le marginalità già calcolate non cambiano.</p>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <SimpleInput label="Prezzo netto (€)" name="purchasePriceNet" inputMode="decimal" defaultValue={line.purchasePriceNet} required />
+        <SimpleInput label={`Volume ${line.lineType === "beer" ? "fusto" : "sacca"} (L)`} name="sourceVolumeLiters" inputMode="decimal" defaultValue={line.sourceVolumeLiters} required />
+        <SimpleInput label="Valida dal" name="validFrom" type="date" defaultValue={today} required />
+      </div>
+      <button type="submit" className="mt-3 min-h-10 rounded-lg bg-primary px-3 text-xs font-bold text-white hover:bg-primary/90">Salva fornitura</button>
+    </form>
+  );
+}
+
+function BeverageLineSettingsForm({ line, onSubmit }: {
+  line: NonNullable<Catalog["beverageLines"]>[number];
+  onSubmit: (data: Record<string, unknown>) => Promise<boolean>;
+}) {
+  return (
+    <form
+      key={`${line.id}-${line.name}-${line.lineType}-${line.vatRate}-${line.lossPercentage}-${line.dilutionWaterRatio}-${line.co2CostPerLiter}-${line.coolerKwhPerLiter}-${line.cellarKwhPerLiter}`}
+      onSubmit={async event => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        if (await onSubmit(Object.fromEntries(form))) event.currentTarget.reset();
+      }}
+      className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3"
+    >
+      <div className="mb-2 text-xs font-bold text-slate-800">Modifica parametri linea</div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <SimpleInput label="Nome linea" name="name" defaultValue={line.name} required />
+        <label className="block text-xs font-semibold text-slate-600">
+          Tipo impianto
+          <select name="lineType" defaultValue={line.lineType} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-primary">
+            <option value="beer">Fusto birra</option>
+            <option value="bib">Bag in Box (Post-mix)</option>
+          </select>
+        </label>
+        <SimpleInput label="IVA acquisto (%)" name="vatRate" inputMode="decimal" defaultValue={line.vatRate} required />
+        <SimpleInput label="Perdita stimata (%)" name="lossPercentage" inputMode="decimal" defaultValue={line.lossPercentage} required />
+        <SimpleInput label="Rapporto acqua BIB (L/L)" name="dilutionWaterRatio" inputMode="decimal" defaultValue={line.dilutionWaterRatio} required />
+        <SimpleInput label="Costo CO₂ (€/L)" name="co2CostPerLiter" inputMode="decimal" defaultValue={line.co2CostPerLiter} required />
+        <SimpleInput label="Cooler (kWh/L)" name="coolerKwhPerLiter" inputMode="decimal" defaultValue={line.coolerKwhPerLiter} required />
+        <SimpleInput label="Cella (kWh/L)" name="cellarKwhPerLiter" inputMode="decimal" defaultValue={line.cellarKwhPerLiter} required />
+      </div>
+      <button type="submit" className="mt-3 min-h-10 rounded-lg bg-slate-800 px-3 text-xs font-bold text-white hover:bg-slate-700">Salva parametri</button>
     </form>
   );
 }
@@ -275,6 +339,17 @@ export default function MarginalitaPage() {
       return true;
     } catch (error) {
       toast({ title: error instanceof Error ? error.message : "Errore salvataggio", variant: "destructive" });
+      return false;
+    }
+  };
+  const updateBeverageLine = async (lineId: number, body: unknown, success: string) => {
+    try {
+      await request(`/beverage-lines/${lineId}`, { method: "PATCH", body: JSON.stringify(body) });
+      toast({ title: success });
+      await refresh();
+      return true;
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : "Errore aggiornamento linea", variant: "destructive" });
       return false;
     }
   };
@@ -609,6 +684,7 @@ export default function MarginalitaPage() {
                 catalog.data.beverageLines.map(line => {
                   const preview = catalog.data?.beverageCostPreviews?.find(item => item.beverageLineId === line.id);
                   const mappings = catalog.data?.beverageProductMappings?.filter(item => item.beverageLineId === line.id) ?? [];
+                  const supplies = (catalog.data?.beverageLineSupplyHistory ?? []).filter(item => item.beverageLineId === line.id);
 
                   return (
                     <div key={line.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -663,7 +739,46 @@ export default function MarginalitaPage() {
                             </div>
                           )}
 
-                          <BeverageMappingForm beverageLineId={line.id} menuProducts={menuProducts} onSubmit={data => submit("/beverage-product-mappings", data, "Prodotto collegato")} />
+                          {line.active ? (
+                            <BeverageMappingForm beverageLineId={line.id} menuProducts={menuProducts} onSubmit={data => submit("/beverage-product-mappings", data, "Prodotto collegato")} />
+                          ) : (
+                            <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">Riattiva la linea prima di collegare nuovi prodotti Menu.</p>
+                          )}
+                          <BeverageSupplyUpdateForm
+                            line={line}
+                            onSubmit={data => updateBeverageLine(line.id, data, "Fornitura beverage aggiornata")}
+                          />
+                          <BeverageLineSettingsForm
+                            line={line}
+                            onSubmit={data => updateBeverageLine(line.id, data, "Parametri linea aggiornati")}
+                          />
+                          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
+                            <div className="text-xs text-slate-500">
+                              {line.active ? "Linea disponibile per nuove associazioni." : "Linea disattivata: resta disponibile per lo storico."}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void updateBeverageLine(line.id, { active: !line.active }, line.active ? "Linea beverage disattivata" : "Linea beverage riattivata")}
+                              className={cn("min-h-9 rounded-lg px-3 text-xs font-bold", line.active ? "bg-slate-100 text-slate-700 hover:bg-slate-200" : "bg-emerald-600 text-white hover:bg-emerald-700")}
+                            >
+                              {line.active ? "Disattiva linea" : "Riattiva linea"}
+                            </button>
+                          </div>
+                          <div className="mt-3 border-t border-slate-100 pt-3">
+                            <h4 className="text-xs font-bold uppercase tracking-wide text-slate-700">Storico forniture</h4>
+                            {supplies.length === 0 ? (
+                              <p className="mt-1 text-xs text-slate-400">Nessuna decorrenza registrata: il costo iniziale resta disponibile per lo storico.</p>
+                            ) : (
+                              <div className="mt-2 space-y-1">
+                                {supplies.map(supply => (
+                                  <div key={supply.id} className="flex items-center justify-between rounded-md bg-slate-50 px-2 py-1.5 text-xs">
+                                    <span className="text-slate-600">Dal {new Date(`${supply.validFrom}T00:00:00`).toLocaleDateString("it-IT")}</span>
+                                    <span className="font-semibold text-slate-800">{euro(supply.purchasePriceNet)} · {supply.sourceVolumeLiters} L</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                   );

@@ -5,3 +5,4 @@
 - [Assistente marginalità locale](margin-advice.md) — consigli spiegabili dai dati del ristorante, senza inviare dati economici a servizi esterni.
 - [Instradamento tablet cucina](kitchen-printer-routing.md) — il tablet mostra solo categorie instradate a stampanti di reparti cucina; ricette guidano “Senza…” e costi.
 - [Modello costo ingredienti a peso](ingredient-cost-model.md) — quantità ricetta contestuale (fette/g/unità); costo derivato da prezzo unità ÷ grammi unità; campi produttivi legacy restano con default.
+- [Storico forniture beverage](beverage-supply-history.md) — prezzo e volume vanno selezionati per decorrenza; le linee legacy ricevono una fornitura iniziale dalla data di creazione.

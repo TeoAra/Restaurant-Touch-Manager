@@ -1,5 +1,6 @@
 import {
   beverageLinesTable,
+  beverageLineSupplyHistoryTable,
   beverageProductMappingsTable,
   db,
   costConfigurationsTable,
@@ -24,6 +25,7 @@ import {
 } from "@workspace/db";
 import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { calculateBeveragePortionCost, type BeverageLineCostInput, utilityCostAfterDirectBeverage } from "./beverage-costs.js";
+import { ensureLegacyBeverageSupplyHistory, selectBeverageSupplyForDate, type BeverageSupply } from "./beverage-supply-history.js";
 import { FixedDecimal } from "./fixed-decimal.js";
 import { calculateActualPrepMinutes } from "./kitchen-domain.js";
 import { calculateMargin, type MarginCalculatorOutput, type MarginProductLine } from "./margin-calculator.js";
@@ -125,6 +127,7 @@ function directBeverageUtilityCostForBill(
   paidFacts: Array<{ fact: { productId: number; quantity: number }; order: { createdAt: Date } }>,
   beverageMappingsByProduct: Map<number, { beverageLineId: number; servingVolumeLiters: string }>,
   beverageLinesById: Map<number, BeverageLineCostInput>,
+  beverageSupplies: BeverageSupply[],
 ): FixedDecimal {
   const isElectricity = isElectricityUtility(type);
   const waterRate = waterCostPerLiter(bill, type);
@@ -137,8 +140,9 @@ function directBeverageUtilityCostForBill(
     if (date < bill.periodStart || date > bill.periodEnd) return total;
     const mapping = beverageMappingsByProduct.get(entry.fact.productId);
     const line = mapping ? beverageLinesById.get(mapping.beverageLineId) : undefined;
-    if (!mapping || !line) return total;
-    const cost = calculateBeveragePortionCost(line, mapping.servingVolumeLiters, {
+    const supply = mapping ? selectBeverageSupplyForDate(beverageSupplies, mapping.beverageLineId, date) : undefined;
+    if (!mapping || !line || !supply) return total;
+    const cost = calculateBeveragePortionCost({ ...line, ...supply }, mapping.servingVolumeLiters, {
       waterCostPerLiter: waterRate?.toString(),
       electricityCostPerKwh: electricityRate?.toString(),
     });
@@ -288,8 +292,9 @@ async function buildCalculation(orderId: number): Promise<{
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, orderId)).limit(1);
   if (!order) throw new Error(`Order ${orderId} not found`);
 
+  await ensureLegacyBeverageSupplyHistory();
   const at = dateKey(order.createdAt);
-  const [facts, products, recipes, recipeItems, ingredients, costHistory, equipment, productEquipment, oilCycles, configurations, coverCostItems, payments, indirectAllocations, utilityBills, utilityTypes, paidOrders, beverageLines, beverageProductMappings, paidFacts] = await Promise.all([
+  const [facts, products, recipes, recipeItems, ingredients, costHistory, equipment, productEquipment, oilCycles, configurations, coverCostItems, payments, indirectAllocations, utilityBills, utilityTypes, paidOrders, beverageLines, beverageLineSupplyHistory, beverageProductMappings, paidFacts] = await Promise.all([
     db.select().from(marginOrderItemFactsTable).where(eq(marginOrderItemFactsTable.orderId, orderId)),
     db.select().from(productsTable),
     db.select().from(recipesTable),
@@ -308,6 +313,7 @@ async function buildCalculation(orderId: number): Promise<{
     db.select().from(utilityTypesTable),
     db.select({ createdAt: ordersTable.createdAt, covers: ordersTable.covers }).from(ordersTable).where(eq(ordersTable.status, "paid")),
     db.select().from(beverageLinesTable),
+    db.select().from(beverageLineSupplyHistoryTable),
     db.select().from(beverageProductMappingsTable),
     db.select({ fact: marginOrderItemFactsTable, order: ordersTable })
       .from(marginOrderItemFactsTable)
@@ -395,8 +401,11 @@ async function buildCalculation(orderId: number): Promise<{
       } catch { /* ignore malformed JSON */ }
     }
 
-    if (beverageMapping && beverageLine) {
-      const beverageCost = calculateBeveragePortionCost(beverageLine, beverageMapping.servingVolumeLiters, {
+    const beverageSupply = beverageMapping
+      ? selectBeverageSupplyForDate(beverageLineSupplyHistory, beverageMapping.beverageLineId, at)
+      : undefined;
+    if (beverageMapping && beverageLine && beverageSupply) {
+      const beverageCost = calculateBeveragePortionCost({ ...beverageLine, ...beverageSupply }, beverageMapping.servingVolumeLiters, {
         waterCostPerLiter: waterRate?.toString(),
         electricityCostPerKwh: electricityBill || config ? electricityCostPerKwh.toString() : undefined,
       });
@@ -405,6 +414,8 @@ async function buildCalculation(orderId: number): Promise<{
         .add(amount(beverageCost.co2Cost));
       energyCost = amount(beverageCost.energyCost);
       localMissing.push(...beverageCost.missingData);
+    } else if (beverageMapping && beverageLine) {
+      localMissing.push(`BEVERAGE_SUPPLY_LINE_${beverageMapping.beverageLineId}_MISSING`);
     } else if (recipe) {
       const recipeRows = recipeItems.filter((item) => item.recipeId === recipe.id);
       if (!recipeRows.length) localMissing.push(`RECIPE_${fact.productId}_EMPTY`);
@@ -518,6 +529,7 @@ async function buildCalculation(orderId: number): Promise<{
       paidFacts,
       beverageMappingsByProduct,
       beverageLinesById,
+      beverageLineSupplyHistory,
     );
     const directVariableCost = directCost.greaterThan(amount(bill.variableCost)) ? amount(bill.variableCost) : directCost;
     const distributableAmount = amount(utilityCostAfterDirectBeverage(

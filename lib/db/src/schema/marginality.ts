@@ -9,9 +9,11 @@ import {
   numeric,
   index,
   uniqueIndex,
+  check,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { sql } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
 // ingredients
@@ -305,6 +307,35 @@ export const beverageLinesTable = pgTable(
 export const insertBeverageLineSchema = createInsertSchema(beverageLinesTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertBeverageLine = z.infer<typeof insertBeverageLineSchema>;
 export type BeverageLine = typeof beverageLinesTable.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// beverageLineSupplyHistory
+// ---------------------------------------------------------------------------
+// Il fusto/BIB è la stessa linea fisica, ma ogni fornitura può avere un
+// imponibile e un volume diversi. La decorrenza consente di ricostruire il
+// costo applicabile alla data della comanda senza alterare gli snapshot.
+export const beverageLineSupplyHistoryTable = pgTable(
+  "beverage_line_supply_history",
+  {
+    id: serial("id").primaryKey(),
+    beverageLineId: integer("beverage_line_id").notNull().references(() => beverageLinesTable.id, { onDelete: "restrict" }),
+    purchasePriceNet: numeric("purchase_price_net", { precision: 18, scale: 6 }).notNull(),
+    sourceVolumeLiters: numeric("source_volume_liters", { precision: 18, scale: 6 }).notNull(),
+    validFrom: date("valid_from", { mode: "string" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("beverage_line_supply_history_line_valid_from_unique").on(t.beverageLineId, t.validFrom),
+    check(
+      "beverage_line_supply_history_positive_supply_check",
+      sql`${t.purchasePriceNet} > 0 AND ${t.sourceVolumeLiters} > 0`,
+    ),
+  ],
+);
+
+export const insertBeverageLineSupplyHistorySchema = createInsertSchema(beverageLineSupplyHistoryTable).omit({ id: true, createdAt: true });
+export type InsertBeverageLineSupplyHistory = z.infer<typeof insertBeverageLineSupplyHistorySchema>;
+export type BeverageLineSupplyHistory = typeof beverageLineSupplyHistoryTable.$inferSelect;
 
 // ---------------------------------------------------------------------------
 // beverageProductMappings

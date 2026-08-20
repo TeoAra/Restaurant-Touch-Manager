@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   beverageLinesTable,
+  beverageLineSupplyHistoryTable,
   beverageProductMappingsTable,
   costConfigurationsTable,
   coverCostItemsTable,
@@ -18,6 +19,7 @@ import {
 } from "@workspace/db";
 import { and, desc, eq } from "drizzle-orm";
 import { calculateBeveragePortionCost } from "../lib/beverage-costs.js";
+import { ensureLegacyBeverageSupplyHistory, selectBeverageSupplyForDate } from "../lib/beverage-supply-history.js";
 import {
   enqueueRecalculation,
   getMarginOrderDetail,
@@ -37,7 +39,13 @@ function positiveId(value: unknown): number | null {
 }
 
 function validDate(value: unknown): string | null {
-  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value ? null : value;
+}
+
+function hasValue(object: unknown, key: string): boolean {
+  return typeof object === "object" && object !== null && key in object;
 }
 
 function decimal(value: unknown, fallback = "0"): string {
@@ -144,7 +152,8 @@ router.post("/orders/:orderId/recalculate", async (req, res): Promise<void> => {
 });
 
 router.get("/catalog", async (_req, res): Promise<void> => {
-  const [ingredients, categories, products, productVariations, recipes, recipeItems, configurations, coverCostItems, utilityTypes, utilityBills, beverageLines, beverageProductMappings] = await Promise.all([
+  await ensureLegacyBeverageSupplyHistory();
+  const [ingredients, categories, products, productVariations, recipes, recipeItems, configurations, coverCostItems, utilityTypes, utilityBills, beverageLines, beverageLineSupplyHistory, beverageProductMappings] = await Promise.all([
     db.select().from(ingredientsTable).orderBy(ingredientsTable.name),
     db.select().from(categoriesTable).orderBy(categoriesTable.sortOrder, categoriesTable.name),
     db.select().from(productsTable).orderBy(productsTable.categoryId, productsTable.sortOrder, productsTable.name),
@@ -156,6 +165,7 @@ router.get("/catalog", async (_req, res): Promise<void> => {
     db.select().from(utilityTypesTable).orderBy(utilityTypesTable.name),
     db.select().from(utilityBillsTable).orderBy(desc(utilityBillsTable.periodStart)),
     db.select().from(beverageLinesTable).orderBy(beverageLinesTable.name),
+    db.select().from(beverageLineSupplyHistoryTable).orderBy(desc(beverageLineSupplyHistoryTable.validFrom)),
     db.select().from(beverageProductMappingsTable),
   ]);
   const typeById = new Map(utilityTypes.map((type) => [type.id, type]));
@@ -169,7 +179,16 @@ router.get("/catalog", async (_req, res): Promise<void> => {
     ? FixedDecimal.from(electricityBill.variableCost).div(FixedDecimal.from(electricityBill.consumptionQuantity)).toString()
     : (currentConfiguration ? currentConfiguration.electricityCostPerKwh : undefined);
   const waterRate = waterBill ? waterCostPerLiter(waterBill, typeById.get(waterBill.utilityTypeId)) : undefined;
-  const beverageCostPreviews = beverageLines.map((line) => {
+  const beverageLinesWithCurrentSupply = beverageLines.map((line) => {
+    const currentSupply = selectBeverageSupplyForDate(beverageLineSupplyHistory, line.id, today);
+    return {
+      ...line,
+      purchasePriceNet: currentSupply?.purchasePriceNet ?? line.purchasePriceNet,
+      sourceVolumeLiters: currentSupply?.sourceVolumeLiters ?? line.sourceVolumeLiters,
+      currentSupplyValidFrom: currentSupply?.validFrom ?? null,
+    };
+  });
+  const beverageCostPreviews = beverageLinesWithCurrentSupply.map((line) => {
     const cost = calculateBeveragePortionCost(line, "1", {
       waterCostPerLiter: waterRate,
       electricityCostPerKwh,
@@ -200,7 +219,8 @@ router.get("/catalog", async (_req, res): Promise<void> => {
     })),
     utilityTypes,
     utilityBills: utilityBills.map(withUtilityRates),
-    beverageLines,
+    beverageLines: beverageLinesWithCurrentSupply,
+    beverageLineSupplyHistory,
     beverageProductMappings,
     beverageCostPreviews,
   });
@@ -216,22 +236,112 @@ router.post("/beverage-lines", async (req, res): Promise<void> => {
       throw new Error("Le perdite devono essere comprese tra 0 e 100%");
     }
     const dilutionWaterRatio = nonNegativeDecimal(req.body.dilutionWaterRatio, "Il rapporto acqua");
-    const [line] = await db.insert(beverageLinesTable).values({
-      name,
-      lineType,
-      purchasePriceNet: strictlyPositiveDecimal(req.body.purchasePriceNet, "Il costo imponibile"),
-      vatRate: nonNegativeDecimal(req.body.vatRate, "L'IVA"),
-      sourceVolumeLiters: strictlyPositiveDecimal(req.body.sourceVolumeLiters, "Il volume della fonte"),
-      lossPercentage,
-      dilutionWaterRatio: lineType === "bib" ? dilutionWaterRatio : "0",
-      co2CostPerLiter: nonNegativeDecimal(req.body.co2CostPerLiter, "Il costo CO₂"),
-      coolerKwhPerLiter: nonNegativeDecimal(req.body.coolerKwhPerLiter, "Il consumo del cooler"),
-      cellarKwhPerLiter: nonNegativeDecimal(req.body.cellarKwhPerLiter, "Il consumo della cella"),
-      active: req.body?.active !== false,
-    }).returning();
+    const purchasePriceNet = strictlyPositiveDecimal(req.body.purchasePriceNet, "Il costo imponibile");
+    const sourceVolumeLiters = strictlyPositiveDecimal(req.body.sourceVolumeLiters, "Il volume della fonte");
+    const providedValidFrom = hasValue(req.body, "validFrom");
+    const parsedValidFrom = validDate(req.body?.validFrom);
+    if (providedValidFrom && !parsedValidFrom) throw new Error("La data di decorrenza non è valida");
+    const validFrom = parsedValidFrom ?? new Date().toISOString().slice(0, 10);
+    const [line] = await db.transaction(async (tx) => {
+      const [created] = await tx.insert(beverageLinesTable).values({
+        name,
+        lineType,
+        purchasePriceNet,
+        vatRate: nonNegativeDecimal(req.body.vatRate, "L'IVA"),
+        sourceVolumeLiters,
+        lossPercentage,
+        dilutionWaterRatio: lineType === "bib" ? dilutionWaterRatio : "0",
+        co2CostPerLiter: nonNegativeDecimal(req.body.co2CostPerLiter, "Il costo CO₂"),
+        coolerKwhPerLiter: nonNegativeDecimal(req.body.coolerKwhPerLiter, "Il consumo del cooler"),
+        cellarKwhPerLiter: nonNegativeDecimal(req.body.cellarKwhPerLiter, "Il consumo della cella"),
+        active: req.body?.active !== false,
+      }).returning();
+      await tx.insert(beverageLineSupplyHistoryTable).values({
+        beverageLineId: created.id,
+        purchasePriceNet,
+        sourceVolumeLiters,
+        validFrom,
+      });
+      return [created];
+    });
     res.status(201).json(line);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Linea beverage non valida" });
+  }
+});
+
+router.patch("/beverage-lines/:id", async (req, res): Promise<void> => {
+  const id = positiveId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "ID linea beverage non valido" });
+    return;
+  }
+
+  try {
+    await ensureLegacyBeverageSupplyHistory();
+    const [existing] = await db.select().from(beverageLinesTable).where(eq(beverageLinesTable.id, id)).limit(1);
+    if (!existing) {
+      res.status(404).json({ error: "Linea beverage non trovata" });
+      return;
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (typeof req.body?.name === "string" && req.body.name.trim()) updates.name = req.body.name.trim();
+    if (hasValue(req.body, "lineType")) {
+      if (req.body.lineType !== "beer" && req.body.lineType !== "bib") throw new Error("Tipo di linea non valido");
+      updates.lineType = req.body.lineType;
+    }
+    const effectiveLineType = (updates.lineType ?? existing.lineType) as "beer" | "bib";
+    if (hasValue(req.body, "vatRate")) updates.vatRate = nonNegativeDecimal(req.body.vatRate, "L'IVA");
+    if (hasValue(req.body, "lossPercentage")) {
+      const lossPercentage = nonNegativeDecimal(req.body.lossPercentage, "Le perdite");
+      if (!FixedDecimal.from(lossPercentage).lessThan(FixedDecimal.from("100"))) {
+        throw new Error("Le perdite devono essere comprese tra 0 e 100%");
+      }
+      updates.lossPercentage = lossPercentage;
+    }
+    if (hasValue(req.body, "dilutionWaterRatio")) {
+      updates.dilutionWaterRatio = effectiveLineType === "bib"
+        ? nonNegativeDecimal(req.body.dilutionWaterRatio, "Il rapporto acqua")
+        : "0";
+    } else if (effectiveLineType === "beer" && existing.dilutionWaterRatio !== "0") {
+      updates.dilutionWaterRatio = "0";
+    }
+    if (hasValue(req.body, "co2CostPerLiter")) updates.co2CostPerLiter = nonNegativeDecimal(req.body.co2CostPerLiter, "Il costo CO₂");
+    if (hasValue(req.body, "coolerKwhPerLiter")) updates.coolerKwhPerLiter = nonNegativeDecimal(req.body.coolerKwhPerLiter, "Il consumo del cooler");
+    if (hasValue(req.body, "cellarKwhPerLiter")) updates.cellarKwhPerLiter = nonNegativeDecimal(req.body.cellarKwhPerLiter, "Il consumo della cella");
+    if (typeof req.body?.active === "boolean") updates.active = req.body.active;
+
+    const changesSupply = hasValue(req.body, "purchasePriceNet") || hasValue(req.body, "sourceVolumeLiters");
+    if (changesSupply && (!hasValue(req.body, "purchasePriceNet") || !hasValue(req.body, "sourceVolumeLiters"))) {
+      throw new Error("Prezzo e volume devono essere indicati insieme per registrare una nuova fornitura");
+    }
+    const validFrom = changesSupply ? validDate(req.body?.validFrom) : null;
+    if (changesSupply && !validFrom) throw new Error("La data di decorrenza della fornitura è obbligatoria");
+
+    const [line] = await db.transaction(async (tx) => {
+      const [updated] = Object.keys(updates).length
+        ? await tx.update(beverageLinesTable).set(updates).where(eq(beverageLinesTable.id, id)).returning()
+        : [existing];
+      if (changesSupply && validFrom) {
+        await tx.insert(beverageLineSupplyHistoryTable).values({
+          beverageLineId: id,
+          purchasePriceNet: strictlyPositiveDecimal(req.body.purchasePriceNet, "Il costo imponibile"),
+          sourceVolumeLiters: strictlyPositiveDecimal(req.body.sourceVolumeLiters, "Il volume della fonte"),
+          validFrom,
+        }).onConflictDoUpdate({
+          target: [beverageLineSupplyHistoryTable.beverageLineId, beverageLineSupplyHistoryTable.validFrom],
+          set: {
+            purchasePriceNet: strictlyPositiveDecimal(req.body.purchasePriceNet, "Il costo imponibile"),
+            sourceVolumeLiters: strictlyPositiveDecimal(req.body.sourceVolumeLiters, "Il volume della fonte"),
+          },
+        });
+      }
+      return [updated];
+    });
+    res.json(line);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Aggiornamento linea beverage non valido" });
   }
 });
 
@@ -242,10 +352,11 @@ router.post("/beverage-product-mappings", async (req, res): Promise<void> => {
     if (!productId || !beverageLineId) throw new Error("Prodotto e linea beverage sono obbligatori");
     const [[product], [line]] = await Promise.all([
       db.select({ id: productsTable.id }).from(productsTable).where(eq(productsTable.id, productId)).limit(1),
-      db.select({ id: beverageLinesTable.id }).from(beverageLinesTable).where(eq(beverageLinesTable.id, beverageLineId)).limit(1),
+      db.select({ id: beverageLinesTable.id, active: beverageLinesTable.active }).from(beverageLinesTable).where(eq(beverageLinesTable.id, beverageLineId)).limit(1),
     ]);
     if (!product) throw new Error("Prodotto menu non trovato");
     if (!line) throw new Error("Linea beverage non trovata");
+    if (!line.active) throw new Error("La linea beverage è disattivata e non può ricevere nuove associazioni");
     const [mapping] = await db.insert(beverageProductMappingsTable).values({
       productId,
       beverageLineId,
