@@ -90,7 +90,8 @@ export function Smart() {
   const [clientSearch, setClientSearch] = useState("");
   const [tip, setTip] = useState(0);
   const [cashGiven, setCashGiven] = useState("");
-  const [mobileView, setMobileView] = useState<"tavoli" | "menu" | "conto">("conto");
+  const [mobileView, setMobileView] = useState<"menu" | "conto">("conto");
+  const [tablesOpen, setTablesOpen] = useState(false);
   const [paymentResult, setPaymentResult] = useState("");
   const [modifierItem, setModifierItem] = useState<number | null>(null);
   const [tableMenuOpen, setTableMenuOpen] = useState(false);
@@ -148,7 +149,7 @@ export function Smart() {
     updateTable(table => ({ ...table, items: table.items.map(item => item.status === "bozza" ? { ...item, status: "inviato" } : item) }));
     inform("Comanda in demo · nessuna stampa o invio reale");
   }
-  function selectTable(id: number) { setSelectedId(id); setPaymentOpen(false); setPaymentResult(""); setMobileView("conto"); }
+  function selectTable(id: number) { setSelectedId(id); setPaymentOpen(false); setPaymentResult(""); setMobileView("conto"); setTablesOpen(false); }
   function chooseMode(mode: PayMode) {
     setPayMode(mode); setSelectedForSplit([]); setIncludeCoversInSplit(false);
     if (mode === "romana") setSplitCovers(Math.max(1, activeTable.covers || 2));
@@ -199,12 +200,15 @@ export function Smart() {
       </header>
 
       <nav className="smart-mobile-nav" aria-label="Navigazione servizio">
-        {(["tavoli", "menu", "conto"] as const).map(v => <button key={v} className={mobileView === v ? "active" : ""} onClick={() => setMobileView(v)}>{v === "tavoli" ? "Sala / Tavoli" : v === "menu" ? "Menu" : "Conto"}{v === "conto" && draftCount > 0 && <i>{draftCount}</i>}</button>)}
+        <button className={tablesOpen ? "active" : ""} aria-expanded={tablesOpen} aria-controls="smart-table-sidebar" onClick={() => setTablesOpen(open => !open)}>Sala / Tavoli</button>
+        {(["menu", "conto"] as const).map(v => <button key={v} className={mobileView === v && !tablesOpen ? "active" : ""} onClick={() => { setMobileView(v); setTablesOpen(false); }}>{v === "menu" ? "Menu" : "Conto"}{v === "conto" && draftCount > 0 && <i>{draftCount}</i>}</button>)}
         <button className="nav-operations" onClick={() => { setSelectedOperation(null); setOperationsOpen(true); }}><MoreHorizontal size={17} /> Operazioni</button>
       </nav>
 
-      <section className={`smart-workspace view-${mobileView}`}>
-        <aside className="smart-tables">
+      <section className={`smart-workspace view-${mobileView} ${tablesOpen ? "tables-open" : ""}`}>
+        {tablesOpen && <button className="tables-scrim" aria-label="Chiudi sala tavoli" onClick={() => setTablesOpen(false)} />}
+        <aside className="smart-tables" id="smart-table-sidebar" aria-label="Sala e tavoli">
+          <button className="table-drawer-close icon-button" aria-label="Chiudi pannello tavoli" onClick={() => setTablesOpen(false)}><X size={20} /></button>
           <div className="section-heading">
             <div><div className="eyebrow">SALA PRINCIPALE</div><h1>Tavoli <span>{tables.filter(t => t.status === "occupato").length} attivi</span></h1></div>
             <div className="table-tools">
