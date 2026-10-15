@@ -100,6 +100,7 @@ export function Smart() {
   const [operationSearch, setOperationSearch] = useState("");
   const [selectedOperation, setSelectedOperation] = useState<Operation | null>(null);
   const [phase, setPhase] = useState(1);
+  const [phaseOpen, setPhaseOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [keyValue, setKeyValue] = useState("");
   const [keyMode, setKeyMode] = useState<"qty" | "price">("qty");
@@ -195,7 +196,7 @@ export function Smart() {
       <header className="smart-topbar">
         <div className="smart-brand"><div className="smart-brand-mark"><Beer size={21} strokeWidth={2.3} /></div><div><div className="smart-brand-name">Hello<span>Table</span></div><div className="smart-brand-sub">SALA · SERVIZIO SERALE</div></div></div>
         <div className="smart-service"><span className="service-pulse" /> Servizio attivo <span className="service-divider" /><Clock3 size={15} /> {clockNow()}</div>
-        <div className="smart-demo"><Info size={15} /> DEMO · DATI LOCALI <span>Nessun incasso o documento reale</span></div>
+        <div className="smart-demo"><Info size={15} /> Anteprima locale <span>Nessun incasso o documento reale</span></div>
         <button className="smart-help" type="button" aria-label="Aiuto e operazioni" onClick={() => setOperationsOpen(true)}><CircleHelp size={19} /></button>
       </header>
 
@@ -210,7 +211,7 @@ export function Smart() {
         <aside className="smart-tables" id="smart-table-sidebar" aria-label="Sala e tavoli">
           <button className="table-drawer-close icon-button" aria-label="Chiudi pannello tavoli" onClick={() => setTablesOpen(false)}><X size={20} /></button>
           <div className="section-heading">
-            <div><div className="eyebrow">SALA PRINCIPALE</div><h1>Tavoli <span>{tables.filter(t => t.status === "occupato").length} attivi</span></h1></div>
+            <div><div className="eyebrow">SALA</div><h1>Tavoli <span>{tables.filter(t => t.status === "occupato").length} attivi</span></h1></div>
             <div className="table-tools">
               <button className={`view-toggle ${tableMode === "list" ? "active" : ""}`} aria-label="Vista elenco tavoli" title="Elenco" onClick={() => setTableMode("list")}><List size={16} /></button>
               <button className={`view-toggle ${tableMode === "map" ? "active" : ""}`} aria-label="Vista mappa tavoli" title="Mappa" onClick={() => setTableMode("map")}><Map size={16} /></button>
@@ -224,18 +225,21 @@ export function Smart() {
               return <button key={table.id} data-testid={`table-${table.id}`} onClick={() => selectTable(table.id)} className={`table-card ${table.status} ${selectedId === table.id ? "selected" : ""}`}>
                 <div className="table-card-top"><span className="table-number">{table.name}</span><span className={`table-state ${table.status}`}>{table.status === "occupato" ? "In servizio" : table.status === "libero" ? "Libero" : "Prenotato"}</span></div>
                 <div className="table-card-meta"><span><Users size={14} />{table.covers || table.seats} {table.covers ? "coperti" : "posti"}</span>{table.status === "occupato" && <span><Clock3 size={13} /> {table.elapsed} min</span>}</div>
-                <div className="table-card-bottom">{table.status === "occupato" ? <><b>{euro(amount)}</b><span>{table.items.length} righe</span></> : <span>{table.status === "libero" ? "Pronto per un nuovo conto" : `${table.seats} posti · ore 21:00`}</span>}</div>
+                <div className="table-card-bottom">{table.status === "occupato" ? <><b>{euro(amount)}</b><span>{table.items.length} articoli</span></> : <span>{table.status === "libero" ? "Apri conto" : `${table.seats} posti · ore 21:00`}</span>}</div>
               </button>;
             })}
           </div>
           {tableMenuOpen && <div className="quick-menu table-secondary"><b>Sala · operazioni</b><button onClick={() => { setSelectedOperation(operations[1]); setOperationsOpen(true); setTableMenuOpen(false); }}>Sposta o unisci conto</button><button onClick={() => { setSelectedOperation(operations[4]); setOperationsOpen(true); setTableMenuOpen(false); }}>Apri / assegna tavolo e coperti</button><button onClick={() => { setTableMode(v => v === "map" ? "list" : "map"); setTableMenuOpen(false); }}>Cambia vista sala</button></div>}
-          <div className="table-footnote">Sala sempre a portata di mano · seleziona un tavolo per aprire il conto.</div>
+          <div className="table-footnote">Tocca un tavolo per aprire il conto.</div>
         </aside>
 
         <section className="smart-menu">
-          <div className="menu-heading"><div><div className="eyebrow">CONTO · {activeTable.name.toUpperCase()}</div><h2>Scegli dal menu</h2></div><label className="menu-search"><Search size={17} /><input aria-label="Cerca un prodotto" placeholder="Cerca prodotto" value={search} onChange={e => setSearch(e.target.value)} /><kbd>/</kbd></label></div>
+          <div className="menu-heading"><div><div className="eyebrow">PER {activeTable.name.toUpperCase()}</div><h2>Aggiungi al conto</h2></div><label className="menu-search"><Search size={17} /><input aria-label="Cerca un prodotto" placeholder="Cerca prodotto" value={search} onChange={e => setSearch(e.target.value)} /><kbd>/</kbd></label></div>
           <div className="category-strip" role="tablist" aria-label="Categorie del menu">{categories.map((item, index) => <button key={item} role="tab" aria-selected={category === item} onClick={() => { setCategory(item); setSearch(""); }} className={category === item ? "active" : ""}>{index === 0 && <Heart size={15} fill={category === item ? "currentColor" : "none"} />}{item}</button>)}</div>
-          <div className="phase-strip" aria-label="Fase e listino">{[1, 2, 3, 4].map(n => <button key={n} className={phase === n ? "active" : ""} onClick={() => setPhase(n)}><b>F{n}</b><span>{["Servito", "Asporto", "Fidelity", "Staff"][n - 1]}</span></button>)}</div>
+          <div className="menu-context">
+            <button className="phase-current" aria-expanded={phaseOpen} onClick={() => setPhaseOpen(value => !value)}>Prezzo: {["Servito", "Asporto", "Fidelity", "Staff"][phase - 1]} <ChevronDown size={16} /></button>
+            {phaseOpen && <div className="phase-strip" aria-label="Prezzo e servizio">{[1, 2, 3, 4].map(n => <button key={n} className={phase === n ? "active" : ""} onClick={() => { setPhase(n); setPhaseOpen(false); }}><span>{["Servito", "Asporto", "Fidelity", "Staff"][n - 1]}</span></button>)}</div>}
+          </div>
           <div className="product-grid">
             {visibleProducts.map(product => <div key={product.id} data-testid={`product-${product.id}`} className="product-tile">
               <button type="button" className="product-action" onClick={() => addProduct(product)}><span className="product-add"><Plus size={19} /></span><span className="product-category">{product.category}</span><strong>{product.name}</strong><span className="product-price">{euro(product.price)}</span></button>
@@ -244,33 +248,29 @@ export function Smart() {
             </div>)}
             {visibleProducts.length === 0 && <div className="menu-empty"><Search size={23} /><b>Nessun prodotto trovato</b><span>Prova un altro nome o categoria.</span></div>}
           </div>
-          <div className="menu-hint"><span className="hint-key">Tocco rapido</span> Un tocco aggiunge una riga in bozza. I prodotti esauriti non sono selezionabili.</div>
+          <div className="menu-hint">Tocca un prodotto per aggiungerlo al conto.</div>
         </section>
 
         <aside className="smart-order">
-          <div className="order-heading"><div className="order-table-title"><span className={`table-avatar ${activeTable.status}`}>{activeTable.name.replace("Tavolo ", "T")}</span><div><div className="eyebrow">CONTO APERTO</div><h2>{activeTable.name}</h2></div></div><button className="icon-button" aria-label="Apri tutte le operazioni del conto" onClick={() => { setSelectedOperation(null); setOperationsOpen(true); }}><MoreHorizontal size={21} /></button></div>
+          <div className="order-heading"><div className="order-table-title"><span className={`table-avatar ${activeTable.status}`}>{activeTable.name.replace("Tavolo ", "T")}</span><div><div className="eyebrow">CONTO</div><h2>{activeTable.name}</h2></div></div><button className="order-operations" onClick={() => { setSelectedOperation(null); setOperationsOpen(true); }}><MoreHorizontal size={18} /> Altro</button></div>
           <div className="order-subline"><span><Users size={15} /> {activeTable.covers || 0} coperti</span><span><Clock3 size={14} /> {activeTable.elapsed || 0} min</span><button onClick={() => updateTable(t => ({ ...t, covers: Math.min(t.seats, t.covers + 1), status: "occupato" }))}>+ Coperto</button></div>
           {quickMode && <div className="quick-mode-tag">{quickMode} · demo <button onClick={() => setQuickMode("")} aria-label="Chiudi modalità rapida"><X size={14} /></button></div>}
-          <div className="order-columns"><span>ARTICOLO · {activeTable.items.length} RIGHE</span><span>IMPORTO</span></div>
+          <div className="order-columns"><span>Nel conto · {activeTable.items.length}</span><span>Importo</span></div>
           <div className="order-lines" data-testid="order-list">
             {activeTable.items.length ? activeTable.items.map(item => <div className={`order-line ${item.status} ${selectedItemId === item.id ? "row-selected" : ""}`} key={item.id} data-testid={`order-item-${item.id}`} onClick={() => setSelectedItemId(item.id)}>
               <div className={`order-status-mark ${item.status}`} title={item.status === "inviato" ? "Inviato in cucina" : "Bozza non inviata"}>{item.status === "inviato" ? <Check size={13} /> : <span />}</div>
               <div className="order-item-main"><div className="order-item-name">{item.product.name}</div><div className="order-item-meta">{item.status === "inviato" ? "Inviato in cucina" : "Bozza · non ancora inviata"} · F{item.phase}<span className="insert-time">Inserito {item.insertedAt}</span>{item.modifier && <span className="item-modifier"> · {item.modifier}</span>}{item.note && <span> · {item.note}</span>}</div>
-                <div className="qty-control"><button aria-label={`Diminuisci ${item.product.name}`} onClick={e => { e.stopPropagation(); changeQty(item.id, -1); }}><Minus size={15} /></button><span>{item.qty}</span><button aria-label={`Aumenta ${item.product.name}`} onClick={e => { e.stopPropagation(); changeQty(item.id, 1); }}><Plus size={15} /></button><button className="modifier-button" onClick={e => { e.stopPropagation(); setModifierItem(modifierItem === item.id ? null : item.id); }}>{modifierItem === item.id ? "Chiudi" : "Nota / modifica"}</button></div>
+                <div className="qty-control"><button aria-label={`Diminuisci ${item.product.name}`} onClick={e => { e.stopPropagation(); changeQty(item.id, -1); }}><Minus size={15} /></button><span>{item.qty}</span><button aria-label={`Aumenta ${item.product.name}`} onClick={e => { e.stopPropagation(); changeQty(item.id, 1); }}><Plus size={15} /></button>{selectedItemId === item.id && <button className="modifier-button" onClick={e => { e.stopPropagation(); setModifierItem(modifierItem === item.id ? null : item.id); }}>{modifierItem === item.id ? "Chiudi" : "Nota e modifiche"}</button>}</div>
                 {modifierItem === item.id && <div className="modifier-options"><button onClick={e => { e.stopPropagation(); updateTable(t => ({ ...t, items: t.items.map(i => i.id === item.id ? { ...i, modifier: i.modifier ? undefined : "Senza cipolla" } : i) })); }}>{item.modifier ? "Rimuovi «senza cipolla»" : "Aggiungi «senza cipolla»"}</button><label className="note-entry"><input value={rowNote} onChange={e => setRowNote(e.target.value)} placeholder="Nota per questa riga" onClick={e => e.stopPropagation()} /><button onClick={e => { e.stopPropagation(); updateTable(t => ({ ...t, items: t.items.map(i => i.id === item.id ? { ...i, note: rowNote.trim() || undefined } : i) })); setRowNote(""); }}>Salva nota</button></label><span className="allergen-inline">Allergeni: {item.product.allergens ?? "nessuna indicazione demo"}</span></div>}
               </div><strong className="order-line-price">{euro(item.product.price * item.qty)}</strong>
             </div>) : <div className="order-empty"><Utensils size={25} /><b>Il conto è pronto</b><span>Scegli un prodotto dal menu per iniziare.</span></div>}
             {activeTable.covers > 0 && <div className="order-line cover-line"><div className="cover-mark"><Users size={13} /></div><div className="order-item-main"><div className="order-item-name">Coperto</div><div className="order-item-meta">{activeTable.covers} × € 1,50</div><div className="qty-control"><button aria-label="Diminuisci coperti" onClick={() => updateTable(t => ({ ...t, covers: Math.max(0, t.covers - 1) }))}><Minus size={15} /></button><span>{activeTable.covers}</span><button aria-label="Aumenta coperti" onClick={() => updateTable(t => ({ ...t, covers: Math.min(t.seats, t.covers + 1) }))}><Plus size={15} /></button></div></div><strong className="order-line-price">{euro(activeTable.covers * 1.5)}</strong></div>}
           </div>
-          <div className="order-tools">
-            <div className="keypad-title"><b>Numpad</b><span>riga selezionata · {keyMode === "qty" ? "quantità" : "prezzo"}</span></div>
-            <div className="keypad-row"><div className="key-mode"><button className={keyMode === "qty" ? "active" : ""} onClick={() => setKeyMode("qty")}>Qtà</button><button className={keyMode === "price" ? "active" : ""} onClick={() => setKeyMode("price")}>Prezzo</button></div><input aria-label="Valore numpad" inputMode="decimal" value={keyValue} onChange={e => setKeyValue(e.target.value)} placeholder={keyMode === "qty" ? "Qtà" : "€"} /><button className="key-apply" onClick={applyKeypad} disabled={!currentSelectedItem || !keyValue}>Applica</button></div>
-          </div>
           <div className="order-footer">
-            <div className="order-status-key"><span><i className="status-key sent" />Inviato</span><span><i className="status-key draft" />Bozza</span><span>{sentCount} inviati · {draftCount} da inviare</span></div>
-            <button className="send-order" disabled={!draftCount} onClick={sendDrafts}><Send size={18} /><span>Invia comanda</span><b>{draftCount ? `${draftCount} ${draftCount === 1 ? "riga" : "righe"}` : "Tutto inviato"}</b></button>
+            <div className="order-status-key"><span>{sentCount} inviati · {draftCount} da inviare</span></div>
+            <button className="send-order" disabled={!draftCount} onClick={sendDrafts}><Send size={18} /><span>{draftCount ? "Invia in cucina" : "Comanda inviata"}</span><b>{draftCount ? `${draftCount} ${draftCount === 1 ? "voce" : "voci"}` : "Tutto pronto"}</b></button>
             <div className="total-line"><span>Totale conto {discount > 0 && <small>· sconto demo {euro(discount)}</small>}</span><strong>{euro(total)}</strong></div>
-            <button className="pay-cta" disabled={!activeTable.items.length} onClick={() => { setPaymentOpen(true); setPaymentResult(""); setPayMode("intero"); }}><span><CreditCard size={20} /> Vai al pagamento</span><b>{euro(total)} <ArrowRight size={19} /></b></button>
+            <button className="pay-cta" disabled={!activeTable.items.length} onClick={() => { setPaymentOpen(true); setPaymentResult(""); setPayMode("intero"); }}><span><CreditCard size={20} /> Incassa</span><b>{euro(total)} <ArrowRight size={19} /></b></button>
             <div className="safe-note">Anteprima locale · nessun addebito, stampa o invio fiscale</div>
           </div>
         </aside>
@@ -294,7 +294,8 @@ export function Smart() {
                 {selectedOperation.title === "Annullamento e audit" && <div className="demo-control"><label>Motivazione (richiesta in produzione)<input value={auditReason} onChange={e => setAuditReason(e.target.value)} placeholder="Es. errore inserimento" /></label><span>L'annullamento e la registrazione audit richiedono i permessi e il flusso produzione.</span></div>}
                 {selectedOperation.title === "Rapida · Asporto · Delivery" && <div className="demo-control quick-demo-buttons">{["Rapida", "Asporto", "Delivery"].map(mode => <button key={mode} className="operation-local-button" onClick={() => { setQuickMode(mode); setOperationsOpen(false); }}>{mode} · contesto demo</button>)}</div>}
                 {selectedOperation.title === "Lotteria degli scontrini" && <div className="demo-control"><label>Codice demo<input value={lotteryCode} onChange={e => setLotteryCode(e.target.value.toUpperCase())} placeholder="Codice cliente" /></label><span>Codice conservato solo in questa schermata; non viene trasmesso.</span></div>}
-                {selectedOperation.title === "Numpad quantità / prezzo" && <div className="demo-control"><span>Il tastierino nel conto applica localmente quantità o prezzo alla riga selezionata.</span></div>}
+                {selectedOperation.title === "Numpad quantità / prezzo" && <div className="demo-control"><span>Modifica la voce selezionata: {currentSelectedItem?.product.name ?? "nessuna voce selezionata"}.</span><div className="keypad-title"><b>Valore da applicare</b><span>{keyMode === "qty" ? "quantità" : "prezzo"}</span></div><div className="key-mode"><button className={keyMode === "qty" ? "active" : ""} onClick={() => setKeyMode("qty")}>Quantità</button><button className={keyMode === "price" ? "active" : ""} onClick={() => setKeyMode("price")}>Prezzo</button></div><label>Numero<input aria-label="Valore tastierino" inputMode="decimal" value={keyValue} onChange={e => setKeyValue(e.target.value)} placeholder={keyMode === "qty" ? "Es. 2" : "Es. 8,50"} /></label><button className="operation-local-button" onClick={applyKeypad} disabled={!currentSelectedItem || !keyValue}>Applica alla voce</button></div>}
+                {selectedOperation.title === "F1 · F2 · F3 · F4" && <div className="demo-control"><label>Prezzo da usare per i prossimi prodotti<select value={phase} onChange={e => setPhase(Number(e.target.value))}>{["Servito", "Asporto", "Fidelity", "Staff"].map((name, index) => <option key={name} value={index + 1}>{name}</option>)}</select></label><span>Prezzo attivo: {["Servito", "Asporto", "Fidelity", "Staff"][phase - 1]}. Le voci già inserite non cambiano.</span></div>}
                 {selectedOperation.title === "Esplodi quantità" && <div className="demo-control"><button className="operation-local-button" onClick={explodeQuantities}>Esplodi quantità nel conto demo</button><span>Modifica solo le righe locali della schermata; la produzione applica le proprie verifiche.</span></div>}
                 {selectedOperation.title === "Conto sospeso" && <div className="demo-control"><span>Produzione salva un conto sospeso recuperabile; qui non si crea uno stato persistente.</span></div>}
                 {selectedOperation.title === "Preconto e ristampa" && <div className="demo-control"><span>Le procedure di stampa RT e ristampa di cortesia restano nel front office collegato. Nessuna stampante è collegata a questa anteprima.</span></div>}
