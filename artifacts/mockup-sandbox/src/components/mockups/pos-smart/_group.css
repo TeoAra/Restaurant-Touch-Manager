@@ -1,0 +1,51 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+:root {
+  --radius: 0.75rem;
+
+  /* Light theme - white cards, light gray bg, orange accent */
+  --background: 220 14% 96%;
+  --foreground: 220 20% 12%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 220 20% 12%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 20% 12%;
+
+  /* Orange primary */
+  --primary: 27 96% 51%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 220 14% 91%;
+  --secondary-foreground: 220 20% 25%;
+
+  --muted: 220 14% 92%;
+  --muted-foreground: 220 10% 50%;
+
+  --accent: 220 14% 90%;
+  --accent-foreground: 220 20% 20%;
+
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 220 14% 88%;
+  --input: 220 14% 88%;
+  --ring: 27 96% 51%;
+
+  --chart-1: 27 96% 51%;
+  --chart-2: 160 60% 45%;
+  --chart-3: 220 70% 55%;
+  --chart-4: 280 65% 60%;
+  --chart-5: 340 75% 55%;
+
+  /* Sidebar — slightly darker than background */
+  --sidebar: 220 18% 14%;
+  --sidebar-foreground: 220 10% 85%;
+  --sidebar-border: 220 18% 20%;
+  --sidebar-primary: 27 96% 51%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 220 18% 20%;
+  --sidebar-accent-foreground: 0 0% 100%;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+}
