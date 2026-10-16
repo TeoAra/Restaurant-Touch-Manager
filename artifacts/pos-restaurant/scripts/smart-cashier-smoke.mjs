@@ -109,6 +109,10 @@ try {
   await click(".pos-table-card");
   await wait(`document.querySelectorAll(".pos-item-time").length === 2`);
   await wait(`document.querySelectorAll(".pos-product-grid > button").length === 2`);
+  assert.equal(await evaluate(`document.querySelectorAll(".pos-phase-selector > button").length`), 4);
+  await button("F3", ".pos-phase-selector");
+  assert(await evaluate(`document.querySelector(".pos-phase-selector > button:nth-of-type(3)").getAttribute("aria-pressed") === "true"`), "Phase selection must update");
+  await button("F1", ".pos-phase-selector");
   await button("Altro · tastierino e operazioni +");
   await wait(`!!document.querySelector("#pos-more-operations")`);
   const operations = await evaluate(`document.querySelector("#pos-more-operations").textContent`);

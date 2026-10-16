@@ -92,9 +92,10 @@
 .pos-product-grid > button:hover { border-color: var(--pos-green); box-shadow: 0 3px 10px #174f4310; }
 .pos-product-grid > button > div:first-of-type { color: var(--pos-ink); font-size: 14px; }
 .pos-product-grid > button > div:last-of-type { color: var(--pos-green); font-size: 16px; }
-.pos-price-selector { align-items: center; justify-content: space-between; padding-top: 5px; padding-bottom: 8px; }
-.pos-price-selector label { font-size: 11px; color: var(--pos-muted); padding-left: 3px; }
-.pos-price-selector select { border: 1px solid var(--pos-line); border-radius: 7px; background: #f8f9f3; padding: 6px 8px; font-size: 11px; }
+.pos-phase-selector { align-items: center; padding-top: 5px; padding-bottom: 8px; }
+.pos-phase-selector > span { font-size: 11px; color: var(--pos-muted); padding: 0 7px 0 3px; }
+.pos-phase-selector > button { flex: 1; min-width: 0; min-height: 38px; border: 1px solid var(--pos-line); border-radius: 8px; background: #f8f9f3; padding: 7px 4px; font-size: 12px; font-weight: 700; color: var(--pos-muted); }
+.pos-phase-selector > button.is-active { border-color: var(--pos-green); background: var(--pos-green); color: #fff; }
 .pos-order-item { padding: 10px 10px 7px; margin-bottom: 6px; border-radius: 11px; }
 .pos-item-time { display: block; font-size: 9px; color: var(--pos-muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
 .pos-order-actions { display: grid; gap: 7px; padding-top: 9px; border-top: 1px solid var(--pos-line); background: var(--pos-card); }

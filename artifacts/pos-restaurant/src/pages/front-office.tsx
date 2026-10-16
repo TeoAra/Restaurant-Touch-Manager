@@ -3997,11 +3997,15 @@ export default function FrontOffice() {
         </div>
 
         {/* Fasi F1–F4 */}
-        <div className="px-2.5 pb-1 flex gap-1 shrink-0 pos-price-selector">
-          <label htmlFor="pos-price-list">Listino</label>
-          <select id="pos-price-list" value={activePriceList} onChange={e => setActivePriceList(Number(e.target.value))}>
-            {phaseLabels.map((label, i) => <option key={i} value={i}>{["Servito", "Asporto", "Fidelity", "Staff"][i]} · {label}</option>)}
-          </select>
+        <div className="px-2.5 pb-1 flex gap-1 shrink-0 pos-phase-selector" role="group" aria-label="Fasi">
+          <span>Fasi</span>
+          {phaseLabels.map((label, i) => (
+            <button key={i} type="button" aria-pressed={activePriceList === i}
+              className={activePriceList === i ? "is-active" : ""}
+              onClick={() => setActivePriceList(i)}>
+              {label}
+            </button>
+          ))}
         </div>
 
         {/* Codice lotteria scontrini — riga fissa sopra gli articoli */}

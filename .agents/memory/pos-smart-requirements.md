@@ -11,6 +11,8 @@ L’utente vuole una cassa ancora più semplice e intuitiva: semplificare l’ac
 
 La schermata reale deve corrispondere al design presentato, con accesso effettivo alla mappa: una schermata compressa o diversa dalla proposta non soddisfa la richiesta.
 
+Al posto di “Listino” l’utente vuole vedere le fasi F1–F4.
+
 **Why:** l’utente ha esplicitamente richiesto questi vincoli per il rinnovo, non una versione ridotta della cassa.
 
 **How to apply:** prima dell’integrazione confrontare le funzioni con la cassa esistente; non sostituire i flussi reali con quelli simulati del prototipo. Controllare anche finestre basse e scheda intera, non solo il frame desktop del canvas.
