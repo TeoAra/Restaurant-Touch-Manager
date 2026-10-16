@@ -34,6 +34,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link } from "wouter";
+import { SmartTables } from "@/components/pos/SmartTables";
+import "./front-office-smart.css";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
@@ -2795,9 +2797,9 @@ function InlinePaymentPanel({ total, onPay, disabled, alertAnomalous, orderId }:
   }
 
   return (
-    <div className="flex-1 overflow-hidden bg-[#f4f6fa] p-3 flex flex-col gap-2.5 relative">
+    <div className="pos-payment-panel flex-1 overflow-hidden bg-[#f4f6fa] p-3 flex flex-col gap-2.5 relative">
       {/* Total */}
-      <div className="bg-slate-800 rounded-2xl px-4 py-3 text-center shrink-0">
+      <div className="pos-payment-total bg-slate-800 rounded-2xl px-4 py-3 text-center shrink-0">
         <div className="text-[10px] text-slate-400 uppercase tracking-widest mb-0.5">Totale da pagare</div>
         <div className="text-4xl font-bold text-white font-mono">€ {total.toFixed(2)}</div>
       </div>
@@ -2952,9 +2954,31 @@ export default function FrontOffice() {
   const [numBuffer, setNumBuffer] = useState(""); // numpad buffer
   const [numpadMode, setNumpadMode] = useState<"qty" | "price">("qty"); // what the numpad applies to
   const [activePriceList, setActivePriceList] = useState(0); // 0=Servito 1=Asporto 2=Fidelity 3=Staff
-  const [rightTab, setRightTab] = useState<"grp" | "art" | "var" | "tavl" | "clnt" | "tot">("tavl");
+  const [rightTab, setRightTab] = useState<"grp" | "art" | "var" | "tavl" | "clnt" | "tot">("art");
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [mobilePanel, setMobilePanel] = useState<"left" | "right">("right");
+  const [tablesOpen, setTablesOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const fitViewport = () => {
+      const el = viewportRef.current;
+      if (!el) return;
+      // A standalone preview may have a host banner above the app.
+      const top = Math.max(0, el.getBoundingClientRect().top);
+      el.style.setProperty("--pos-available-height", `${Math.max(0, (window.visualViewport?.height ?? window.innerHeight) - top)}px`);
+    };
+    fitViewport();
+    const observer = new MutationObserver(fitViewport);
+    observer.observe(document.body, { attributes: true, attributeFilter: ["style", "class"] });
+    window.addEventListener("resize", fitViewport);
+    window.visualViewport?.addEventListener("resize", fitViewport);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", fitViewport);
+      window.visualViewport?.removeEventListener("resize", fitViewport);
+    };
+  }, []);
 
   // Log console
   type LogEntry = { id: number; ts: string; level: "info" | "warn" | "error"; msg: string };
@@ -3844,7 +3868,26 @@ export default function FrontOffice() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-screen overflow-hidden bg-[#151922] relative">
+    <div ref={viewportRef} className={cn("pos-smart-live", tablesOpen && "pos-tables-open", mobilePanel === "left" ? "pos-view-order" : "pos-view-menu")}>
+      <header className="pos-smart-header">
+        <div className="pos-smart-brand">Hello<span>Table</span><small>Cassa</small></div>
+        <div className="pos-sale-modes" aria-label="Tipo di vendita">
+          <button className={!isQuickMode ? "is-active" : ""} onClick={() => {
+            if (window.matchMedia("(max-width: 760px)").matches) setTablesOpen(true);
+            else { setRightTab("tavl"); setMobilePanel("right"); }
+          }}><Users size={15} /> Sala</button>
+          <button className={isQuickMode === "rapida" ? "is-active" : ""} onClick={() => handleQuickMode("rapida")}><Zap size={15} /> Banco</button>
+          <button className={isQuickMode === "asporto" ? "is-active" : ""} onClick={() => handleQuickMode("asporto")}><ShoppingBag size={15} /> Asporto</button>
+          <button className={isQuickMode === "delivery" ? "is-active" : ""} onClick={() => handleQuickMode("delivery")}><Truck size={15} /> Delivery</button>
+        </div>
+        <span className="pos-smart-operator">{foUser?.name}</span>
+      </header>
+      {tablesOpen && <button className="pos-table-scrim" onClick={() => setTablesOpen(false)} aria-label="Chiudi la sala" />}
+      <SmartTables tables={tablesStatus as FETable[]} selectedId={selectedTableId}
+        onClose={() => setTablesOpen(false)}
+        onMap={() => { setTablesOpen(false); setRightTab("tavl"); setMobilePanel("right"); }}
+        onSelect={table => { handleTableClick(table); setTablesOpen(false); setRightTab("art"); setMobilePanel("right"); }}
+      />
       {comandaBanner && (
         <div className="absolute top-0 left-0 right-0 z-50 bg-emerald-600 text-white text-center font-bold py-2.5 shadow-lg animate-in slide-in-from-top duration-200">
           ✓ {comandaBanner}
@@ -3853,8 +3896,7 @@ export default function FrontOffice() {
 
       {/* ══ LEFT PANEL ════════════════════════════════════════════════════════ */}
       <div className={cn(
-        "flex-col bg-[#1c2030] shrink-0 border-r border-[#37415c]",
-        "w-full sm:w-[320px] lg:w-[340px]",
+        "pos-order-panel flex-col bg-[#1c2030] shrink-0 border-r border-[#37415c]",
         mobilePanel === "left" ? "flex" : "hidden sm:flex"
       )}>
 
@@ -3955,18 +3997,11 @@ export default function FrontOffice() {
         </div>
 
         {/* Fasi F1–F4 */}
-        <div className="px-2.5 pb-1 flex gap-1 shrink-0">
-          {phaseLabels.map((label, i) => (
-            <button key={i} onClick={() => setActivePriceList(i)}
-              className={cn(
-                "flex-1 py-1.5 rounded-md text-[11px] font-semibold transition-all",
-                activePriceList === i
-                  ? "bg-primary text-white shadow-sm"
-                  : "bg-[#2a3143] text-slate-300 hover:bg-[#34405a] hover:text-slate-200"
-              )}>
-              {label}
-            </button>
-          ))}
+        <div className="px-2.5 pb-1 flex gap-1 shrink-0 pos-price-selector">
+          <label htmlFor="pos-price-list">Listino</label>
+          <select id="pos-price-list" value={activePriceList} onChange={e => setActivePriceList(Number(e.target.value))}>
+            {phaseLabels.map((label, i) => <option key={i} value={i}>{["Servito", "Asporto", "Fidelity", "Staff"][i]} · {label}</option>)}
+          </select>
         </div>
 
         {/* Codice lotteria scontrini — riga fissa sopra gli articoli */}
@@ -4027,7 +4062,7 @@ export default function FrontOffice() {
                       }
                     }}
                     className={cn(
-                      "rounded-lg px-2.5 py-1.5 cursor-pointer transition-all select-none border",
+                      "pos-order-item rounded-lg px-2.5 py-1.5 cursor-pointer transition-all select-none border",
                       isSelected
                         ? "border-primary bg-primary/15 ring-1 ring-primary/40"
                         : isDraft
@@ -4048,7 +4083,7 @@ export default function FrontOffice() {
                     <div className="flex items-center gap-1 mt-0.5">
                       <span className="text-[10px] flex-1" style={{ color: isSelected ? 'rgb(148,163,184)' : 'rgb(100,116,139)' }}>
                         €{parseFloat(item.unitPrice).toFixed(2)} × {item.quantity}
-                        {isSelected && <span className="ml-1.5 text-[9px] text-primary/70 font-semibold">↑ tap → VAR</span>}
+                        {isSelected && <span className="ml-1.5 text-[9px] text-primary/70 font-semibold">Tocca ancora per le variazioni</span>}
                       </span>
                       <button
                         onClick={e => { e.stopPropagation(); setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus }); }}
@@ -4070,6 +4105,11 @@ export default function FrontOffice() {
                         </button>
                       </div>
                     </div>
+                    {item.createdAt && !Number.isNaN(Date.parse(item.createdAt)) && (
+                      <time className="pos-item-time" dateTime={item.createdAt}>
+                        Inserito {new Date(item.createdAt).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}
+                      </time>
+                    )}
                     {itemNotes && (
                       <div className="mt-0.5 text-[9px] text-amber-500 italic truncate">{itemNotes}</div>
                     )}
@@ -4136,6 +4176,12 @@ export default function FrontOffice() {
         </ScrollArea>
 
         {/* Tastierino + bottoni rapidi laterali */}
+        <div className="pos-more-wrap">
+          <button className="pos-more-toggle" aria-expanded={moreOpen} aria-controls="pos-more-operations" onClick={() => setMoreOpen(v => !v)}>
+            <Hash size={16} /> Altro · tastierino e operazioni <span>{moreOpen ? "−" : "+"}</span>
+          </button>
+        {moreOpen && <div id="pos-more-operations" className="pos-more-popover">
+        <div className="pos-more-heading"><strong>Operazioni del conto</strong><button onClick={() => setMoreOpen(false)} aria-label="Chiudi operazioni"><X size={18} /></button></div>
         <div className="px-2.5 pb-1 shrink-0 flex gap-1.5">
 
           {/* Numpad compatto 3×4 */}
@@ -4227,7 +4273,7 @@ export default function FrontOffice() {
               onClick={() => { setPaymentMode("split"); setRightTab("tot"); setMobilePanel("right"); }}
               title="Conto separato: apre nella tab Tot, scegli quali articoli pagare in scontrini distinti"
               className="h-10 rounded-lg flex items-center justify-center bg-purple-800 text-purple-200 hover:bg-purple-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              Conto Sep.
+              Separato
             </button>
 
             {/* Riga 3 */}
@@ -4259,7 +4305,7 @@ export default function FrontOffice() {
                 onClick={() => setShowCancelConfirm(true)}
                 title="Annulla l'intero ordine (registrato in audit log)"
                 className="h-10 rounded-lg flex items-center justify-center bg-red-950 text-red-400 hover:bg-red-900 text-[10px] font-bold transition-all active:scale-95 leading-tight border border-red-900">
-                Annulla Ord.
+                Annulla ordine
               </button>
             ) : (
               <button
@@ -4322,6 +4368,8 @@ export default function FrontOffice() {
             )}
           </div>
         </div>
+        </div>}
+        </div>
 
         {/* Console Log Panel */}
         {showLog && (
@@ -4356,32 +4404,35 @@ export default function FrontOffice() {
         )}
 
         {/* Bottone CASSA */}
-        <div className="px-2.5 pb-20 sm:pb-2.5 shrink-0">
+        <div className="pos-order-actions px-2.5 pb-2.5 shrink-0">
+          <button className="pos-send-button" onClick={handleSendComanda} disabled={!activeOrderId || !hasDraftItems}>
+            <Send size={17} /> Invia in cucina
+          </button>
           <button
             onClick={() => { setRightTab("tot"); setMobilePanel("right"); }}
             disabled={items.length === 0}
             className="w-full py-3 rounded-xl bg-primary text-white font-bold text-sm tracking-wide hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-primary/20">
-            Cassa · €{total.toFixed(2)}
+            Incassa · €{total.toFixed(2)}
           </button>
         </div>
       </div>
 
       {/* ══ RIGHT PANEL ═══════════════════════════════════════════════════════ */}
       <div className={cn(
-        "flex-1 flex flex-col overflow-hidden bg-[#151827]",
+        "pos-menu-panel flex-1 flex flex-col overflow-hidden bg-[#151827]",
         mobilePanel === "right" ? "flex" : "hidden sm:flex"
       )}>
 
         {/* Tab bar: GRP | ART | VAR | TAVL | CLNT | TOT */}
-        <div className="flex bg-[#151922] border-b border-[#37415c] shrink-0">
+        <div className="pos-work-tabs flex bg-[#151922] border-b border-[#37415c] shrink-0">
           {(["grp","art","var","tavl","clnt","tot"] as const).map((tab) => {
-            const labels: Record<string, string> = { grp:"GRP", art:"ART", var:"VAR", tavl:"TAVL", clnt:"CLNT", tot:"TOT" };
+            const labels: Record<string, string> = { grp:"Categorie", art:"Menu", var:"Variazioni", tavl:"Mappa", clnt:"Cliente", tot:"Pagamento" };
             const active = rightTab === tab;
             const hasBadge = tab === "clnt" && !!invoiceCustomer;
             return (
               <button key={tab} onClick={() => setRightTab(tab)}
                 className={cn(
-                  "flex-1 h-14 flex items-center justify-center transition-all border-b-2 text-xs tracking-wide relative",
+                  "flex-1 h-14 flex items-center justify-center transition-all border-b-2 text-xs tracking-wide relative pos-work-tab",
                   active
                     ? "font-bold text-primary border-primary bg-primary/10"
                     : "font-medium text-slate-500 border-transparent hover:text-slate-300 hover:bg-[#1a1d2a]"
@@ -4450,8 +4501,12 @@ export default function FrontOffice() {
                 </div>
               )}
             </div>
+            <div className="pos-category-strip" aria-label="Categorie prodotti">
+              <button className={selectedCategoryId === null ? "is-active" : ""} onClick={() => setSelectedCategoryId(null)}>Tutti</button>
+              {categories.map(cat => <button key={cat.id} className={selectedCategoryId === cat.id ? "is-active" : ""} onClick={() => { setSelectedCategoryId(cat.id); setProductSearch(""); }}>{cat.name}</button>)}
+            </div>
             <ScrollArea className="flex-1">
-              <div className="p-3 grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))" }}>
+              <div className="pos-product-grid p-3 grid gap-2.5">
                 {visibleProducts.map(p => (
                   <ProductCard
                     key={p.id}
@@ -5005,8 +5060,9 @@ export default function FrontOffice() {
       </div>
 
       {/* ══ MOBILE BOTTOM TAB BAR ═════════════════════════════════════════════ */}
-      <div className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900 border-t border-slate-700 flex"
+      <div className="pos-mobile-nav"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+        <button onClick={() => setTablesOpen(v => !v)} aria-expanded={tablesOpen} aria-controls="pos-tables"><Users size={20} />Tavoli</button>
         <button onClick={() => setMobilePanel("left")}
           className={cn("flex-1 flex flex-col items-center gap-1 py-3 text-xs font-bold transition-colors",
             mobilePanel === "left" ? "text-primary" : "text-slate-500")}>
@@ -5018,9 +5074,9 @@ export default function FrontOffice() {
               </span>
             )}
           </div>
-          Ordine{total > 0 ? ` · €${total.toFixed(2)}` : ""}
+          Conto{total > 0 ? ` · €${total.toFixed(2)}` : ""}
         </button>
-        <button onClick={() => setMobilePanel("right")}
+        <button onClick={() => { setMobilePanel("right"); setRightTab("art"); }}
           className={cn("flex-1 flex flex-col items-center gap-1 py-3 text-xs font-bold transition-colors",
             mobilePanel === "right" ? "text-primary" : "text-slate-500")}>
           <UtensilsCrossed className="h-5 w-5" />
