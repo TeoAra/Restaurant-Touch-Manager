@@ -6,3 +6,18 @@ id = "YufMyIa4GGSLb5QvH2eDB"
 uri = "file://scripts/windows/update_download.txt"
 type = "text"
 title = "update.ps1"
+logical_id = "9c93397d-12d8-4897-8ea1-d55eb526f975"
+
+[[outputs]]
+id = "TEolJz3Cp469BGvBKqQwq"
+uri = "file://generated-artifacts/pos-smart/map-1024x640.jpg"
+type = "image"
+title = "Cassa aggiornata con mappa — dati di prova"
+description = "Verifica della versione attuale a 1024×640: mappa aperta, tavoli laterali e conto. Questa è la versione del progetto, non quella ancora servita dal sito online."
+logical_id = "740dfedf-c921-4ac2-a68b-9cdcbacb316e"
+content_hash = "sha256:ce9b12286aef885758d628fad652074fafa118456630ccdeb589810884074b55"
+size = 79077
+mtime_ms = 1792156110436
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:3b8ea30f-3c7b-4217-a640-3bd56d430de6/740dfedf-c921-4ac2-a68b-9cdcbacb316e/bc06daef-503b-4e7d-ab61-640d7d0a38f0"
+storage_version_token = "1792156144633101"
+content_type = "image/jpeg"

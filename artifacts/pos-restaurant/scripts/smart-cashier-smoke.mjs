@@ -36,7 +36,7 @@ try {
     ws.send(JSON.stringify({ id, method, params }));
   });
   const createdAt = "2026-10-16T18:14:00.000Z";
-  const tables = Array.from({ length: 14 }, (_, i) => ({ id: i + 1, number: i + 1, name: `Tavolo ${i + 1}`, seats: 4, status: i === 0 ? "occupied" : "free", activeOrderId: i === 0 ? 101 : null, activeOrderTotal: i === 0 ? "26.00" : null, roomName: i > 8 ? "Dehor" : "Sala", elementType: "table" }));
+  const tables = Array.from({ length: 14 }, (_, i) => ({ id: i + 1, number: i + 1, name: `Tavolo ${i + 1}`, seats: 4, status: i === 0 ? "occupied" : "free", activeOrderId: i === 0 ? 101 : null, activeOrderTotal: i === 0 ? "26.00" : null, roomName: i > 8 ? "Dehor" : "Sala", elementType: "table", posX: i % 5, posY: Math.floor(i / 5), shape: "square" }));
   const categories = [{ id: 1, name: "Birre", color: "#a16207" }, { id: 2, name: "Cucina", color: "#166534" }];
   const products = [{ id: 1, name: "Birra artigianale", price: "6.00", categoryId: 1, available: true }, { id: 2, name: "Burger della casa", price: "14.00", categoryId: 2, available: true }];
   const order = { id: 101, tableId: 1, tableName: "Tavolo 1", status: "open", total: "26.00", covers: 2, createdAt, updatedAt: createdAt, items: [
@@ -126,7 +126,7 @@ try {
   for (const name of ["Separato", "Romana", "CONTANTI"]) assert(payment.includes(name), `Payment mode lost: ${name}`);
   await button("Menu", ".pos-work-tabs");
   await mkdir("generated-artifacts/pos-smart", { recursive: true });
-  for (const [width, height] of [[1440, 900], [1024, 768], [800, 600], [390, 844]]) {
+  for (const [width, height] of [[1440, 900], [1024, 768], [1024, 640], [800, 600], [390, 844]]) {
     await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
     await new Promise(r => setTimeout(r, 250));
     const layout = await evaluate(`(() => { const rect = s => { const r = document.querySelector(s).getBoundingClientRect(); return {x:r.x, y:r.y, width:r.width, height:r.height, right:r.right, bottom:r.bottom}; }; return {body:document.documentElement.scrollWidth, tables:rect(".pos-tables"), menu:rect(".pos-menu-panel"), order:rect(".pos-order-panel"), actions:rect(".pos-order-actions")}; })()`);
@@ -152,6 +152,14 @@ try {
     await evaluate(`document.querySelector(".pos-payment-panel > button:last-of-type").scrollIntoView({block:"end"})`);
     const reachable = await evaluate(`(() => { const b = document.querySelector(".pos-payment-panel > button:last-of-type").getBoundingClientRect(); const p = document.querySelector(".pos-payment-panel").getBoundingClientRect(); return b.top >= p.top - 1 && b.bottom <= p.bottom + 1; })()`);
     assert(reachable, `Payment confirmation unreachable at ${width}×${height}`);
+    await button("Menu", ".pos-work-tabs");
+    if (width <= 760) await button("Tavoli", ".pos-mobile-nav");
+    await click(".pos-map-link");
+    await wait(`document.querySelector(".pos-menu-panel").textContent.includes("Mappa Tavoli")`);
+    await wait(`document.querySelectorAll(".pos-menu-panel .origin-top-left button").length > 0`);
+    assert(await evaluate(`(() => { const r = document.querySelector(".pos-menu-panel .origin-top-left button").getBoundingClientRect(); return r.width >= 30 && r.height >= 30 && r.right <= innerWidth && r.bottom <= innerHeight; })()`), `Map tables not visible at ${width}×${height}`);
+    const mapShot = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
+    await writeFile(`generated-artifacts/pos-smart/map-${width}x${height}.jpg`, Buffer.from(mapShot.data, "base64"));
     await button("Menu", ".pos-work-tabs");
     console.log(`PASS layout ${width}×${height}`);
   }
