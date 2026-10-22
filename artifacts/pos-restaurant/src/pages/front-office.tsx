@@ -35,6 +35,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { Link } from "wouter";
 import { SmartTables } from "@/components/pos/SmartTables";
+import { usePosPanels } from "@/hooks/use-pos-panels";
 import "./front-office-smart.css";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
@@ -2696,6 +2697,9 @@ function ProductCard({ product, onAdd, activePriceList, onToggleEsaurito }: {
   const cancelPress = () => {
     if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
   };
+  useEffect(() => () => {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
+  }, []);
 
   return (
     <button
@@ -2703,7 +2707,15 @@ function ProductCard({ product, onAdd, activePriceList, onToggleEsaurito }: {
       onPointerDown={startPress}
       onPointerUp={cancelPress}
       onPointerLeave={cancelPress}
-      onContextMenu={(e) => { e.preventDefault(); onToggleEsaurito?.(product.id, !isAvailable); }}
+      onPointerCancel={cancelPress}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        cancelPress();
+        if (!longPressed.current) {
+          longPressed.current = true;
+          onToggleEsaurito?.(product.id, !isAvailable);
+        }
+      }}
       className={cn(
         "relative bg-[#22263a] rounded-xl border-2 p-3 text-left hover:shadow-lg hover:shadow-primary/10 active:scale-95 transition-all group min-h-[88px] flex flex-col justify-between",
         isAvailable ? "border-[#2d3044] hover:border-primary" : "border-red-900 opacity-60 grayscale"
@@ -2960,6 +2972,17 @@ export default function FrontOffice() {
   const [tablesOpen, setTablesOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const closeTables = useCallback(() => setTablesOpen(false), []);
+  const closeMore = useCallback(() => setMoreOpen(false), []);
+  usePosPanels(viewportRef, tablesOpen, closeTables, moreOpen, closeMore);
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [mobilePanel, rightTab, selectedTableId, tablesOpen]);
+  useEffect(() => {
+    // Keep the current workspace action visible even on a narrow phone.
+    viewportRef.current?.querySelector<HTMLElement>('.pos-work-tab[aria-pressed="true"]')
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [rightTab, mobilePanel]);
   useEffect(() => {
     const fitViewport = () => {
       const el = viewportRef.current;
@@ -3882,7 +3905,7 @@ export default function FrontOffice() {
         </div>
         <span className="pos-smart-operator">{foUser?.name}</span>
       </header>
-      {tablesOpen && <button className="pos-table-scrim" onClick={() => setTablesOpen(false)} aria-label="Chiudi la sala" />}
+      <button className="pos-table-scrim" onClick={closeTables} aria-label="Chiudi la sala" tabIndex={-1} aria-hidden={!tablesOpen} />
       <SmartTables tables={tablesStatus as FETable[]} selectedId={selectedTableId}
         onClose={() => setTablesOpen(false)}
         onMap={() => { setTablesOpen(false); setRightTab("tavl"); setMobilePanel("right"); }}
@@ -4422,7 +4445,7 @@ export default function FrontOffice() {
       </div>
 
       {/* ══ RIGHT PANEL ═══════════════════════════════════════════════════════ */}
-      <div className={cn(
+      <div id="pos-menu-panel" className={cn(
         "pos-menu-panel flex-1 flex flex-col overflow-hidden bg-[#151827]",
         mobilePanel === "right" ? "flex" : "hidden sm:flex"
       )}>
@@ -4434,7 +4457,7 @@ export default function FrontOffice() {
             const active = rightTab === tab;
             const hasBadge = tab === "clnt" && !!invoiceCustomer;
             return (
-              <button key={tab} onClick={() => setRightTab(tab)}
+              <button key={tab} onClick={() => setRightTab(tab)} aria-pressed={active}
                 className={cn(
                   "flex-1 h-14 flex items-center justify-center transition-all border-b-2 text-xs tracking-wide relative pos-work-tab",
                   active
@@ -4519,11 +4542,12 @@ export default function FrontOffice() {
                     onAdd={handleAddProduct}
                     onToggleEsaurito={async (id, available) => {
                       try {
-                        await fetch(`${API}/products/${id}`, {
+                        const response = await fetch(`${API}/products/${id}`, {
                           method: "PATCH",
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({ available }),
                         });
+                        if (!response.ok) throw new Error("Aggiornamento disponibilità non riuscito");
                         addLog("info", `${available ? "Disponibile" : "Esaurito"}: ${p.name}`);
                         toast({ title: available ? "Prodotto disponibile" : "Prodotto segnato Esaurito" });
                         await refresh();
@@ -5064,10 +5088,11 @@ export default function FrontOffice() {
       </div>
 
       {/* ══ MOBILE BOTTOM TAB BAR ═════════════════════════════════════════════ */}
-      <div className="pos-mobile-nav"
+      <nav className="pos-mobile-nav" aria-label="Navigazione cassa"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
         <button onClick={() => setTablesOpen(v => !v)} aria-expanded={tablesOpen} aria-controls="pos-tables"><Users size={20} />Tavoli</button>
-        <button onClick={() => setMobilePanel("left")}
+        <button onClick={() => { closeTables(); setMobilePanel("left"); }}
+          aria-current={mobilePanel === "left" && !tablesOpen ? "page" : undefined}
           className={cn("flex-1 flex flex-col items-center gap-1 py-3 text-xs font-bold transition-colors",
             mobilePanel === "left" ? "text-primary" : "text-slate-500")}>
           <div className="relative">
@@ -5080,13 +5105,14 @@ export default function FrontOffice() {
           </div>
           Conto{total > 0 ? ` · €${total.toFixed(2)}` : ""}
         </button>
-        <button onClick={() => { setMobilePanel("right"); setRightTab("art"); }}
+        <button onClick={() => { closeTables(); setMobilePanel("right"); setRightTab("art"); }}
+          aria-current={mobilePanel === "right" && !tablesOpen ? "page" : undefined}
           className={cn("flex-1 flex flex-col items-center gap-1 py-3 text-xs font-bold transition-colors",
             mobilePanel === "right" ? "text-primary" : "text-slate-500")}>
           <UtensilsCrossed className="h-5 w-5" />
           Menu
         </button>
-      </div>
+      </nav>
 
       {/* ══ MODALS ════════════════════════════════════════════════════════════ */}
 

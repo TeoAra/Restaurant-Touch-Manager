@@ -31,7 +31,7 @@ export function SmartTables({ tables, selectedId, onSelect, onMap, onClose }: Pr
       </div>
       <label className="pos-table-search"><Search size={15} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cerca tavolo…" aria-label="Cerca tavolo" /></label>
       {rooms.length > 1 && <select className="pos-room-select" aria-label="Filtra per sala" value={room} onChange={e => setRoom(e.target.value)}><option value="">Tutte le sale</option>{rooms.map(r => <option key={r} value={r}>{r}</option>)}</select>}
-      <div className="pos-table-list">
+      <div className="pos-table-list" aria-label="Elenco tavoli">
         {visible.map(t => (
           <button key={t.id} onClick={() => onSelect(t)} className={`pos-table-card ${t.id === selectedId ? "is-selected" : ""}`} aria-pressed={t.id === selectedId}>
             <span className="pos-table-card-top"><strong>{t.name}</strong><span className={`pos-table-state ${t.activeOrderId ? "busy" : t.status === "reserved" ? "reserved" : "free"}`}>{t.activeOrderId ? "Occupato" : t.status === "reserved" ? "Prenotato" : "Libero"}</span></span>

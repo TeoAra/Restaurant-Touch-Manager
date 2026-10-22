@@ -1,4 +1,4 @@
 - [Protocollo DTR RT XonXoff](dtr-rt-protocol.md) — gestionali `j`...`J`; parola TOTALE vietata nelle righe `@`; record max 256 byte con flow XOFF/XON; `K` sblocca errori. Spec PDF in attached_assets.
 - [Attribuzione vendite nei report](report-attribution.md) — report vendite sempre su orders.createdAt + status paid, mai su order_items.createdAt.
 - [Requisiti cassa Smart](pos-smart-requirements.md) — nessuna funzione rimossa; orari prodotti, tavoli e grafica mobile adattabile a touch POS, laptop e scheda intera.
-- [Contesto del browser](browser-verification.md) — Chromium può esporre target di estensioni prima della pagina dell’app; un timeout può riferirsi al contesto sbagliato.
+- [Verifiche browser della cassa](browser-verification.md) — scegliere il target Chromium corretto; bloccare le scritture nei controlli puramente grafici per non produrre incassi o stampe.

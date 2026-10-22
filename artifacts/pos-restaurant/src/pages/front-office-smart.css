@@ -112,6 +112,28 @@
 .pos-more-popover .grid-cols-2 { width: 136px; }
 .pos-mobile-nav { display: none; }
 
+/* Animate presentation, never remount order/payment components for motion. */
+.pos-smart-live button {
+  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 100ms ease;
+}
+.pos-smart-live button:active:not(:disabled) { transform: scale(.98); }
+.pos-smart-live button:disabled { transform: none; }
+.pos-table-list, .pos-more-popover { overscroll-behavior: contain; }
+.pos-more-popover { transform-origin: bottom right; animation: pos-panel-enter 160ms ease-out; }
+.pos-menu-panel > :not(.pos-work-tabs), .pos-view-order .pos-order-panel {
+  animation: pos-panel-enter 160ms ease-out;
+}
+@keyframes pos-panel-enter {
+  from { opacity: .4; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (hover: none) and (pointer: coarse) {
+  .pos-icon-button, .pos-room-select, .pos-map-link, .pos-category-strip button,
+  .pos-phase-selector > button, .pos-more-popover button { min-height: 48px; }
+  .pos-icon-button { min-width: 48px; }
+  .pos-smart-live .pos-order-item button { min-width: 44px; min-height: 44px; }
+}
+
 /* Translate the retained cashier controls to the approved warm, green theme.
    Explicit legacy tokens avoid affecting room/category colors or dialogs. */
 .pos-smart-live :is([class*="bg-[#151"], [class*="bg-[#171"], [class*="bg-[#1c2030]"], [class*="bg-[#0f1117]"]) { background-color: var(--pos-card); }
@@ -149,9 +171,22 @@
   .pos-sale-modes button { justify-content: center; flex: 1; padding: 6px 5px; font-size: 11px; }
   .pos-order-panel, .pos-menu-panel { grid-area: main; width: 100%; border: none; }
   .pos-view-order .pos-menu-panel, .pos-view-menu .pos-order-panel { display: none !important; }
-  .pos-smart-live .pos-tables { display: none; }
-  .pos-smart-live.pos-tables-open .pos-tables { display: flex; position: absolute; top: 92px; bottom: 0; left: 0; width: min(330px, 88%); z-index: 32; box-shadow: 15px 0 40px #174f4326; }
-  .pos-tables-open .pos-table-scrim { display: block; position: absolute; inset: 92px 0 0; z-index: 31; background: #173e3555; }
+  .pos-smart-live .pos-tables {
+    display: flex; position: absolute; top: 92px; bottom: 0; left: 0;
+    width: min(330px, 88%); z-index: 32; box-shadow: 15px 0 40px #174f4326;
+    visibility: hidden; transform: translateX(-105%); pointer-events: none;
+    transition: transform 180ms ease-out, visibility 180ms;
+  }
+  .pos-smart-live.pos-tables-open .pos-tables {
+    visibility: visible; transform: translateX(0); pointer-events: auto;
+  }
+  .pos-table-scrim {
+    display: block; position: absolute; inset: 92px 0 0; z-index: 31;
+    background: #173e3555; opacity: 0; visibility: hidden; pointer-events: none;
+    transition: opacity 180ms ease-out, visibility 180ms;
+  }
+  .pos-tables-open .pos-table-scrim { opacity: 1; visibility: visible; pointer-events: auto; }
+  .pos-smart-live .pos-table-scrim:active { transform: none; }
   .pos-tables-close { display: grid; }
   .pos-table-card { min-height: 87px; }
   .pos-mobile-nav { grid-area: nav; display: flex; align-items: stretch; border-top: 1px solid var(--pos-line); background: var(--pos-card); z-index: 25; }
@@ -162,6 +197,14 @@
   .pos-order-actions { grid-template-columns: 1fr 1.15fr; align-items: stretch; }
   .pos-order-actions > button { padding: 10px 6px; font-size: 12px; }
   .pos-more-popover { bottom: 102px; max-height: calc(100% - 115px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pos-smart-live *, .pos-smart-live *::before, .pos-smart-live *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  .pos-smart-live button:active:not(:disabled) { transform: none; }
 }
 @media (max-height: 650px) and (min-width: 761px) {
   .pos-smart-live { grid-template-rows: 48px minmax(0, 1fr); }
