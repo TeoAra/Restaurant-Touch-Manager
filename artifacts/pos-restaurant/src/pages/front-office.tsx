@@ -3996,6 +3996,14 @@ export default function FrontOffice() {
   const numpadKeys = ["7","8","9","4","5","6","1","2","3","X","0","."];
 
   // ── Render ─────────────────────────────────────────────────────────────────
+  function openCheckout() {
+    setMoreOpen(false);
+    setTablesOpen(false);
+    setPaymentMode("full");
+    setRightTab("tot");
+    setMobilePanel("right");
+  }
+
   return (
     <div ref={viewportRef} className={cn("pos-smart-live", tablesOpen && "pos-tables-open", mobilePanel === "left" ? "pos-view-order" : "pos-view-menu")}>
       <header className="pos-smart-header">
@@ -4531,8 +4539,11 @@ export default function FrontOffice() {
             <Send size={17} /> Invia in cucina
           </button>
           <button
-            onClick={() => { setRightTab("tot"); setMobilePanel("right"); }}
-            disabled={items.length === 0}
+            type="button"
+            onClick={openCheckout}
+            data-testid="button-open-checkout"
+            aria-controls="pos-payment-hub"
+            aria-expanded={rightTab === "tot"}
             className="w-full py-3 rounded-xl bg-primary text-white font-bold text-sm tracking-wide hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-primary/20">
             Incassa · €{total.toFixed(2)}
           </button>
@@ -5074,7 +5085,7 @@ export default function FrontOffice() {
 
         {/* ── TOT: payment hub (Totale | Separato | Romana) ─────────────────── */}
         {rightTab === "tot" && (
-          <div className="flex-1 flex flex-col overflow-hidden">
+          <div id="pos-payment-hub" className="flex-1 flex flex-col overflow-hidden">
             {/* Invoice customer indicator */}
             {invoiceCustomer && (
               <div className="mx-3 mt-2 px-2.5 py-1.5 bg-[#fffefa] border-2 border-[#174f43] rounded-xl flex items-center gap-2 shrink-0 text-slate-900" data-testid="banner-invoice-tot">
@@ -5213,6 +5224,12 @@ export default function FrontOffice() {
             mobilePanel === "right" ? "text-primary" : "text-slate-500")}>
           <UtensilsCrossed className="h-5 w-5" />
           Menu
+        </button>
+        <button type="button" onClick={openCheckout} className="pos-mobile-checkout"
+          data-testid="button-open-checkout-mobile" aria-controls="pos-payment-hub"
+          aria-current={rightTab === "tot" && mobilePanel === "right" && !tablesOpen ? "page" : undefined}>
+          <span>Incassa</span>
+          <strong className="tabular-nums">€{total.toFixed(2)}</strong>
         </button>
       </nav>
 

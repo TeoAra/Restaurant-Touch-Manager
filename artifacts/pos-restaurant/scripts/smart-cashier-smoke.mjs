@@ -98,6 +98,10 @@ try {
       else if (path === "/api/products") body = products;
       else if (path === "/api/dashboard/summary") body = { todayRevenue: "126.00", todayOrders: 6, openOrders: 1, occupiedTables: 1, totalTables: 14, avgOrderValue: "21.00", yesterdayRevenue: "120.00", yesterdayOrders: 6, lastWeekRevenue: "118.00", lastWeekOrders: 5 };
       else if (path === "/api/dashboard/sales-by-day") body = [{ date: "2026-10-15", revenue: "120.00", orders: 6 }, { date: "2026-10-16", revenue: "126.00", orders: 6 }];
+      else if (path === "/api/orders" && request.method === "POST" && process.env.POS_CHECKOUT_CHECK === "1") {
+        Object.assign(order, JSON.parse(request.postData));
+        body = order;
+      }
       else if (path === "/api/orders/101") {
         order.total = order.items.reduce((total, item) => total + Number(item.subtotal), 0).toFixed(2);
         body = order;
@@ -431,6 +435,71 @@ try {
     const { data } = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
     await writeFile("generated-artifacts/pos-smart/theme-customer-dialog.jpg", Buffer.from(data, "base64"));
     console.log("PASS primary action contrast and shared color in portaled customer dialog");
+  }
+  if (process.env.POS_CHECKOUT_CHECK === "1") {
+    const savedItems = structuredClone(order.items);
+    order.items = [];
+    order.covers = 2;
+    order.coverPrice = "1.50";
+    order.paidRomana = "0";
+    await send("Emulation.setDeviceMetricsOverride", { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false });
+    await send("Page.navigate", { url: origin + "/" });
+    await wait(`document.querySelectorAll(".pos-table-card").length === 14`);
+    const openCheckout = async (selector = '[data-testid="button-open-checkout"]') => {
+      assert.equal(await evaluate(`document.querySelector(${JSON.stringify(selector)}).disabled`), false);
+      const before = writes.length;
+      await click(selector);
+      await wait(`!!document.querySelector("#pos-payment-hub .pos-payment-panel")`);
+      assert.equal(writes.length, before, "Opening checkout must not create orders, pay, send kitchen orders or print");
+    };
+    await openCheckout();
+    assert(await evaluate(`document.querySelector(".pos-payment-total").textContent.includes("0.00")`));
+    assert(await evaluate(`document.querySelector(".pos-payment-panel > button:last-of-type").disabled`), "Zero total cannot actually be charged");
+    await click(".pos-table-card");
+    await wait(`document.querySelector('[data-testid="button-open-checkout"]').textContent.includes("3.00")`);
+    await openCheckout();
+    assert(await evaluate(`document.querySelector(".pos-payment-total").textContent.includes("3.00")`), "Covers-only tables must open checkout");
+    for (const mode of ["Separato", "Romana"]) {
+      await button(mode, ".pos-menu-panel");
+      await openCheckout();
+    }
+    order.items = savedItems;
+    order.paidRomana = "5.00";
+    const tableTotal = savedItems.reduce((sum, item) => sum + Number(item.subtotal), 0) + 3;
+    await send("Page.navigate", { url: origin + "/" });
+    await wait(`document.querySelectorAll(".pos-table-card").length === 14`);
+    await click(".pos-table-card");
+    await wait(`document.querySelector('[data-testid="button-open-checkout"]').textContent.includes(${JSON.stringify(tableTotal.toFixed(2))})`);
+    await openCheckout();
+    assert(await evaluate(`document.querySelector(".pos-payment-total").textContent.includes(${JSON.stringify((tableTotal - 5).toFixed(2))})`), "Checkout charges only the remaining balance");
+    order.covers = 0;
+    order.paidRomana = "0";
+    await button("Banco", ".pos-sale-modes");
+    await wait(`document.querySelector(".pos-order-panel").textContent.includes("Scontrino Rapido")`);
+    const quickTotal = tableTotal - 3;
+    await wait(`document.querySelector('[data-testid="button-open-checkout"]').textContent.includes(${JSON.stringify(quickTotal.toFixed(2))})`);
+    await openCheckout();
+    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    const mobileCheckout = '[data-testid="button-open-checkout-mobile"]';
+    await wait(`document.querySelector(${JSON.stringify(mobileCheckout)}).getBoundingClientRect().width > 0`);
+    for (const section of ["Menu", "Conto", "Tavoli"]) {
+      if (section === "Conto") await evaluate(`document.querySelector(".pos-mobile-nav > button:nth-child(2)").click()`);
+      else await button(section, ".pos-mobile-nav");
+      assert(await evaluate(`(() => {
+        const b = document.querySelector(${JSON.stringify(mobileCheckout)});
+        const r = b.getBoundingClientRect();
+        return b.contains(document.elementFromPoint(r.left + r.width/2, r.top + r.height/2));
+      })()`), `Mobile checkout must remain reachable from ${section}: ${await evaluate(`(() => {
+        const b = document.querySelector(${JSON.stringify(mobileCheckout)});
+        const r = b.getBoundingClientRect();
+        return JSON.stringify({rect:{x:r.x,y:r.y,width:r.width,height:r.height},viewport:{width:innerWidth,height:innerHeight},hit:document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.outerHTML.slice(0,500)});
+      })()`)}`);
+      await openCheckout(mobileCheckout);
+      assert(await evaluate(`document.querySelector(".pos-payment-total").textContent.includes(${JSON.stringify(quickTotal.toFixed(2))})`));
+    }
+    const shot = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
+    await writeFile("generated-artifacts/pos-smart/checkout-mobile.jpg", Buffer.from(shot.data, "base64"));
+    console.log("PASS checkout: no selection, zero total, covers-only table, full amount with partial balance, reset from split/Romana, quick receipt, mobile menu/order/tables; opening performs no writes");
   }
   if (process.env.POS_BOOKING_CHECK === "1") {
     bookingEnabled = true;

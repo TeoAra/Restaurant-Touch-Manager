@@ -13,12 +13,15 @@ export function usePosPanels(
     const root = rootRef.current;
     const drawer = root?.querySelector<HTMLElement>("#pos-tables");
     if (!root || !drawer) return;
+    const navigation = root.querySelector<HTMLElement>(".pos-mobile-nav");
     const mobile = window.matchMedia("(max-width: 760px)");
     const previousFocus = document.activeElement as HTMLElement | null;
     const inertElements: HTMLElement[] = [];
-    const focusable = () => Array.from(drawer.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), input, select, [tabindex="0"]',
-    )).filter(el => el.getClientRects().length > 0);
+    const focusable = () => [drawer, navigation].flatMap(region =>
+      region ? Array.from(region.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input, select, [tabindex="0"]',
+      )) : [],
+    ).filter(el => el.getClientRects().length > 0);
     const restore = () => {
       inertElements.forEach(el => { el.inert = false; });
       inertElements.length = 0;
@@ -29,9 +32,10 @@ export function usePosPanels(
       restore();
       if (!mobile.matches) return;
       drawer.setAttribute("role", "dialog");
-      drawer.setAttribute("aria-modal", "true");
+      // Bottom navigation, including Incassa, remains available while choosing tables.
+      drawer.setAttribute("aria-modal", "false");
       for (const child of Array.from(root.children)) {
-        if (child instanceof HTMLElement && child !== drawer && !child.classList.contains("pos-table-scrim") && !child.inert) {
+        if (child instanceof HTMLElement && child !== drawer && child !== navigation && !child.classList.contains("pos-table-scrim") && !child.inert) {
           child.inert = true;
           inertElements.push(child);
         }
