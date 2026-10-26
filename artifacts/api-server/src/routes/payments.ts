@@ -1,10 +1,11 @@
 import { Router } from "express";
-import { db, paymentsTable, ordersTable, orderItemsTable } from "@workspace/db";
+import { db, paymentsTable, ordersTable, orderItemsTable, invoicesTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { CreatePaymentBody, GetPaymentParams } from "@workspace/api-zod";
 import { getFiscalPrinter, emettiFiscalReceipt, emettiDocumentoNonFiscale } from "../lib/fiscal-printer";
 import { getSettings } from "../lib/settings";
 import { logAudit } from "../lib/audit";
+import { effectiveCoverPrice, normalizeLottery } from "../lib/billing";
 
 const router = Router();
 
@@ -23,8 +24,21 @@ router.get("/", async (req, res) => {
 });
 
 router.post("/", async (req, res) => {
-  const lotteria: string | undefined = req.body?.lotteria; // letto PRIMA del parse (Zod striperebbe)
+  let lotteria: string | undefined;
+  try { lotteria = normalizeLottery(req.body?.lotteria); }
+  catch (error) { return res.status(400).json({ error: (error as Error).message }); }
   const body = CreatePaymentBody.parse(req.body);
+  const invoiceId = req.body.invoiceId;
+  if (invoiceId !== undefined) {
+    if (!Number.isInteger(invoiceId) || invoiceId < 1) return res.status(400).json({ error: "Fattura non valida" });
+    const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, invoiceId));
+    if (!invoice || invoice.orderId !== body.orderId || invoice.stato === "annullata" ||
+      Number(body.amount) !== Number(invoice.totale) || req.body.partial) {
+      return res.status(409).json({ error: "Il pagamento non corrisponde alla fattura salvata" });
+    }
+    const [prior] = await db.select().from(paymentsTable).where(eq(paymentsTable.operationId, `invoice-${invoiceId}`));
+    if (prior) return res.json({ ...prior, fiscal: { rtOk: true, nonFiscale: true, deferredInvoice: true } });
+  }
 
   // ── Conto separato (split bill): rilevamento del pagamento parziale ──────
   // Tre segnali (basta uno per considerarlo parziale):
@@ -59,7 +73,6 @@ router.post("/", async (req, res) => {
   // i coperti sono fuori. Per stabilire se un pagamento split chiude l'ordine
   // dobbiamo includere anche il costo dei coperti residui.
   const settingsForDue = isPartialPayment ? await getSettings() : null;
-  const coverPriceForDue = settingsForDue ? parseFloat(settingsForDue["cover_price"] ?? "0") : 0;
 
   // ── Atomico: INSERT pagamento + UPDATE ordine (status=paid) in una sola
   // transazione. Evita lo stato incoerente in cui un pagamento risulta inserito
@@ -71,6 +84,7 @@ router.post("/", async (req, res) => {
       method: body.method,
       amount: body.amount,
       change: body.change ?? null,
+      operationId: invoiceId ? `invoice-${invoiceId}` : null,
     }).returning();
 
     // ── Determina se restano item/coperti da pagare DOPO questo split ────
@@ -80,7 +94,7 @@ router.post("/", async (req, res) => {
     // elimina gli item pagati e abbassa orders.total).
     let remainder = false;
     if (isPartialPayment) {
-      const [orderRow] = await tx.select({ covers: ordersTable.covers })
+      const [orderRow] = await tx.select({ covers: ordersTable.covers, coverPrice: ordersTable.coverPrice })
         .from(ordersTable).where(eq(ordersTable.id, body.orderId)).limit(1);
       const allItemsTx = await tx.select({ id: orderItemsTable.id, subtotal: orderItemsTable.subtotal })
         .from(orderItemsTable).where(eq(orderItemsTable.orderId, body.orderId));
@@ -88,7 +102,7 @@ router.post("/", async (req, res) => {
       const itemsResidui = allItemsTx.filter(i => !paidIds.has(i.id));
       const totaleItemsResidui = itemsResidui.reduce((s, i) => s + parseFloat(i.subtotal ?? "0"), 0);
       const coversResidui = Math.max(0, (orderRow?.covers ?? 0) - coversCountPre);
-      const totaleCopertiResidui = coversResidui * coverPriceForDue;
+      const totaleCopertiResidui = coversResidui * effectiveCoverPrice(orderRow ?? {}, settingsForDue ?? {}) / 100;
       const totaleResiduo = totaleItemsResidui + totaleCopertiResidui;
       // Tolleranza 1 cent per arrotondamenti
       remainder = totaleResiduo > 0.01;
@@ -122,7 +136,7 @@ router.post("/", async (req, res) => {
   const splitItemIds: number[] | undefined = Array.isArray(req.body?.itemIds) && req.body.itemIds.length > 0
     ? (req.body.itemIds as number[])
     : undefined;
-  let fiscalResult: { receiptId?: number; rtOk?: boolean; rtError?: string; rtIp?: string; rtBody?: string; nonFiscale?: boolean } = {};
+  let fiscalResult: { receiptId?: number; rtOk?: boolean; rtError?: string; rtIp?: string; rtBody?: string; nonFiscale?: boolean; deferredInvoice?: boolean } = {};
   try {
     const allItems = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, body.orderId));
     // ── Selezione righe RT in base al tipo di pagamento ──────────────────
@@ -143,11 +157,15 @@ router.post("/", async (req, res) => {
     // - Conto separato: usa coversCountPre (numero coperti pagati ora)
     // - Pagamento totale: usa orderCovers (tutti i coperti dell'ordine)
     const orderCovers = (order as unknown as { covers?: number }).covers ?? 0;
-    const coverPrice = parseFloat(settings["cover_price"] ?? "0");
+    const coverPrice = effectiveCoverPrice(order, settings) / 100;
     const coverQty = isPartialPayment ? coversCountPre : orderCovers;
     const hasCover = coverQty > 0 && coverPrice > 0;
 
-    if (!printer) {
+    if (invoiceId) {
+      // The saved invoice emits its own courtesy copy after XML persistence.
+      // Never print an unrelated first management receipt for this payment.
+      fiscalResult = { rtOk: true, nonFiscale: true, deferredInvoice: true };
+    } else if (!printer) {
       console.warn("[FISCAL] Nessuna stampante con is_fiscale=true e active=true trovata in DB");
       fiscalResult = { rtOk: false, rtError: "Nessuna stampante fiscale configurata nel DB" };
     } else if (nonFiscale) {
@@ -209,7 +227,7 @@ router.post("/", async (req, res) => {
     fiscalResult = { rtOk: false, rtError: `Errore emissione documento: ${msg}` };
   }
 
-  res.status(201).json({ ...payment, fiscal: fiscalResult });
+  return res.status(201).json({ ...payment, fiscal: fiscalResult });
 });
 
 router.get("/:id", async (req, res) => {

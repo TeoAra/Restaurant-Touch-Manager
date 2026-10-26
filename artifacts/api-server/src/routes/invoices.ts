@@ -1,9 +1,10 @@
 import { Router } from "express";
-import { db, invoicesTable, customersTable, appSettingsTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { db, invoicesTable, customersTable, ordersTable, orderItemsTable, paymentsTable } from "@workspace/db";
+import { eq, desc, and } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { generateFatturaPAXml } from "../lib/fatturaPA.js";
 import { emettiFatturaCortesia, getFiscalPrinter } from "../lib/fiscal-printer.js";
+import { cents, invoiceNumber, invoiceTotals, money, orderDue, orderInvoiceLines, transmissionId, type InvoiceLine } from "../lib/billing.js";
 
 const router = Router();
 
@@ -16,17 +17,19 @@ async function getSettings(): Promise<Record<string, string>> {
   return map;
 }
 
-async function getNextInvoiceNumber(anno: number): Promise<number> {
-  const rows = await db.execute(
-    sql`SELECT COALESCE(MAX(numero), 0) + 1 AS next FROM invoices WHERE anno = ${anno}`
-  );
-  return Number((rows.rows[0] as { next: number }).next);
+const describeInvoice = <T extends { id: number; numero: number; anno: number; sezionale?: string | null }>(inv: T) =>
+  ({ ...inv, numeroDocumento: invoiceNumber(inv) });
+
+async function xmlFilename(inv: { id: number }) {
+  const settings = await getSettings();
+  return `IT${settings.partita_iva}_${transmissionId(inv.id)}.xml`;
 }
 
 router.get("/", async (req, res) => {
   const invoices = await db.select({
     id: invoicesTable.id,
     numero: invoicesTable.numero,
+    sezionale: invoicesTable.sezionale,
     anno: invoicesTable.anno,
     data: invoicesTable.data,
     customerId: invoicesTable.customerId,
@@ -39,14 +42,14 @@ router.get("/", async (req, res) => {
     .from(invoicesTable)
     .leftJoin(customersTable, eq(invoicesTable.customerId, customersTable.id))
     .orderBy(desc(invoicesTable.createdAt));
-  res.json(invoices);
+  res.json(invoices.map(describeInvoice));
 });
 
 router.get("/:id", async (req, res) => {
   const id = Number(req.params.id);
   const [inv] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
   if (!inv) return res.status(404).json({ error: "Fattura non trovata" });
-  return res.json(inv);
+  return res.json(describeInvoice(inv));
 });
 
 router.get("/:id/xml", async (req, res) => {
@@ -56,11 +59,12 @@ router.get("/:id/xml", async (req, res) => {
 
   let xml = inv.xmlContent;
   if (!xml) {
-    xml = await buildXml(inv);
+    try { xml = await buildXml(inv); }
+    catch (error) { return res.status(400).json({ error: (error as Error).message }); }
     await db.update(invoicesTable).set({ xmlContent: xml, stato: "emessa" }).where(eq(invoicesTable.id, id));
   }
 
-  const fileName = `IT${(await getSettings()).partita_iva ?? "00000000000"}_${String(inv.anno).slice(-2)}${String(inv.numero).padStart(5, "0")}_001.xml`;
+  const fileName = await xmlFilename(inv);
   res.setHeader("Content-Type", "application/xml");
   res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
   return res.send(xml);
@@ -68,50 +72,45 @@ router.get("/:id/xml", async (req, res) => {
 
 router.post("/", async (req, res) => {
   const body = req.body;
-  const anno = body.anno ?? new Date().getFullYear();
-  let numero: number;
-  if (body.numero) {
-    numero = Number(body.numero);
-    const existing = await db.execute(
-      sql`SELECT id FROM invoices WHERE anno = ${anno} AND numero = ${numero} LIMIT 1`
-    );
-    if ((existing.rows as unknown[]).length > 0) {
-      return res.status(409).json({ error: `Numero ${numero}/${anno} già utilizzato` });
+  try {
+    const values = await invoiceValues(body);
+    const [existing] = await db.select().from(invoicesTable).where(and(
+      eq(invoicesTable.anno, values.anno), eq(invoicesTable.sezionale, values.sezionale), eq(invoicesTable.numero, values.numero),
+    ));
+    if (existing) {
+      // Retrying a saved cashier draft must not allocate a different number.
+      if (values.orderId && existing.orderId === values.orderId && existing.customerId === values.customerId) {
+        return res.json(describeInvoice(existing));
+      }
+      return res.status(409).json({ error: `Fattura ${invoiceNumber(values)} già presente nell'anno ${values.anno}` });
     }
-  } else {
-    numero = await getNextInvoiceNumber(anno);
+    if (values.orderId) {
+      const [linked] = await db.select().from(invoicesTable).where(eq(invoicesTable.orderId, values.orderId));
+      if (linked && linked.stato !== "annullata") return res.status(409).json({ error: `Questo conto ha già la fattura ${invoiceNumber(linked)}. Recuperala da Fatture.` });
+    }
+    const [inv] = await db.insert(invoicesTable).values(values).returning();
+    return res.status(201).json(describeInvoice(inv));
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505" || (error as { cause?: { code?: string } }).cause?.code === "23505") {
+      return res.status(409).json({ error: "Sezionale e progressivo già utilizzati: scegliere un numero diverso" });
+    }
+    return res.status(400).json({ error: (error as Error).message });
   }
-  // fall through
-  const data = body.data ?? new Date().toISOString().slice(0, 10);
-  const righe = JSON.stringify(body.righe ?? []);
-
-  const [inv] = await db.insert(invoicesTable).values({
-    numero,
-    anno,
-    data,
-    customerId: body.customerId,
-    orderId: body.orderId,
-    tipoDocumento: body.tipoDocumento ?? "TD01",
-    imponibile: body.imponibile ?? "0",
-    aliquotaIva: body.aliquotaIva ?? "22",
-    iva: body.iva ?? "0",
-    totale: body.totale ?? "0",
-    righe,
-    stato: "bozza",
-    note: body.note,
-  }).returning();
-
-  return res.status(201).json(inv);
 });
 
 router.patch("/:id", async (req, res) => {
   const id = Number(req.params.id);
-  const body = req.body;
-  const updateData: Record<string, unknown> = { ...body };
-  if (body.righe && typeof body.righe !== "string") updateData.righe = JSON.stringify(body.righe);
-  const [inv] = await db.update(invoicesTable).set(updateData as never).where(eq(invoicesTable.id, id)).returning();
-  if (!inv) return res.status(404).json({ error: "Fattura non trovata" });
-  return res.json(inv);
+  const [current] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
+  if (!current) return res.status(404).json({ error: "Fattura non trovata" });
+  if (current.stato !== "bozza") return res.status(409).json({ error: "Una fattura emessa non può essere rinumerata o modificata" });
+  try {
+    const values = await invoiceValues({ ...current, ...req.body });
+    const [inv] = await db.update(invoicesTable).set({ ...values, xmlContent: null }).where(eq(invoicesTable.id, id)).returning();
+    return res.json(describeInvoice(inv));
+  } catch (error) {
+    const duplicate = (error as { cause?: { code?: string } }).cause?.code === "23505" || (error as { code?: string }).code === "23505";
+    return res.status(duplicate ? 409 : 400).json({ error: duplicate ? "Sezionale e progressivo già utilizzati" : (error as Error).message });
+  }
 });
 
 router.post("/:id/emit", async (req, res) => {
@@ -119,7 +118,11 @@ router.post("/:id/emit", async (req, res) => {
   const [inv] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
   if (!inv) return res.status(404).json({ error: "Fattura non trovata" });
 
-  const xml = await buildXml(inv);
+  let xml = inv.xmlContent;
+  if (!xml) {
+    try { xml = await buildXml(inv); }
+    catch (error) { return res.status(400).json({ error: (error as Error).message }); }
+  }
   const settings = await getSettings();
 
   const [updated] = await db.update(invoicesTable)
@@ -147,7 +150,7 @@ router.post("/:id/emit", async (req, res) => {
       const denominazione = customer?.ragioneSociale
         ?? ([customer?.nome, customer?.cognome].filter(Boolean).join(" ") || undefined);
       const rt = await emettiFatturaCortesia({
-        numero: `${inv.anno}/${String(inv.numero).padStart(4, "0")}`,
+        numero: invoiceNumber(inv),
         data: inv.data,
         cliente: customer ? {
           denominazione,
@@ -176,9 +179,9 @@ router.post("/:id/emit", async (req, res) => {
     rtError = e instanceof Error ? e.message : String(e);
   }
 
-  const fileName = `IT${settings["partita_iva"] ?? "00000000000"}_${String(inv.anno).slice(-2)}${String(inv.numero).padStart(5, "0")}_001.xml`;
+  const fileName = await xmlFilename(inv);
 
-  return res.json({ ...updated, xml, rtOk, rtError, fileName });
+  return res.json({ ...describeInvoice(updated), xml, xmlContent: xml, rtOk, rtError, fileName });
 });
 
 router.delete("/:id", async (req, res) => {
@@ -187,12 +190,70 @@ router.delete("/:id", async (req, res) => {
   res.status(204).end();
 });
 
+async function invoiceValues(body: Record<string, unknown>) {
+  const sezionale = String(body.sezionale ?? "").trim();
+  const numero = Number(body.numero);
+  const anno = Number(body.anno ?? new Date().getFullYear());
+  if (!/^[A-Za-z0-9.-]{1,10}$/.test(sezionale)) throw new Error("Indicare un sezionale valido (es. 1)");
+  if (!Number.isSafeInteger(numero) || numero < 1 || numero > 999999999) throw new Error("Indicare il progressivo della fattura (es. 23)");
+  if (!Number.isInteger(anno) || anno < 2000 || anno > 2100) throw new Error("Anno fattura non valido");
+  const data = String(body.data ?? new Date().toISOString().slice(0, 10));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || Number.isNaN(Date.parse(data)) || new Date(data).toISOString().slice(0, 10) !== data) throw new Error("Data fattura non valida");
+  if (Number(data.slice(0, 4)) !== anno) throw new Error("L'anno deve corrispondere alla data della fattura");
+  const customerId = Number(body.customerId);
+  if (!Number.isInteger(customerId) || customerId < 1) throw new Error("Selezionare un cliente");
+  const [customer] = await db.select({ id: customersTable.id }).from(customersTable).where(eq(customersTable.id, customerId));
+  if (!customer) throw new Error("Cliente non trovato");
+  const tipoDocumento = String(body.tipoDocumento ?? "TD01");
+  if (!["TD01", "TD04", "TD07"].includes(tipoDocumento)) throw new Error("Tipo documento non valido");
+  const settings = await getSettings();
+  const orderId = body.orderId == null ? null : Number(body.orderId);
+  let lines: InvoiceLine[];
+  let gross: number | undefined;
+  if (orderId !== null) {
+    if (!Number.isInteger(orderId) || orderId < 1) throw new Error("Ordine non valido");
+    const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, orderId));
+    if (!order) throw new Error("Ordine non trovato");
+    const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
+    lines = orderInvoiceLines(items, order, settings);
+    gross = orderDue(order, settings);
+  } else {
+    const rows = typeof body.righe === "string" ? JSON.parse(body.righe) : body.righe;
+    if (!Array.isArray(rows) || rows.length > 500) throw new Error("Righe fattura non valide");
+    lines = rows.map((row: Record<string, unknown>) => {
+      const descrizione = String(row.descrizione ?? "").trim();
+      const quantity = Number(row.quantita);
+      const price = Number(row.prezzoUnitario);
+      if (!descrizione || !Number.isFinite(quantity) || quantity <= 0 || quantity > 99999 || !Number.isFinite(price) || price < 0 || price > 999999) throw new Error("Descrizione, quantità o prezzo della riga non validi");
+      return { descrizione: descrizione.slice(0, 1000), quantita: quantity.toFixed(2), prezzoUnitario: price.toFixed(8), importo: (Math.round(quantity * price * 100) / 100).toFixed(2), aliquotaIva: Number(row.aliquotaIva ?? body.aliquotaIva ?? 22).toFixed(2) };
+    });
+  }
+  if (!lines.length) throw new Error("La fattura non contiene righe");
+  const totals = invoiceTotals(lines);
+  return {
+    numero, sezionale, anno, data, customerId, orderId, tipoDocumento,
+    ...totals, ...(gross !== undefined ? { totale: money(gross) } : {}),
+    aliquotaIva: lines[0].aliquotaIva, righe: JSON.stringify(lines),
+    stato: "bozza", note: body.note == null ? null : String(body.note).slice(0, 2000),
+  };
+}
+
 async function buildXml(inv: typeof invoicesTable.$inferSelect): Promise<string> {
   const settings = await getSettings();
   let customer = null;
   if (inv.customerId) {
     const [c] = await db.select().from(customersTable).where(eq(customersTable.id, inv.customerId));
     customer = c ?? null;
+  }
+  if (inv.sezionale) {
+    if (!settings.ragione_sociale || !/^\d{11}$/.test(settings.partita_iva ?? "") ||
+      !settings.indirizzo || !settings.cap || !settings.comune) {
+      throw new Error("Completare ragione sociale, P.IVA e indirizzo dell'azienda in Impostazioni prima di esportare XML");
+    }
+    if (!customer || (!customer.partitaIva && !customer.codiceFiscale) ||
+      !customer.indirizzo || !customer.cap || !customer.comune) {
+      throw new Error("Completare codice fiscale/P.IVA e indirizzo del cliente prima di esportare XML");
+    }
   }
 
   let righe: Array<{ descrizione: string; quantita: string; prezzoUnitario: string; importo: string; aliquotaIva: string }> = [];
@@ -211,6 +272,7 @@ async function buildXml(inv: typeof invoicesTable.$inferSelect): Promise<string>
     }];
   }
 
+  const payments = inv.orderId ? await db.select().from(paymentsTable).where(eq(paymentsTable.orderId, inv.orderId)) : [];
   return generateFatturaPAXml({
     cedente: {
       denominazione: settings["ragione_sociale"] ?? "Ristorante",
@@ -239,7 +301,8 @@ async function buildXml(inv: typeof invoicesTable.$inferSelect): Promise<string>
       nazione: customer?.nazione ?? "IT",
     },
     documento: {
-      numero: `${inv.anno}/${String(inv.numero).padStart(4, "0")}`,
+      numero: invoiceNumber(inv),
+      progressivoInvio: transmissionId(inv.id),
       data: inv.data,
       tipoDocumento: inv.tipoDocumento,
       aliquotaIva: inv.aliquotaIva,
@@ -247,6 +310,8 @@ async function buildXml(inv: typeof invoicesTable.$inferSelect): Promise<string>
       iva: inv.iva,
       totale: inv.totale,
       righe,
+      pagamenti: payments.filter(p => p.method === "cash" || p.method === "card")
+        .map(p => ({ metodo: p.method as "cash" | "card", importo: p.amount })),
       note: inv.note ?? undefined,
     },
   });

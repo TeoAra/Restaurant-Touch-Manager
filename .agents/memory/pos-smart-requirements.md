@@ -19,6 +19,8 @@ Il corpo del back office deve utilizzare tutta la larghezza disponibile, non una
 
 Asporto e Delivery devono essere visibili solo se abilitati con la relativa spunta nel back office.
 
+Il prezzo del coperto deve essere preso automaticamente dal back office; non deve essere necessario reinserirlo nella cassa per ogni tavolo.
+
 **Why:** l’utente ha esplicitamente richiesto questi vincoli per il rinnovo, non una versione ridotta della cassa.
 
 **How to apply:** prima dell’integrazione confrontare le funzioni con la cassa esistente; non sostituire i flussi reali con quelli simulati del prototipo. Controllare anche finestre basse e scheda intera, non solo il frame desktop del canvas.

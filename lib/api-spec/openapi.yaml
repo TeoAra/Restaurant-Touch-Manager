@@ -804,6 +804,14 @@ components:
           type: ["string", "null"]
         total:
           type: string
+        covers:
+          type: integer
+        coverPrice:
+          type: ["string", "null"]
+        paidRomana:
+          type: string
+        modalita:
+          type: string
         createdAt:
           type: string
         updatedAt:
@@ -831,6 +839,18 @@ components:
           type: ["string", "null"]
         total:
           type: string
+        covers:
+          type: integer
+        coverPrice:
+          type: ["string", "null"]
+        paidRomana:
+          type: string
+        modalita:
+          type: string
+        payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Payment"
         createdAt:
           type: string
         updatedAt:

@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   Plus, Download, FileText, Trash2, Send, Users, ChevronRight,
-  Building2, CheckCircle2, AlertCircle, Printer, X,
+  Building2, CheckCircle2, AlertCircle, Printer, X, Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -17,7 +17,7 @@ const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
 
 type Invoice = {
-  id: number; numero: number; anno: number; data: string; customerId?: number;
+  id: number; numero: number; sezionale?: string | null; numeroDocumento?: string; anno: number; data: string; customerId?: number;
   tipoDocumento: string; imponibile: string; aliquotaIva: string; iva: string; totale: string;
   stato: string; ragioneSociale?: string; note?: string; righe?: string; orderId?: number;
 };
@@ -71,9 +71,10 @@ export default function FatturePage() {
   const [customerDialog, setCustomerDialog] = useState<{ open: boolean; item?: Customer }>({ open: false });
   const [customerForm, setCustomerForm] = useState({ ...BLANK_CUSTOMER });
   const [customerSaving, setCustomerSaving] = useState(false);
+  const [savingInvoice, setSavingInvoice] = useState(false);
 
   const [form, setForm] = useState({
-    numero: "",
+    sezionale: "1", numero: "",
     anno: String(new Date().getFullYear()),
     customerId: "", tipoDocumento: "TD01", data: new Date().toISOString().slice(0, 10),
     aliquotaIva: "22", righe: [{ descrizione: "Servizi ristorazione", quantita: "1", prezzoUnitario: "", importo: "", aliquotaIva: "22" }] as RigaFattura[],
@@ -118,7 +119,7 @@ export default function FatturePage() {
 
   function openNew() {
     setForm({
-      numero: "",
+      sezionale: "1", numero: "",
       anno: String(new Date().getFullYear()),
       customerId: "", tipoDocumento: "TD01", data: new Date().toISOString().slice(0, 10),
       aliquotaIva: "22", righe: [{ descrizione: "Servizi ristorazione", quantita: "1", prezzoUnitario: "", importo: "", aliquotaIva: "22" }],
@@ -128,9 +129,13 @@ export default function FatturePage() {
   }
 
   async function handleSave() {
+    if (savingInvoice) return;
     const t = totals();
     const n = parseInt(form.numero, 10);
     const a = parseInt(form.anno, 10);
+    if (!form.sezionale.trim() || !(n > 0) || !(a >= 2000 && a <= 2100)) {
+      return toast({ title: "Inserisci sezionale, progressivo (>0) e anno a 4 cifre", variant: "destructive" });
+    }
     const body: Record<string, unknown> = {
       customerId: form.customerId ? Number(form.customerId) : undefined,
       tipoDocumento: form.tipoDocumento,
@@ -141,41 +146,65 @@ export default function FatturePage() {
       totale: t.totale,
       righe: form.righe.map(r => ({ ...r, importo: r.importo || (parseFloat(r.prezzoUnitario) * (parseFloat(r.quantita) || 1)).toFixed(2) })),
       note: form.note || undefined,
-      ...(!isNaN(n) ? { numero: n } : {}),
-      ...(!isNaN(a) ? { anno: a } : {}),
+      sezionale: form.sezionale.trim(),
+      numero: n,
+      anno: a,
     };
 
-    const resp = await fetch(`${API}/invoices`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    setSavingInvoice(true);
+    try {
+    const resp = await fetch(dialog.item ? `${API}/invoices/${dialog.item.id}` : `${API}/invoices`, { method: dialog.item ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({})) as { error?: string };
       return toast({ title: err.error ?? "Errore creazione fattura", variant: "destructive" });
     }
     qc.invalidateQueries({ queryKey: ["invoices"] });
     setDialog({ open: false });
-    toast({ title: "Fattura creata" });
+    toast({ title: dialog.item ? "Bozza aggiornata" : "Fattura creata" });
     return;
+    } catch {
+      toast({ title: "Errore di rete: fattura non confermata", variant: "destructive" });
+    } finally { setSavingInvoice(false); }
+    return;
+  }
+
+  async function openEdit(inv: Invoice) {
+    try {
+      const resp = await fetch(`${API}/invoices/${inv.id}`);
+      if (!resp.ok) throw new Error("Impossibile caricare la bozza");
+      const detail = await resp.json() as Invoice;
+      const righe = typeof detail.righe === "string" ? JSON.parse(detail.righe) as RigaFattura[] : [];
+      setForm({ sezionale: detail.sezionale ?? "1", numero: String(detail.numero), anno: String(detail.anno), customerId: String(detail.customerId ?? ""), tipoDocumento: detail.tipoDocumento, data: detail.data, aliquotaIva: detail.aliquotaIva, righe, note: detail.note ?? "" });
+      setDialog({ open: true, item: detail });
+    } catch (error) { toast({ title: (error as Error).message, variant: "destructive" }); }
   }
 
   async function handleEmit(id: number) {
     const resp = await fetch(`${API}/invoices/${id}/emit`, { method: "POST" });
-    if (!resp.ok) return toast({ title: "Errore emissione", variant: "destructive" });
-    const data = await resp.json() as { xml?: string; fileName?: string; rtOk?: boolean; rtError?: string };
+    if (!resp.ok) {
+      const error = await resp.json().catch(() => ({})) as { error?: string };
+      return toast({ title: error.error ?? "Errore emissione", variant: "destructive" });
+    }
+    const data = await resp.json() as { xml?: string; xmlContent?: string; fileName?: string; rtOk?: boolean; rtError?: string };
     const inv = invoices.find(i => i.id === id);
     const anno = inv?.anno ?? new Date().getFullYear();
     const numero = inv?.numero ?? 0;
-    const filename = data.fileName ?? `IT_fattura_${anno}_${String(numero).padStart(4, "0")}.xml`;
-    setXmlDialog({ open: true, xml: data.xml, filename, rtOk: data.rtOk, rtError: data.rtError });
+    const filename = data.fileName ?? `IT_fattura_${anno}_${numero}.xml`;
+    setXmlDialog({ open: true, xml: data.xmlContent ?? data.xml, filename, rtOk: data.rtOk, rtError: data.rtError });
     qc.invalidateQueries({ queryKey: ["invoices"] });
     return;
   }
 
   async function downloadXml(id: number, numero: number, anno: number) {
     const resp = await fetch(`${API}/invoices/${id}/xml`);
-    if (!resp.ok) return toast({ title: "Errore generazione XML", variant: "destructive" });
+    if (!resp.ok) {
+      const error = await resp.json().catch(() => ({})) as { error?: string };
+      return toast({ title: error.error ?? "Errore generazione XML", variant: "destructive" });
+    }
     const xml = await resp.text();
-    const inv = invoices.find(i => i.id === id);
-    const filename = `IT_fattura_${anno}_${String(numero).padStart(4, "0")}.xml`;
-    triggerDownload(xml, inv ? `IT_fattura_${inv.anno}_${String(inv.numero).padStart(5, "0")}_001.xml` : filename);
+    const filename = resp.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1]
+      ?? `Fattura_${numero}_${anno}.xml`;
+    triggerDownload(xml, filename);
     qc.invalidateQueries({ queryKey: ["invoices"] });
     return;
   }
@@ -323,7 +352,7 @@ export default function FatturePage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-slate-800">
-                          {inv.tipoDocumento} {inv.anno}/{String(inv.numero).padStart(4, "0")}
+                          {inv.tipoDocumento} n. {inv.numeroDocumento ?? (inv.sezionale ? `${inv.sezionale}/${inv.numero}` : `${inv.anno}/${String(inv.numero).padStart(4, "0")}`)} <span className="text-xs font-normal text-slate-500">({inv.anno})</span>
                         </span>
                         <Badge variant="outline" className={cn("text-xs", stato.cls)}>{stato.label}</Badge>
                       </div>
@@ -334,6 +363,7 @@ export default function FatturePage() {
                       </div>
                     </div>
                     <div className="flex gap-1 shrink-0 flex-wrap">
+                      {inv.stato === "bozza" && <button onClick={() => openEdit(inv)} className="p-2 rounded-lg text-primary hover:bg-accent" title="Modifica bozza"><Pencil className="h-4 w-4" /></button>}
                       {inv.stato === "bozza" && (
                         <button onClick={() => handleEmit(inv.id)}
                           className="p-2 rounded-lg text-slate-500 hover:text-green-600 hover:bg-green-50 transition-colors" title="Emetti fattura + stampa gestionale">
@@ -406,7 +436,7 @@ export default function FatturePage() {
       {/* ── Dialog: Nuova Fattura ──────────────────────────────────────────────── */}
       <Dialog open={dialog.open} onOpenChange={o => !o && setDialog({ open: false })}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Nuova Fattura / Documento Gestionale</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{dialog.item ? "Modifica bozza fattura" : "Nuova Fattura / Documento Gestionale"}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
 
             <div className="grid grid-cols-3 gap-3">
@@ -422,25 +452,20 @@ export default function FatturePage() {
                 <Input type="date" value={form.data} onChange={e => setForm(f => ({ ...f, data: e.target.value }))} className="h-9 text-sm" />
               </div>
               <div>
-                <Label className="text-xs text-slate-500 mb-1 block">N° fattura</Label>
+                <Label className="text-xs text-slate-500 mb-1 block">Sezionale / Progressivo / Anno</Label>
                 <div className="flex items-center gap-1.5">
-                  <Input
-                    placeholder="auto"
-                    value={form.numero}
-                    onChange={e => setForm(f => ({ ...f, numero: e.target.value.replace(/\D/g, "") }))}
-                    className="h-9 text-sm font-mono w-16 text-center"
-                    maxLength={6}
-                    title="Numero progressivo"
-                  />
-                  <span className="text-slate-400 font-bold text-base shrink-0">/</span>
-                  <Input
-                    value={form.anno}
+                  <Input aria-label="Sezionale" placeholder="Sez." value={form.sezionale}
+                    onChange={e => setForm(f => ({ ...f, sezionale: e.target.value.replace(/[^A-Za-z0-9]/g, "").slice(0, 10) }))}
+                    className="h-9 text-sm font-mono w-14 text-center" />
+                  <span className="text-slate-500 font-bold">/</span>
+                  <Input aria-label="Progressivo" placeholder="Prog." value={form.numero}
+                    onChange={e => setForm(f => ({ ...f, numero: e.target.value.replace(/\D/g, "").replace(/^0+/, "") }))}
+                    className="h-9 text-sm font-mono w-16 text-center" maxLength={6} />
+                  <Input aria-label="Anno" value={form.anno}
                     onChange={e => setForm(f => ({ ...f, anno: e.target.value.replace(/\D/g, "") }))}
-                    className="h-9 text-sm font-mono w-20 text-center"
-                    maxLength={4}
-                    title="Anno"
-                  />
+                    className="h-9 text-sm font-mono w-16 text-center" maxLength={4} />
                 </div>
+                <p className="text-[11px] text-slate-600 mt-1">Numero fattura: <b className="font-mono" data-testid="text-invoice-preview">{form.sezionale || "?"}/{form.numero || "?"}</b> · anno {form.anno}</p>
               </div>
             </div>
 
@@ -521,7 +546,7 @@ export default function FatturePage() {
           </div>
           <DialogFooter className="gap-2 pt-2">
             <Button variant="outline" onClick={() => setDialog({ open: false })}>Annulla</Button>
-            <Button onClick={handleSave}>Salva bozza</Button>
+            <Button onClick={handleSave} disabled={savingInvoice}>{savingInvoice ? "Salvataggio…" : "Salva bozza"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -559,7 +584,7 @@ export default function FatturePage() {
           </div>
 
           <div className="overflow-auto flex-1 bg-slate-900 rounded-lg p-3 min-h-0">
-            <pre className="text-xs text-emerald-300 whitespace-pre-wrap font-mono">{xmlDialog.xml}</pre>
+            <pre className="text-xs text-emerald-100 whitespace-pre-wrap font-mono">{xmlDialog.xml}</pre>
           </div>
           <DialogFooter className="gap-2 shrink-0">
             <Button variant="outline" onClick={() => setXmlDialog({ open: false })}>Chiudi</Button>

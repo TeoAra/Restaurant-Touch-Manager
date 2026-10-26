@@ -1,10 +1,11 @@
 import { Router } from "express";
-import { db, ordersTable, orderItemsTable, tablesTable, roomsTable, productsTable, categoriesTable, printersTable } from "@workspace/db";
+import { db, ordersTable, orderItemsTable, tablesTable, roomsTable, productsTable, categoriesTable, printersTable, paymentsTable } from "@workspace/db";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import net from "net";
 import { emettiPreconto } from "../lib/fiscal-printer";
 import { getSettings } from "../lib/settings";
 import { logAudit } from "../lib/audit";
+import { cents, money, effectiveCoverPrice, orderDue } from "../lib/billing";
 import {
   CreateOrderBody,
   UpdateOrderBody,
@@ -108,10 +109,11 @@ router.get("/:id", async (req, res) => {
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
   if (!order) return res.status(404).json({ error: "Order not found" });
   const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id));
+  const payments = await db.select().from(paymentsTable).where(eq(paymentsTable.orderId, id)).orderBy(paymentsTable.createdAt);
 
   const tables = await db.select().from(tablesTable);
   const tableMap = new Map(tables.map(t => [t.id, t.name]));
-  return res.json({ ...order, tableName: order.tableId ? (tableMap.get(order.tableId) ?? null) : null, items });
+  return res.json({ ...order, tableName: order.tableId ? (tableMap.get(order.tableId) ?? null) : null, items, payments });
 });
 
 // Update order
@@ -547,11 +549,25 @@ router.post("/:id/send-comanda", async (req, res) => {
 // Update covers (0 allowed)
 router.patch("/:id/covers", async (req, res) => {
   const id = Number(req.params.id);
-  const { covers } = req.body as { covers: number };
-  if (covers === undefined || covers < 0) return res.status(400).json({ error: "Invalid covers" });
-  const [order] = await db.update(ordersTable).set({ covers }).where(eq(ordersTable.id, id)).returning();
-  if (!order) return res.status(404).json({ error: "Order not found" });
-  return res.json(order);
+  const { covers, coverPrice } = req.body;
+  if (!Number.isInteger(covers) || covers < 0 || covers > 999) return res.status(400).json({ error: "Coperti: inserire un intero da 0 a 999" });
+  let price: string | null | undefined;
+  try { price = coverPrice === undefined ? undefined : coverPrice === null ? null : money(cents(coverPrice)); }
+  catch { return res.status(400).json({ error: "Prezzo coperto non valido" }); }
+  const settings = await getSettings();
+  const result = await db.transaction(async tx => {
+    await tx.execute(sql`SELECT id FROM orders WHERE id = ${id} FOR UPDATE`);
+    const [current] = await tx.select().from(ordersTable).where(eq(ordersTable.id, id));
+    if (!current) return { status: 404, error: "Ordine non trovato" };
+    const splitCleanup = current.status === "paid" && price === undefined && covers <= current.covers && cents(current.paidRomana) === 0;
+    if (current.status !== "open" && !splitCleanup) return { status: 409, error: "Il conto non è aperto" };
+    const changed = { ...current, covers, ...(price !== undefined ? { coverPrice: price } : {}) };
+    if (orderDue(changed, settings) < cents(current.paidRomana)) return { status: 409, error: "Il nuovo totale non può essere inferiore alle quote già incassate" };
+    const [order] = await tx.update(ordersTable).set({ covers, ...(price !== undefined ? { coverPrice: price } : {}) }).where(eq(ordersTable.id, id)).returning();
+    return { status: 200, order };
+  });
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  return res.json(result.order);
 });
 
 // ── Merge order into another (unificazione conto) ────────────────────────────
@@ -600,7 +616,7 @@ router.post("/:id/preconto", async (req, res) => {
 
   // Coperti + prezzo coperto
   const covers = order.covers ?? 0;
-  const coverPrice = parseFloat(settings["cover_price"] ?? "0");
+  const coverPrice = effectiveCoverPrice(order, settings) / 100;
   const coverTotal = covers > 0 && coverPrice > 0 ? covers * coverPrice : 0;
 
   // Righe articoli

@@ -41,3 +41,11 @@ description: Regole del protocollo XON/XOFF per la stampante fiscale DTR, in par
 
 - La RT non tollera due documenti concatenati nello stesso comando senza corretta apertura/chiusura di ciascuno.
 - Test possibile solo su hardware fisico dell'utente: ogni iterazione richiede verifica manuale, quindi validare contro la spec PDF prima di proporre tentativi.
+
+# Identificazione dei documenti e chiusura fiscale
+
+Per visualizzazione e annullamento fiscali usare i riferimenti assegnati dalla scontrinatrice, non il progressivo generato dal gestionale. L’utente precisa che dopo la chiusura fiscale la sua RT riparte dal documento 1, con le altre diciture stabilite dalla stampante.
+
+**Why:** l’utente ha richiesto esplicitamente che scontrini e annullamenti corrispondano alla numerazione reale della RT.
+
+**How to apply:** distinguere gli identificativi interni dall’identità fiscale composta da matricola, chiusura, numero documento e data. Un riferimento RT mancante non deve essere ricostruito usando il numero interno o una chiusura predefinita; non rinumerare retroattivamente lo storico.

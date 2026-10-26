@@ -30,6 +30,11 @@ try {
   const pending = new Map();
   const errors = [];
   const writes = [];
+  const payloads = [];
+  let failRomana = true;
+  let invoiceConflict = true;
+  let savedInvoice = null;
+  const xmlFixture = '<?xml version="1.0"?><FatturaElettronica><Numero>1/23</Numero></FatturaElettronica>';
   const settings = { cover_price: "1.50", feat_table_ops: "true", pos_type: "none" };
   const send = (method, params = {}) => new Promise((resolve, reject) => {
     const id = ++seq;
@@ -40,7 +45,7 @@ try {
   const tables = Array.from({ length: 14 }, (_, i) => ({ id: i + 1, number: i + 1, name: `Tavolo ${i + 1}`, seats: 4, status: i === 0 ? "occupied" : "free", activeOrderId: i === 0 ? 101 : null, activeOrderTotal: i === 0 ? "26.00" : null, roomName: i > 8 ? "Dehor" : "Sala", elementType: "table", posX: i % 5, posY: Math.floor(i / 5), shape: "square" }));
   const categories = [{ id: 1, name: "Birre", color: "#a16207" }, { id: 2, name: "Cucina", color: "#166534" }];
   const products = [{ id: 1, name: "Birra artigianale", price: "6.00", categoryId: 1, available: true }, { id: 2, name: "Burger della casa", price: "14.00", categoryId: 2, available: true }];
-  const order = { id: 101, tableId: 1, tableName: "Tavolo 1", status: "open", total: "26.00", covers: 2, createdAt, updatedAt: createdAt, items: [
+  const order = { id: 101, tableId: 1, tableName: "Tavolo 1", status: "open", total: "26.00", covers: 2, paidRomana: "0.00", payments: [], createdAt, updatedAt: createdAt, items: [
     { id: 11, productId: 1, productName: "Birra artigianale", productPrice: "6.00", quantity: 2, unitPrice: "6.00", subtotal: "12.00", status: "draft", phase: 0, modifiers: "[]", createdAt },
     { id: 12, productId: 2, productName: "Burger della casa", productPrice: "14.00", quantity: 1, unitPrice: "14.00", subtotal: "14.00", status: "sent", phase: 0, modifiers: "[]", createdAt },
   ] };
@@ -57,6 +62,8 @@ try {
       const path = new URL(request.url).pathname;
       let body;
       if (request.method !== "GET") writes.push(`${request.method} ${path}`);
+      if (request.method !== "GET") payloads.push({ path, data: JSON.parse(request.postData || "{}") });
+      let responseCode = 200;
       if (path === "/api/auth/login") body = { id: 9999, name: "Operatore test", role: "admin" };
       else if (path === "/api/setup-status") body = { completed: true, reason: "flag" };
       else if (path === "/api/settings") {
@@ -82,10 +89,30 @@ try {
       } else if (path === "/api/orders/101/items" && request.method === "POST") {
         const input = JSON.parse(request.postData);
         const p = products.find(p => p.id === input.productId);
-        body = { ...input, id: 13, productName: p.name, productPrice: p.price, subtotal: (input.quantity * Number(input.unitPrice)).toFixed(2), status: "draft", createdAt };
+        body = { ...input, id: 11 + order.items.length, productName: p.name, productPrice: p.price, subtotal: (input.quantity * Number(input.unitPrice)).toFixed(2), status: "draft", createdAt };
         order.items.push(body);
+      } else if (path === "/api/orders/101/covers" && request.method === "PATCH") {
+        Object.assign(order, JSON.parse(request.postData)); body = order;
+      } else if (path === "/api/customers") {
+        body = [{ id: 1, tipo: "azienda", ragioneSociale: "Cliente Test", partitaIva: "12345678901", indirizzo: "Via Test", cap: "00100", comune: "Roma" }];
+      } else if (path === "/api/fiscal/romana") {
+        const input = JSON.parse(request.postData);
+        if (failRomana) { responseCode = 502; body = { ok: false, rtOk: false, error: "RT di test non confermata" }; }
+        else {
+          order.paidRomana = (Number(order.paidRomana) + Number(input.importo)).toFixed(2);
+          order.payments.push({ id: order.payments.length + 1, orderId: 101, method: input.metodoPagamento, amount: input.importo, operationId: input.operationId, fiscalReceiptId: 201, createdAt });
+          body = { ok: true, rtOk: true, paidRomana: order.paidRomana, remaining: (Number(order.total) + order.covers * Number(order.coverPrice ?? settings.cover_price) - Number(order.paidRomana)).toFixed(2), orderClosed: false };
+        }
+      } else if (path === "/api/invoices" && request.method === "POST") {
+        if (invoiceConflict) { responseCode = 409; body = { error: "Numero già usato" }; }
+        else { savedInvoice = { ...JSON.parse(request.postData), id: 51, numeroDocumento: "1/23" }; body = savedInvoice; }
+      } else if (path === "/api/invoices/51/emit") {
+        body = { ...savedInvoice, xmlContent: xmlFixture, fileName: "IT12345678901_00023.xml", rtOk: false, rtError: "Copia di cortesia di test non stampata" };
+      } else if (path === "/api/payments" && request.method === "POST") {
+        body = { id: 71, ...JSON.parse(request.postData), fiscal: { rtOk: true, nonFiscale: true, deferredInvoice: true } };
       } else body = [];
-      await send("Fetch.fulfillRequest", { requestId, responseCode: 200, responseHeaders: [{ name: "Content-Type", value: "application/json" }], body: Buffer.from(JSON.stringify(body)).toString("base64") });
+      order.total = order.items.reduce((sum, item) => sum + Number(item.unitPrice) * item.quantity, 0).toFixed(2);
+      await send("Fetch.fulfillRequest", { requestId, responseCode, responseHeaders: [{ name: "Content-Type", value: "application/json" }], body: Buffer.from(JSON.stringify(body)).toString("base64") });
     }
   };
   await send("Page.enable");
@@ -103,7 +130,14 @@ try {
     }
     throw new Error(`Timed out: ${expression}\n${await evaluate('JSON.stringify({url:location.href,body:document.body?.innerText?.slice(0,900)})')}\n${errors.join("\n")}`);
   };
-  const click = async selector => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const click = async selector => {
+    // Radix retains closed portals during its exit animation. Never operate on
+    // that hidden, stale keypad instead of the newly opened one.
+    const scoped = selector.startsWith('[data-testid="keypad-')
+      ? `[data-testid="dialog-keypad"][data-state="open"] ${selector}` : selector;
+    await evaluate(`document.querySelector(${JSON.stringify(scoped)}).click()`);
+    await new Promise(r => setTimeout(r, 60));
+  };
   const button = async (text, within = ".pos-smart-live") => {
     const found = await evaluate(`(() => { const b = [...document.querySelectorAll(${JSON.stringify(within + " button")})].find(b => b.textContent.trim() === ${JSON.stringify(text)}); if (!b) return false; b.click(); return true; })()`);
     assert(found, `Missing button: ${text}`);
@@ -153,9 +187,13 @@ try {
   for (const name of ["Sconto", "Lotteria", "Preconto", "Separato", "Romana", "Espandi", "Cancella", "Annulla ordine", "Sospeso", "Cassetto", "Tavolo", "Imposta Qtà", "Imposta Prezzo"]) assert(operations.includes(name), `Operation lost: ${name}`);
   await click('[aria-label="Chiudi operazioni"]');
   await click(".pos-product-grid > button");
+  await wait(`document.querySelector('[data-testid="dialog-keypad"]')`);
+  await click('[data-testid="keypad-confirm"]');
   await wait(`document.querySelector(".pos-order-item").textContent.includes("3")`);
   assert(writes.includes("PATCH /api/orders/101/items/11"), "Repeated product must update the real mutation route");
   await click(".pos-product-grid > button:nth-child(2)");
+  await wait(`document.querySelector('[data-testid="dialog-keypad"]')`);
+  await click('[data-testid="keypad-confirm"]');
   await wait(`document.querySelectorAll(".pos-order-item").length === 3`);
   assert(writes.includes("POST /api/orders/101/items"), "Product must call the real mutation route");
   await click(".pos-order-actions > button:last-child");
@@ -200,6 +238,124 @@ try {
     await writeFile(`generated-artifacts/pos-smart/map-${width}x${height}.jpg`, Buffer.from(mapShot.data, "base64"));
     await button("Menu", ".pos-work-tabs");
     console.log(`PASS layout ${width}×${height}`);
+  }
+  if (process.env.POS_BILLING_CHECK === "1") {
+    const input = async (selector, value) => { await evaluate(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) throw Error("Missing input: " + ${JSON.stringify(selector)});
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, ${JSON.stringify(value)});
+      el.dispatchEvent(new Event("input", {bubbles:true}));
+    })()`); await new Promise(r => setTimeout(r, 60)); };
+    const contains = async (text, root = ".pos-menu-panel") => evaluate(`(() => {
+      const b = [...document.querySelectorAll(${JSON.stringify(root)} + " button")].find(b => !b.disabled && b.textContent.toLowerCase().includes(${JSON.stringify(text.toLowerCase())}));
+      if (!b) throw Error("Missing button: " + ${JSON.stringify(text)} + "\\n" + document.body.innerText.slice(-2500));
+      b.click();
+    })()`);
+    await send("Emulation.setDeviceMetricsOverride", { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false });
+    await button("Menu", ".pos-work-tabs");
+    await click(".pos-order-item");
+    await wait(`document.querySelector('[data-testid="dialog-keypad"]')`);
+    await click('[data-testid="keypad-field-quantity"]');
+    await click('[data-testid="keypad-key-5"]');
+    await click('[data-testid="keypad-field-unitPrice"]');
+    await click('[data-testid="keypad-key-8"]');
+    await click('[data-testid="keypad-confirm"]');
+    await wait(`!document.querySelector('[data-testid="dialog-keypad"]') && document.querySelector(".pos-order-item").textContent.includes("5")`);
+    assert(payloads.some(p => p.path.endsWith("/items/11") && p.data.quantity === 5 && p.data.unitPrice === "8.00"), "Edit quantity and price must reach real mutation handler");
+    await click(".pos-product-grid > button");
+    await wait(`document.querySelector('[data-testid="dialog-keypad"]')`);
+    await click('[data-testid="keypad-field-quantity"]'); await click('[data-testid="keypad-key-3"]');
+    await click('[data-testid="keypad-field-unitPrice"]'); await click('[data-testid="keypad-key-7"]');
+    await click('[data-testid="keypad-confirm"]');
+    await wait(`document.querySelectorAll(".pos-order-item").length === 4`);
+    assert(payloads.some(p => p.path.endsWith("/101/items") && p.data.quantity === 3 && p.data.unitPrice === "7.00"), "New product keypad values must persist");
+    await click('[data-testid="row-covers"]');
+    await wait(`document.querySelector('[data-testid="dialog-keypad"]')`);
+    await click('[data-testid="keypad-field-covers"]'); await click('[data-testid="keypad-key-3"]');
+    await click('[data-testid="keypad-field-coverPrice"]');
+    for (const key of ["1", ".", "2", "5"]) await click(`[data-testid="keypad-key-${key}"]`);
+    await click('[data-testid="keypad-confirm"]');
+    await wait(`document.querySelector('[data-testid="text-covers-total"]').textContent.includes("3.75")`);
+    assert(payloads.some(p => p.path.endsWith("/covers") && p.data.covers === 3 && p.data.coverPrice === "1.25"));
+    assert.equal(settings.cover_price, "1.50", "Order cover edits must not change the global price");
+    assert(await evaluate(`document.querySelector('[data-testid="row-covers"]').getBoundingClientRect().top < document.querySelector(".pos-order-item").getBoundingClientRect().top`));
+    console.log("PASS touch keypad: add/edit quantity and price; pinned per-order covers");
+
+    await click(".pos-order-actions > button:last-child");
+    await contains("Romana");
+    await contains("Avanti");
+    await contains("Avvia divisione");
+    await contains("Contanti");
+    await wait(`document.body.innerText.includes("RT di test non confermata")`);
+    assert.equal(order.paidRomana, "0.00", "RT error must not reduce the balance");
+    const firstAttempt = payloads.filter(p => p.path === "/api/fiscal/romana").at(-1).data;
+    failRomana = false;
+    await contains("Contanti");
+    await wait(`document.querySelector('[data-testid="romana-summary-paid"]')?.textContent !== "€0.00" && document.querySelector('[data-testid="romana-summary-history"]')`);
+    const retry = payloads.filter(p => p.path === "/api/fiscal/romana").at(-1).data;
+    assert.equal(retry.operationId, firstAttempt.operationId, "Retry must reuse the operation ID");
+    assert.equal(retry.expectedPaidRomana, "0.00");
+    assert.equal(order.payments.length, 1);
+    const due = Number(order.total) + 3.75, paid = Number(order.paidRomana), remaining = (due - paid).toFixed(2);
+    await wait(`document.querySelector('[data-testid="romana-summary-remaining"]')?.textContent.includes(${JSON.stringify(remaining)})`);
+    await contains("Torna al tavolo");
+    await wait(`document.querySelector('[data-testid="order-payment-summary-remaining"]')?.textContent.includes(${JSON.stringify(remaining)})`);
+    await click(".pos-order-actions > button:last-child"); await contains("Romana");
+    await wait(`document.querySelector('[data-testid="romana-summary-remaining"]')?.textContent.includes(${JSON.stringify(remaining)})`);
+    assert.equal(order.status, "open");
+    console.log("PASS Romana: RT failure, stable retry, partial ledger, exact residual, return to table");
+
+    // A fresh independent fixture scenario; only our in-memory intercepted API changes.
+    order.paidRomana = "0.00"; order.payments = [];
+    await send("Page.navigate", { url: origin + "/" });
+    await wait(`document.querySelector(".pos-table-card")`);
+    await click(".pos-table-card");
+    await button("Cliente", ".pos-work-tabs");
+    await contains("Cliente Test");
+    await wait(`document.querySelector('[data-testid="input-invoice-numero"]')`);
+    await input('[data-testid="input-invoice-numero"]', "23");
+    await wait(`document.querySelector('[data-testid="text-invoice-preview"]').textContent.includes("1/23")`);
+    const shot = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
+    await writeFile("generated-artifacts/pos-smart/invoice-customer-1024x768.jpg", Buffer.from(shot.data, "base64"));
+    await click(".pos-order-actions > button:last-child");
+    await wait(`document.querySelector('[data-testid="input-lottery-code"]')`);
+    await input('.pos-payment-panel input[type="number"]', "100");
+    await input('[data-testid="input-lottery-code"]', "ABC");
+    await click(".pos-payment-panel > button:last-of-type");
+    await wait(`document.body.innerText.includes("Codice lotteria incompleto")`);
+    assert(!writes.some(w => w.includes("/api/payments")));
+    await input('[data-testid="input-lottery-code"]', "abcd1234");
+    await wait(`document.querySelector('[data-testid="input-lottery-code"]').value === "ABCD1234"`);
+    await click(".pos-payment-panel > button:last-of-type");
+    await wait(`document.body.innerText.includes("già usato")`);
+    assert(!writes.some(w => w.includes("/api/payments")), "A duplicate invoice number must stop payment");
+    invoiceConflict = false;
+    await click(".pos-payment-panel > button:last-of-type");
+    await wait(`document.querySelector('[data-testid="dialog-invoice-result"]')`);
+    assert.equal(savedInvoice.sezionale, "1"); assert.equal(savedInvoice.numero, 23);
+    const payment = payloads.find(p => p.path === "/api/payments").data;
+    assert.equal(payment.invoiceId, 51);
+    assert.equal(payment.operationId, "invoice-51");
+    assert.equal(payment.amount, due.toFixed(2));
+    assert.equal(payment.lotteria, "ABCD1234");
+    assert(payloads.findIndex(p => p.path === "/api/invoices") < payloads.findIndex(p => p.path === "/api/payments"));
+    assert(await evaluate(`document.querySelector('[data-testid="text-invoice-xml"]').textContent.includes("<Numero>1/23</Numero>")`));
+    assert(await evaluate(`!!document.querySelector('[data-testid="button-invoice-download"]') && document.querySelector('[data-testid="dialog-invoice-result"]').textContent.includes("non stampata")`));
+    await mkdir(profile + "/downloads", { recursive: true });
+    await send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: profile + "/downloads" });
+    await click('[data-testid="button-invoice-download"]');
+    let downloaded = "";
+    for (let i = 0; i < 30 && !downloaded; i++) {
+      downloaded = await readFile(profile + "/downloads/IT12345678901_00023.xml", "utf8").catch(() => "");
+      if (!downloaded) await new Promise(r => setTimeout(r, 100));
+    }
+    assert.equal(downloaded, xmlFixture, "XML download must contain the saved document");
+    await click('[data-testid="button-invoice-close"]');
+    await click(".pos-table-card");
+    await click(".pos-order-actions > button:last-child");
+    await wait(`document.querySelector('[data-testid="input-lottery-code"]').value === ""`);
+    await button("Menu", ".pos-work-tabs");
+    console.log("PASS invoice: manual 1/23, duplicate blocks payment, saved before payment, XML downloaded despite courtesy failure; lottery format and one-shot");
   }
   if (process.env.POS_THEME_CHECK === "1") {
     const primaryColor = await evaluate(`(() => { const b = document.querySelector(".pos-phase-selector .is-active"); return getComputedStyle(b).backgroundColor; })()`);
@@ -257,7 +413,7 @@ try {
     console.log("PASS primary action contrast and shared color in portaled customer dialog");
   }
   assert.deepEqual(errors, [], "Browser errors");
-  assert(!writes.some(w => /payments|fiscal|invoices|comanda/.test(w)), "No fiscal writes expected");
+  if (process.env.POS_BILLING_CHECK !== "1") assert(!writes.some(w => /payments|fiscal|invoices|comanda/.test(w)), "No fiscal writes expected");
   console.log("PASS login, table selection, item timestamps, all advanced controls, product mutation, payment modes, mobile drawer. All APIs mocked; no live fiscal operations.");
 } finally {
   ws?.close();

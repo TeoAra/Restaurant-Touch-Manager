@@ -35,6 +35,10 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { Link } from "wouter";
 import { SmartTables } from "@/components/pos/SmartTables";
+import { NumericKeypadDialog } from "@/components/pos/NumericKeypadDialog";
+import { PaymentSummary, type OrderPayment } from "@/components/pos/PaymentSummary";
+import { LotteryField, isLotteryFormat } from "@/components/pos/LotteryField";
+import { InvoiceResultDialog, type InvoiceResult } from "@/components/pos/InvoiceResultDialog";
 import { usePosPanels } from "@/hooks/use-pos-panels";
 import "./front-office-smart.css";
 
@@ -512,7 +516,6 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
   onBack: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
 
   // ── Reservations + date nav ───────────────────────────────────────────────
@@ -587,37 +590,17 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
     setMovingRes(null);
   }
 
-  // ── Scale ─────────────────────────────────────────────────────────────────
+  // ── Misura contenitore ────────────────────────────────────────────────────
   useEffect(() => {
-    function updateScale() {
+    function measure() {
       if (!containerRef.current) return;
-      const w = containerRef.current.clientWidth;
-      const h = containerRef.current.clientHeight;
-      setContainerSize({ w, h });
-      const allElements = tablesStatus;
-      const minX = allElements.length ? Math.min(...allElements.map(t => t.posX ?? 0)) : 0;
-      const minY = allElements.length ? Math.min(...allElements.map(t => t.posY ?? 0)) : 0;
-      const maxX = allElements.length
-        ? Math.max(...allElements.map(t => (t.posX ?? 0) - minX + getElementSize(t).w)) + 1
-        : 6;
-      const maxY = allElements.length
-        ? Math.max(...allElements.map(t => (t.posY ?? 0) - minY + getElementSize(t).h)) + 1
-        : 5;
-      const canvasW = Math.max(maxX, 4) * CELL;
-      const canvasH = Math.max(maxY, 3) * CELL;
-      // Scala in modo che la mappa stia nel container, MA mai oltre la
-      // dimensione naturale (max 1.0): con pochi tavoli evitiamo l'effetto
-      // "tavolo gigante a tutto schermo". Se la mappa è più grande del
-      // container, lasciamo scalare giù (overflow-auto gestisce lo scroll
-      // se la cella diventa troppo piccola).
-      const fitScale = Math.min(w / canvasW, h / canvasH);
-      setScale(Math.min(fitScale, 1));
+      setContainerSize({ w: containerRef.current.clientWidth, h: containerRef.current.clientHeight });
     }
-    updateScale();
-    const ro = new ResizeObserver(updateScale);
+    measure();
+    const ro = new ResizeObserver(measure);
     if (containerRef.current) ro.observe(containerRef.current);
     return () => ro.disconnect();
-  }, [tablesStatus.length]);
+  }, []);
 
   const rooms = Array.from(new Map(
     tablesStatus.filter(t => t.roomName).map(t => [t.roomName!, t.roomName!])
@@ -628,6 +611,30 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
   }, [rooms.join(",")]);
 
   const filtered = tablesStatus.filter(t => roomFilter === null || t.roomName === roomFilter);
+  // Ingombro reale (celle + rotazione/scala + margine per etichette e anello selezione)
+  const mapExtent = useMemo(() => {
+    const els = filtered;
+    const minX = els.length ? Math.min(...els.map(t => t.posX ?? 0)) : 0;
+    const minY = els.length ? Math.min(...els.map(t => t.posY ?? 0)) : 0;
+    let inflate = 0;
+    let cw = 0, ch = 0;
+    for (const t of els) {
+      const { w, h } = getElementSize(t);
+      const sc = t.sizeScale && t.sizeScale > 0 ? t.sizeScale : 1;
+      const angle = (t.rotation ?? 0) * Math.PI / 180;
+      const rotatedW = sc * (Math.abs(Math.cos(angle)) * w + Math.abs(Math.sin(angle)) * h) * CELL;
+      const rotatedH = sc * (Math.abs(Math.sin(angle)) * w + Math.abs(Math.cos(angle)) * h) * CELL;
+      const infl = Math.max(0, (rotatedW - w * CELL) / 2, (rotatedH - h * CELL) / 2);
+      inflate = Math.max(inflate, infl);
+      cw = Math.max(cw, ((t.posX ?? 0) - minX + w) * CELL);
+      ch = Math.max(ch, ((t.posY ?? 0) - minY + h) * CELL);
+    }
+    const pad = 20 + Math.ceil(inflate) + 8; // 8 = scale-105 selezionato
+    return { minX, minY, pad, w: Math.max(cw, 4 * CELL) + pad * 2, h: Math.max(ch, 2 * CELL) + pad * 2 };
+  }, [filtered]);
+  const fitScale = containerSize.w > 0 && containerSize.h > 0 ? Math.min(containerSize.w / mapExtent.w, containerSize.h / mapExtent.h) : 1;
+  // Mai oltre 1; mai sotto 0.55 (touch): oltre si scorre/trascina, senza tagliare
+  const scale = Math.max(0.55, Math.min(fitScale, 1));
   const freeCount = filtered.filter(t => t.elementType !== "table" ? false : t.status === "free").length;
   const occupiedCount = filtered.filter(t => t.elementType !== "table" ? false : t.status === "occupied").length;
 
@@ -745,20 +752,17 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
       )}
 
       {/* Floor plan */}
-      <div ref={containerRef} className="flex-1 overflow-auto bg-[#f4f6fa] relative">
+      <div ref={containerRef} className="flex-1 overflow-auto bg-[#f4f6fa] relative touch-pan-x touch-pan-y" style={{ WebkitOverflowScrolling: "touch" }}>
         {(() => {
-          const allEl = filtered;
-          const minX = allEl.length ? Math.min(...allEl.map(t => t.posX ?? 0)) : 0;
-          const minY = allEl.length ? Math.min(...allEl.map(t => t.posY ?? 0)) : 0;
-          // Grid always fills the full container — extend cols/rows beyond table extents
-          const gridCols = scale > 0 ? Math.ceil(containerSize.w / (CELL * scale)) + 1 : 8;
-          const gridRows = scale > 0 ? Math.ceil(containerSize.h / (CELL * scale)) + 1 : 6;
-          const fullCanvasW = gridCols * CELL;
-          const fullCanvasH = gridRows * CELL;
+          const { minX, minY, pad } = mapExtent;
+          const canvasW = Math.max(mapExtent.w, containerSize.w / scale);
+          const canvasH = Math.max(mapExtent.h, containerSize.h / scale);
+          const gridCols = Math.ceil(canvasW / CELL) + 1;
+          const gridRows = Math.ceil(canvasH / CELL) + 1;
+          const fullCanvasW = canvasW;
+          const fullCanvasH = canvasH;
           return (
-            <div
-              className="bg-[#f8fafc] overflow-hidden w-full h-full"
-            >
+            <div className="bg-[#f8fafc]" style={{ width: fullCanvasW * scale, height: fullCanvasH * scale }} data-testid="map-canvas">
               <div
                 className="relative select-none origin-top-left"
                 style={{ width: fullCanvasW, height: fullCanvasH, transform: `scale(${scale})` }}
@@ -770,7 +774,7 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
                   <div key={`v${i}`} className="absolute top-0 bottom-0 border-r border-slate-200/60" style={{ left: i * CELL }} />
                 ))}
                 {filtered.map(t => (
-                  <div key={t.id} className="absolute" style={{ left: ((t.posX ?? 0) - minX) * CELL + 3, top: ((t.posY ?? 0) - minY) * CELL + 3 }}>
+                  <div key={t.id} className="absolute" style={{ left: ((t.posX ?? 0) - minX) * CELL + pad + 3, top: ((t.posY ?? 0) - minY) * CELL + pad + 3 }}>
                     <FloorElement
                       t={t}
                       isSelected={t.id === selectedTableId}
@@ -1038,13 +1042,13 @@ function CustomerCard({ c, selected, onSelect }: { c: SimpleCustomer; selected: 
       className={cn(
         "w-full text-left px-4 py-3 rounded-xl border-2 transition-all active:scale-95",
         selected
-          ? "border-emerald-600 bg-emerald-900/40"
-          : "border-[#2d3044] bg-[#22263a] hover:border-primary/40",
+          ? "border-[#174f43] bg-[#edf5e9]"
+          : "border-slate-300 bg-white hover:border-primary/60",
       )}>
-      <div className="font-semibold text-slate-200 text-sm">{c.ragioneSociale}</div>
+      <div className="font-semibold text-slate-900 text-sm">{c.ragioneSociale}</div>
       <div className="flex gap-3 mt-0.5">
-        {c.partitaIva && <span className="text-[10px] text-slate-500 font-mono">P.IVA {c.partitaIva}</span>}
-        {c.codiceFiscale && <span className="text-[10px] text-slate-500 font-mono">CF {c.codiceFiscale}</span>}
+        {c.partitaIva && <span className="text-xs text-slate-700 font-mono">P.IVA {c.partitaIva}</span>}
+        {c.codiceFiscale && <span className="text-xs text-slate-700 font-mono">CF {c.codiceFiscale}</span>}
       </div>
     </button>
   );
@@ -1725,12 +1729,19 @@ type RomanaQuota = {
   rtOk?: boolean;
   rtError?: string;
   receiptId?: number;
+  opIds?: { cash?: string; card?: string };   // operationId UUID stabile per quota+metodo
 };
 
-function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, onCancel }: {
+function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, onCancel, payments, lottery, onLotteryUsed, onQuotaDone, initialPlan, onPlanChange }: {
   total: number; paidRomana?: number; orderId?: number; tableName?: string;
   onOrderClosed?: () => void;
   onCancel: () => void;
+  payments?: OrderPayment[];
+  lottery?: { value: string; field: string; onChange: (v: string) => void; onAdvanced: () => void };
+  onLotteryUsed?: () => void;
+  onQuotaDone?: (data: Record<string, unknown>) => void;
+  initialPlan?: RomanaQuota[];
+  onPlanChange?: (plan: RomanaQuota[]) => void;
 }) {
   const { data: rdSettings = {} } = useSettings();
   const rdPosTerminals = enabledPosTerminals(rdSettings);
@@ -1738,10 +1749,27 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
   const rdActiveTerminal: PosTerminalId | null = rdPosTerminal ?? rdPosTerminals[0] ?? null;
 
   // Importo da incassare in questa sessione (totale ordine - già pagato con romana)
-  const restante = Math.max(0, Math.round((total - paidRomana) * 100) / 100);
-  const hasPagatiPrecedenti = paidRomana > 0.005;
+  // Stato canonico: max tra il valore del server (ordine rinfrescato) e l'ultimo valore
+  // restituito da /fiscal/romana. Nessuna sottrazione locale doppia.
+  const [serverPaid, setServerPaid] = useState(paidRomana);
+  const canonPaid = Math.max(paidRomana, serverPaid);
+  const restante = Math.max(0, Math.round((total - canonPaid) * 100) / 100);
+  const hasPagatiPrecedenti = canonPaid > 0.005;
+  const busyRef = useRef(false);
+  const onPlanChangeRef = useRef(onPlanChange);
+  onPlanChangeRef.current = onPlanChange;
+  const lotteriaValida = lottery && isLotteryFormat(lottery.value) ? lottery.value : undefined;
 
-  const [phase, setPhase] = useState<"preconto" | "setup" | "pagamento">(() => hasPagatiPrecedenti ? "setup" : "preconto");
+  const [restored] = useState<RomanaQuota[]>(() => {
+    if (!initialPlan?.length) return [];
+    const pend = initialPlan.filter(q => q.stato !== "paid").reduce((s, q) => s + q.importo, 0);
+    if (Math.abs(pend - restante) > 0.005) return []; // ordine cambiato: ricalcola
+    return initialPlan.map(q => (q.stato === "paying" || q.stato === "pos_waiting" || q.stato === "pos_manual")
+      ? { ...q, stato: "error" as const, rtError: "Esito incerto: verifica sul terminale/RT, poi riprova (stessa operazione, nessuna doppia stampa)" }
+      : q);
+  });
+
+  const [phase, setPhase] = useState<"preconto" | "setup" | "pagamento">(() => restored.length ? "pagamento" : (hasPagatiPrecedenti ? "setup" : "preconto"));
   const [precontoPrinting, setPrecontoPrinting] = useState(false);
   const [precontoResult, setPrecontoResult] = useState<{ ok: boolean; error?: string | null } | null>(null);
   const [numSplits, setNumSplits] = useState(hasPagatiPrecedenti ? 1 : 2);
@@ -1760,7 +1788,8 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
       setPrecontoPrinting(false);
     }
   }
-  const [quote, setQuote] = useState<RomanaQuota[]>([]);
+  const [quote, setQuote] = useState<RomanaQuota[]>(restored);
+  useEffect(() => { onPlanChangeRef.current?.(quote); }, [quote]);
 
   function calcolaQuote(n: number): RomanaQuota[] {
     const baseCent = Math.floor((restante * 100) / n);
@@ -1777,14 +1806,18 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
     setPhase("pagamento");
   }
 
-  const totalePagatoInSession = quote.filter(q => q.stato === "paid").reduce((s, q) => s + q.importo, 0);
-  const rimanente   = Math.max(0, restante - totalePagatoInSession);
+  const rimanente   = restante;
   const tuttePagate = quote.length > 0 && quote.every(q => q.stato === "paid");
   const primaInAttesa = quote.find(q => q.stato === "pending");
 
-  // Invia scontrino + chiude ordine se è l'ultima quota in assoluto
+  // Invia scontrino. La quota è "pagata" SOLO se HTTP ok && data.ok && data.rtOk.
   async function emettiSconto(n: number, metodo: "cash" | "card", quotaImporto: number) {
-    const isUltima = n === quote.length;
+    if (lottery?.field && !isLotteryFormat(lottery.field)) throw new Error("Codice lotteria incompleto: inserire 8 lettere o numeri, oppure cancellarlo");
+    const quota = quote.find(q => q.n === n)!;
+    const opId = quota.opIds?.[metodo] ?? crypto.randomUUID();
+    if (!quota.opIds?.[metodo]) setQuote(prev => prev.map(q => q.n === n ? { ...q, opIds: { ...q.opIds, [metodo]: opId } } : q));
+    // Chiude solo se è l'ultima quota E copre davvero il residuo.
+    const isUltima = n === quote.length && Math.abs(quotaImporto - restante) < 0.005;
     const resp = await fetch(`${API}/fiscal/romana`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1796,22 +1829,36 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
         quoteTotali: quote.length,
         tableName: tableName ?? "",
         isUltima,
+        lotteria: lotteriaValida,
+        operationId: opId,
+        expectedPaidRomana: canonPaid.toFixed(2),
       }),
     });
-    const data = await resp.json();
-    setQuote(prev => prev.map(q => q.n === n ? {
-      ...q,
-      stato: "paid",
-      rtOk: data.rtOk,
-      rtError: data.rtError,
-      receiptId: data.receiptId,
-    } : q));
-    if (isUltima && data.orderClosed) {
-      onOrderClosed?.();
+    const data = await resp.json().catch(() => ({} as Record<string, unknown>)) as Record<string, unknown>;
+    if (!resp.ok || data.ok !== true || data.rtOk !== true) {
+      setQuote(prev => prev.map(q => q.n === n ? {
+        ...q, stato: "error", metodoPagamento: metodo, rtOk: false,
+        rtError: String(data.rtError ?? data.error ?? `Errore server (${resp.status}) — quota NON registrata`),
+        receiptId: data.receiptId as number | undefined,
+      } : q));
+      return;
     }
+    setQuote(prev => prev.map(q => q.n === n ? {
+      ...q, stato: "paid", metodoPagamento: metodo, rtOk: true, rtError: undefined, receiptId: data.receiptId as number | undefined,
+    } : q));
+    if (data.paidRomana != null) setServerPaid(parseFloat(String(data.paidRomana)));
+    if (lotteriaValida) onLotteryUsed?.();
+    onQuotaDone?.(data);          // refresh ordine+tavoli dopo OGNI quota
+    if (data.orderClosed === true) onOrderClosed?.();
   }
 
   async function pagaQuota(n: number, metodo: "cash" | "card") {
+    if (busyRef.current || quote.some(q => q.stato === "paying" || q.stato === "pos_waiting")) return;
+    busyRef.current = true;
+    try { await pagaQuotaInner(n, metodo); } finally { busyRef.current = false; }
+  }
+
+  async function pagaQuotaInner(n: number, metodo: "cash" | "card") {
     if (!orderId) return;
     const quota = quote.find(q => q.n === n)!;
 
@@ -1861,6 +1908,12 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
   }
 
   async function confermaManuale(n: number) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    try { await confermaManualeInner(n); } finally { busyRef.current = false; }
+  }
+
+  async function confermaManualeInner(n: number) {
     const quota = quote.find(q => q.n === n)!;
     setQuote(prev => prev.map(q => q.n === n ? { ...q, stato: "paying" } : q));
     try {
@@ -1899,6 +1952,8 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
 
   return (
     <>
+        <PaymentSummary total={total} paid={canonPaid} payments={payments} testId="romana-summary" />
+        {lottery && phase !== "preconto" && <div className="my-2"><LotteryField value={lottery.field} onChange={lottery.onChange} onAdvanced={lottery.onAdvanced} /></div>}
         {/* ── Fase 1: stampa preconto prima di scegliere la divisione ─────── */}
         {phase === "preconto" && (
           <>
@@ -1960,7 +2015,7 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
               {hasPagatiPrecedenti && (
                 <div className="flex items-center justify-between rounded-xl bg-green-50 border border-green-200 px-4 py-2.5 text-sm">
                   <span className="text-green-700 font-medium">Già incassato</span>
-                  <span className="font-bold text-green-800">€ {paidRomana.toFixed(2)}</span>
+                  <span className="font-bold text-green-800">€ {canonPaid.toFixed(2)}</span>
                 </div>
               )}
 
@@ -2051,7 +2106,7 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
                     <p className="text-xs text-slate-500">Da incassare</p>
                     <p className="text-3xl font-bold text-primary">€ {rimanente.toFixed(2)}</p>
                     {hasPagatiPrecedenti && (
-                      <p className="text-[11px] text-slate-400">Già pagato precedentemente: € {paidRomana.toFixed(2)}</p>
+                      <p className="text-[11px] text-slate-600">Già pagato: € {canonPaid.toFixed(2)} di € {total.toFixed(2)}</p>
                     )}
                   </>
                 )}
@@ -2164,7 +2219,7 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
               ) : (
                 <>
                   <Button variant="outline" onClick={() => setPhase("setup")}>← Modifica</Button>
-                  <Button variant="outline" onClick={onCancel} className="flex-1 text-slate-600">Chiudi senza pagare</Button>
+                  <Button variant="outline" onClick={onCancel} className="flex-1 text-slate-600">Torna al tavolo (quote salvate)</Button>
                 </>
               )}
             </DialogFooter>
@@ -2175,11 +2230,11 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
 }
 
 // ─── Romana Dialog (thin wrapper attorno a RomanaBody) ────────────────────────
-function RomanaDialog({ open, onClose, total, paidRomana = 0, orderId, tableName, onOrderClosed }: {
+function RomanaDialog({ open, onClose, total, paidRomana = 0, orderId, tableName, onOrderClosed, ...extra }: {
   open: boolean; onClose: () => void;
   total: number; paidRomana?: number; orderId?: number; tableName?: string;
   onOrderClosed?: () => void;
-}) {
+} & Pick<Parameters<typeof RomanaBody>[0], "payments" | "lottery" | "onLotteryUsed" | "onQuotaDone" | "initialPlan" | "onPlanChange">) {
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-sm">
@@ -2196,6 +2251,7 @@ function RomanaDialog({ open, onClose, total, paidRomana = 0, orderId, tableName
             tableName={tableName}
             onOrderClosed={onOrderClosed}
             onCancel={onClose}
+            {...extra}
           />
         )}
       </DialogContent>
@@ -2583,78 +2639,27 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
 // ─── Item Edit Dialog (solo modifica prezzo) ──────────────────────────────────
 type EditableItem = { id: number; productName: string; quantity: number; unitPrice: string; notes?: string | null; status: string };
 
-function ItemEditDialog({ open, onClose, item, onSave }: {
+function ItemEditDialog({ open, onClose, item, onSave, priceLocked }: {
   open: boolean; onClose: () => void;
   item: EditableItem | null;
-  onSave: (itemId: number, unitPrice: string) => void;
+  onSave: (itemId: number, unitPrice: string, quantity: number) => void;
+  priceLocked?: boolean;
 }) {
-  const [price, setPrice] = useState("");
-
-  useEffect(() => {
-    if (open && item) {
-      setPrice(parseFloat(item.unitPrice).toFixed(2));
-    }
-  }, [open, item]);
-
   if (!item) return null;
-
-  const originalPrice = parseFloat(item.unitPrice);
-  const currentPrice = parseFloat(price) || 0;
-  const priceDiff = currentPrice - originalPrice;
-
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Pencil className="h-4 w-4 text-primary" />
-            Modifica Prezzo
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 py-1">
-          <div className="flex items-center gap-2 px-3 py-2.5 bg-slate-50 rounded-xl">
-            <div className="flex-1">
-              <div className="font-semibold text-slate-800 text-sm">{item.productName}</div>
-              <div className="text-xs text-slate-400">{item.quantity}× · Prezzo originale: €{originalPrice.toFixed(2)}</div>
-            </div>
-            {item.status === "sent" && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Inviato</span>
-            )}
-          </div>
-
-          {/* Modifica prezzo */}
-          <div>
-            <Label className="text-xs font-semibold text-slate-500 mb-1 block">
-              Prezzo unitario
-              {Math.abs(priceDiff) > 0.001 && (
-                <span className={cn("ml-1.5 text-xs", priceDiff > 0 ? "text-emerald-600" : "text-red-500")}>
-                  ({priceDiff > 0 ? "+" : ""}{priceDiff.toFixed(2)}€)
-                </span>
-              )}
-            </Label>
-            <div className="flex items-center gap-2">
-              <span className="text-slate-500 text-sm">€</span>
-              <Input
-                type="number" step="0.01" min="0"
-                value={price}
-                onChange={e => setPrice(e.target.value)}
-                className="text-center font-bold"
-              />
-              {Math.abs(priceDiff) > 0.001 && (
-                <button onClick={() => setPrice(originalPrice.toFixed(2))}
-                  className="text-xs text-slate-400 hover:text-primary whitespace-nowrap">
-                  Ripristina
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Annulla</Button>
-          <Button onClick={() => { onSave(item.id, parseFloat(price).toFixed(2)); onClose(); }}>Salva</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <NumericKeypadDialog
+      open={open}
+      title={`Modifica riga: ${item.productName}`}
+      subtitle={item.status === "sent" ? "Riga già inviata in cucina" : undefined}
+      fields={[
+        { key: "quantity", label: "Quantità", value: String(item.quantity), decimals: 0, min: 1, max: 999 },
+        { key: "unitPrice", label: "Prezzo unitario", prefix: "€", value: parseFloat(item.unitPrice).toFixed(2), decimals: 2, min: 0, max: 99999, locked: priceLocked },
+      ]}
+      summary={v => `Totale riga €${((v.quantity ?? 0) * (v.unitPrice ?? 0)).toFixed(2)}`}
+      confirmLabel="Salva riga"
+      onClose={onClose}
+      onConfirm={v => { onSave(item.id, v.unitPrice, parseInt(v.quantity, 10)); onClose(); }}
+    />
   );
 }
 
@@ -2750,7 +2755,9 @@ function EmptyState({ label }: { label: string }) {
 
 // ─── Inline Payment Panel (TOT tab) ────────────────────────────────────────────
 const DENOMINATIONS = [200, 100, 50, 20, 10, 5, 2, 1, 0.5];
-function InlinePaymentPanel({ total, onPay, disabled, alertAnomalous, orderId }: {
+function InlinePaymentPanel({ total, onPay, disabled, alertAnomalous, orderId, lottery, paidSoFar }: {
+  lottery?: { field: string; onChange: (v: string) => void; onAdvanced: () => void };
+  paidSoFar?: number;
   total: number;
   disabled: boolean;
   onPay: (method: string, amountGiven?: number) => void;
@@ -2817,6 +2824,13 @@ function InlinePaymentPanel({ total, onPay, disabled, alertAnomalous, orderId }:
         <div className="text-[10px] text-slate-400 uppercase tracking-widest mb-0.5">Totale da pagare</div>
         <div className="text-4xl font-bold text-white font-mono">€ {total.toFixed(2)}</div>
       </div>
+
+      {paidSoFar != null && paidSoFar > 0.005 && (
+        <div className="shrink-0 text-center text-xs font-bold text-[#174f43] bg-[#edf5e9] rounded-lg py-1.5" data-testid="text-paid-so-far">
+          Già pagato alla romana: €{paidSoFar.toFixed(2)} — questo incasso chiude il residuo
+        </div>
+      )}
+      {lottery && <LotteryField value={lottery.field} onChange={lottery.onChange} onAdvanced={lottery.onAdvanced} />}
 
       {/* Method selector */}
       <div className="grid grid-cols-3 gap-2 shrink-0">
@@ -2950,7 +2964,7 @@ export default function FrontOffice() {
   const foIsAdmin = foUser?.role === "admin";
   const priceLocked = settings["feat_price_lock"] === "true" && !foIsAdmin;
 
-  const coverPrice = parseFloat(settings["cover_price"] || "0");
+  const settingsCoverPrice = parseFloat(settings["cover_price"] || "0");
 
   // State
   const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
@@ -3022,6 +3036,13 @@ export default function FrontOffice() {
 
   // Invoice customer (selected in CLNT tab)
   const [invoiceCustomer, setInvoiceCustomer] = useState<SimpleCustomer | null>(null);
+  const [invoiceSezionale, setInvoiceSezionale] = useState("1");
+  const [invoiceResult, setInvoiceResult] = useState<InvoiceResult | null>(null);
+  const savedInvoiceRef = useRef<{ key: string; id: number; numeroDocumento: string; anno: number } | null>(null);
+  const payingRef = useRef(false);
+  const [paymentBusy, setPaymentBusy] = useState(false);
+  const [lotteriaField, setLotteriaField] = useState("");
+  const [romanaPlans, setRomanaPlans] = useState<Record<number, RomanaQuota[]>>({});
   const [invoiceNumero, setInvoiceNumero] = useState("");
   const [invoiceAnno, setInvoiceAnno] = useState(String(new Date().getFullYear()));
   const [clntSearch, setClntSearch] = useState("");
@@ -3037,6 +3058,8 @@ export default function FrontOffice() {
   const [showPayment, setShowPayment] = useState(false);
   const [showCovers, setShowCovers] = useState(false);
   const [showEditCovers, setShowEditCovers] = useState(false);
+  const [coverKeypad, setCoverKeypad] = useState(false);
+  const [pendingAdd, setPendingAdd] = useState<{ productId: number; unitPrice: string; name: string } | null>(null);
   const [showRomana, setShowRomana] = useState(false);
   const [showPreconto, setShowPreconto] = useState(false);
   const [showSplitBill, setShowSplitBill] = useState(false);
@@ -3097,11 +3120,14 @@ export default function FrontOffice() {
   const { data: activeOrder } = useGetOrder(activeOrderId!, { enabled: !!activeOrderId } as never);
   const items = activeOrder?.items ?? [];
   const subtotal = parseFloat(activeOrder?.total ?? "0");
+  const orderCoverPrice = (activeOrder as unknown as { coverPrice?: string | null })?.coverPrice;
+  const coverPrice = orderCoverPrice != null && orderCoverPrice !== "" && Number.isFinite(parseFloat(orderCoverPrice)) ? parseFloat(orderCoverPrice) : settingsCoverPrice;
   const coverCount = isQuickMode ? 0 : ((activeOrder as unknown as { covers?: number })?.covers ?? 0);
   const coverTotal = coverPrice > 0 && coverCount > 0 ? coverCount * coverPrice : 0;
   const total = subtotal + coverTotal;
   const paidRomana = parseFloat((activeOrder as unknown as { paidRomana?: string })?.paidRomana ?? "0");
   // Importo residuo dopo eventuali quote alla romana già pagate
+  const orderPayments = ((activeOrder as unknown as { payments?: OrderPayment[] })?.payments) ?? [];
   const totalNettoRomana = Math.max(0, Math.round((total - paidRomana) * 100) / 100);
   const hasDraftItems = items.some(i => (i as never as { status: string }).status === "draft");
   const hasSentItems = items.some(i => (i as never as { status: string }).status === "sent");
@@ -3315,14 +3341,14 @@ export default function FrontOffice() {
     finally { setPendingTableId(null); }
   }
 
-  async function handleEditCovers(newCovers: number) {
+  async function handleEditCovers(newCovers: number, newCoverPrice?: string) {
     if (!activeOrderId) return;
     setShowEditCovers(false);
     try {
       const res = await fetch(`${API}/orders/${activeOrderId}/covers`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ covers: newCovers }),
+        body: JSON.stringify(newCoverPrice !== undefined ? { covers: newCovers, coverPrice: newCoverPrice } : { covers: newCovers }),
       });
       if (!res.ok) throw new Error();
       qc.invalidateQueries({ queryKey: getGetOrderQueryKey(activeOrderId) });
@@ -3404,10 +3430,10 @@ export default function FrontOffice() {
     setNumBuffer(b => (b.length < 5 ? b + key : b));
   }
 
-  async function doAddProduct(productId: number, unitPrice: string, mods: FEModifier[], notes?: string) {
+  async function doAddProduct(productId: number, unitPrice: string, mods: FEModifier[], notes?: string, quantity = 1) {
     // If numBuffer has a value, use it as the price override (not quantity)
     const priceOverride = numBuffer ? parseFloat(numBuffer) : null;
-    const qty = 1;
+    const qty = Math.max(1, quantity);
     if (priceOverride !== null && !isNaN(priceOverride) && priceOverride > 0) {
       unitPrice = priceOverride.toFixed(2);
     }
@@ -3439,8 +3465,8 @@ export default function FrontOffice() {
       !(i as never as { notes?: string }).notes &&
       (i as never as { status: string }).status === "draft"
     ) : null;
-    if (existing && orderId === activeOrderId && qty === 1) {
-      await updateItem.mutateAsync({ orderId: orderId!, itemId: existing.id, data: { quantity: existing.quantity + 1 } });
+    if (existing && orderId === activeOrderId) {
+      await updateItem.mutateAsync({ orderId: orderId!, itemId: existing.id, data: { quantity: existing.quantity + qty } });
     } else {
       await addItem.mutateAsync({ orderId: orderId!, data: { productId, quantity: qty, unitPrice: finalPrice, phase: activePriceList, modifiers: modJson, notes: kpNote ?? null } as never });
     }
@@ -3448,7 +3474,10 @@ export default function FrontOffice() {
   }
 
   async function handleAddProduct(productId: number, unitPrice: string) {
-    await doAddProduct(productId, unitPrice, [], undefined);
+    // Scorciatoia rapida: se c'è un prezzo digitato nel tastierino laterale, aggiunge subito.
+    if (numBuffer) { await doAddProduct(productId, unitPrice, [], undefined); return; }
+    const name = (products as unknown as Array<{ id: number; name: string }> | undefined)?.find(p => p.id === productId)?.name ?? "Prodotto";
+    setPendingAdd({ productId, unitPrice, name });
   }
 
   async function confirmModifiers(withMods: boolean) {
@@ -3584,15 +3613,18 @@ export default function FrontOffice() {
     }
   }
 
-  async function handleSaveItemEdit(itemId: number, unitPrice: string) {
+  async function handleSaveItemEdit(itemId: number, unitPrice: string, quantity: number) {
     if (!activeOrderId) return;
-    await updateItem.mutateAsync({
-      orderId: activeOrderId,
-      itemId,
-      data: { unitPrice } as never,
-    });
-    refresh();
-    toast({ title: "Prezzo aggiornato" });
+    const it = items.find(i => i.id === itemId);
+    const wasSent = it && (it as never as { status: string }).status === "sent";
+    const data: Record<string, unknown> = { quantity };
+    if (!priceLocked) data.unitPrice = unitPrice;
+    try {
+      await updateItem.mutateAsync({ orderId: activeOrderId, itemId, data: data as never });
+      if (wasSent) setKpResendPending(true);
+      refresh();
+      toast({ title: "Riga aggiornata", description: `${quantity} × €${unitPrice}` });
+    } catch { toast({ title: "Errore modifica riga", variant: "destructive" }); }
   }
 
   async function handleSendComanda() {
@@ -3642,26 +3674,143 @@ export default function FrontOffice() {
     }
   }
 
+  // Sincronizza il campo lotteria visibile con il codice one-shot (dialogo avanzato / reset dopo pagamento)
+  useEffect(() => {
+    if (lotteriaCodice !== lotteriaField && (lotteriaCodice !== "" || isLotteryFormat(lotteriaField))) setLotteriaField(lotteriaCodice);
+  }, [lotteriaCodice, lotteriaField]);
+  function onLotteryFieldChange(v: string) {
+    setLotteriaField(v);
+    setLotteriaCodice(isLotteryFormat(v) ? v : "");
+  }
+  const lotteryProps = {
+    value: lotteriaCodice, field: lotteriaField, onChange: onLotteryFieldChange,
+    onAdvanced: () => { setLotteriaInput(lotteriaCodice); setShowLotteria(true); },
+  };
+  const finalOpRef = useRef<{ key: string; id: string } | null>(null);
+  function afterQuota() {
+    if (activeOrderId) qc.invalidateQueries({ queryKey: getGetOrderQueryKey(activeOrderId) });
+    refresh();
+  }
+
+  const invoiceNumPreview = /^\d+$/.test(invoiceNumero) && parseInt(invoiceNumero, 10) > 0 && invoiceSezionale.trim()
+    ? `${invoiceSezionale.trim()}/${parseInt(invoiceNumero, 10)}` : null;
+
+  // Salva la bozza PRIMA del pagamento. Ritorna l'id oppure null (pagamento da NON eseguire).
+  async function ensureInvoiceDraft(customerId: number): Promise<number | null> {
+    const sez = invoiceSezionale.trim();
+    const n = /^\d+$/.test(invoiceNumero) ? parseInt(invoiceNumero, 10) : 0;
+    const a = parseInt(invoiceAnno, 10);
+    const fail = (title: string, description?: string) => { toast({ title, description, variant: "destructive" }); return null; };
+    if (!/^[A-Za-z0-9.-]{1,10}$/.test(sez)) return fail("Sezionale non valido", "Inserisci il sezionale della fattura (es. 1). Nessun pagamento registrato.");
+    if (!(n > 0)) return fail("Progressivo mancante", "Inserisci il progressivo della fattura (es. 23). Nessun pagamento registrato.");
+    if (!(a >= 2000 && a <= 2100)) return fail("Anno non valido", "Inserisci l'anno solare a 4 cifre. Nessun pagamento registrato.");
+    const key = `${activeOrderId}|${customerId}|${sez}|${n}|${a}`;
+    if (savedInvoiceRef.current?.key === key) return savedInvoiceRef.current.id;
+    const old = savedInvoiceRef.current;
+    const sameOrderDraft = old?.key.split("|")[0] === String(activeOrderId) ? old : null;
+    try {
+      const res = await fetch(sameOrderDraft ? `${API}/invoices/${sameOrderDraft.id}` : `${API}/invoices`, {
+        method: sameOrderDraft ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ sezionale: sez, numero: n, anno: a, customerId, orderId: activeOrderId, tipoDocumento: "TD01" }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        addLog("error", `Fattura NON salvata (${res.status}): ${err.error ?? ""}`);
+        return fail(res.status === 409 ? `Numero ${sez}/${n} già usato` : "Fattura NON salvata",
+          `${err.error ?? `Errore server (${res.status})`} — correggi il numero. Nessun pagamento registrato.`);
+      }
+      const inv = await res.json() as { id: number; numeroDocumento?: string; anno?: number };
+      savedInvoiceRef.current = { key, id: inv.id, numeroDocumento: inv.numeroDocumento ?? `${sez}/${n}`, anno: inv.anno ?? a };
+      return inv.id;
+    } catch (e) {
+      return fail("Fattura NON salvata", `${e instanceof Error ? e.message : String(e)} — nessun pagamento registrato.`);
+    }
+  }
+
+  async function emitInvoiceDraft(id: number) {
+    const sv = savedInvoiceRef.current && savedInvoiceRef.current.id === id ? savedInvoiceRef.current : null;
+    setInvoiceResult(prev => ({ ...(prev && prev.id === id ? prev : { id, emitted: false, numeroDocumento: sv?.numeroDocumento, anno: sv?.anno }), busy: true, error: undefined }));
+    try {
+      const r = await fetch(`${API}/invoices/${id}/emit`, { method: "POST", credentials: "include" });
+      const d = await r.json().catch(() => ({})) as { xml?: string; xmlContent?: string; fileName?: string; rtOk?: boolean; rtError?: string; numeroDocumento?: string; anno?: number; error?: string };
+      if (!r.ok) {
+        setInvoiceResult(prev => ({ ...(prev ?? { id, emitted: false }), id, emitted: false, busy: false, error: d.error ?? `Emissione fallita (${r.status}). La bozza è salvata, riprova o recupera l'XML.` }));
+        return;
+      }
+      setInvoiceResult({ id, emitted: true, numeroDocumento: d.numeroDocumento ?? sv?.numeroDocumento, anno: d.anno ?? sv?.anno, xml: d.xmlContent ?? d.xml, fileName: d.fileName, rtOk: d.rtOk, rtError: d.rtError });
+    } catch (e) {
+      setInvoiceResult(prev => ({ ...(prev ?? { id, emitted: false }), id, busy: false, error: e instanceof Error ? e.message : String(e) }));
+    }
+  }
+
+  async function recoverInvoiceXml() {
+    if (!invoiceResult) return;
+    const id = invoiceResult.id;
+    try {
+      const r = await fetch(`${API}/invoices/${id}/xml`, { credentials: "include" });
+      if (!r.ok) throw new Error(`Errore ${r.status}`);
+      const xml = await r.text();
+      setInvoiceResult(prev => prev ? { ...prev, xml, error: undefined } : prev);
+    } catch (e) {
+      setInvoiceResult(prev => prev ? { ...prev, error: `XML non recuperato: ${e instanceof Error ? e.message : String(e)}` } : prev);
+    }
+  }
+  function downloadInvoiceXml() {
+    if (!invoiceResult?.xml) return;
+    const blob = new Blob([invoiceResult.xml], { type: "application/xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = invoiceResult.fileName ?? `fattura_${invoiceResult.id}.xml`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  async function copyInvoiceXml() {
+    if (!invoiceResult?.xml) return;
+    try { await navigator.clipboard.writeText(invoiceResult.xml); toast({ title: "XML copiato" }); }
+    catch { toast({ title: "Copia non riuscita", description: "Usa Scarica XML", variant: "destructive" }); }
+  }
+
   async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number, ragioneSocialeCliente?: string, itemIds?: number[], coversToDeduct = 0) {
-    if (!activeOrderId) return;
+    if (!activeOrderId || payingRef.current) return;
+    if (lotteriaField && !isLotteryFormat(lotteriaField)) {
+      toast({ title: "Codice lotteria incompleto", description: "Inserisci 8 lettere o numeri, oppure cancella il campo.", variant: "destructive" });
+      return;
+    }
+    if (invoiceCustomerId && paidRomana > 0) {
+      toast({ title: "Quote fiscali già emesse", description: "Il saldo di una romana si conclude con scontrino. Non si può fatturare di nuovo l'intero conto già parzialmente fiscalizzato.", variant: "destructive" });
+      return;
+    }
+    payingRef.current = true;
+    setPaymentBusy(true);
+    try {
     setShowPayment(false);
     const isGestionale = !!invoiceCustomerId;
     const isSplitPay = !!(itemIds?.length || coversToDeduct > 0);
+
+    // Fattura: bozza salvata PRIMA del pagamento; se fallisce (es. 409) ci si ferma qui.
+    let draftInvoiceId: number | null = null;
+    if (isGestionale && !isSplitPay) {
+      draftInvoiceId = await ensureInvoiceDraft(invoiceCustomerId!);
+      if (draftInvoiceId === null) return;
+    }
 
     // Se ci sono quote alla romana già pagate, il pagamento normale deve usare il restante
     const effectiveTotal = paidRomana > 0 && !isSplitPay && !isGestionale
       ? totalNettoRomana
       : total;
-    const payAmount = amountGiven !== undefined ? amountGiven : effectiveTotal;
+    // Invoice and final Romana settlements must match their saved balance.
+    // Preserve the existing tender/change/tip flow for ordinary receipts.
+    const payAmount = (!isSplitPay && (isGestionale || paidRomana > 0))
+      ? effectiveTotal : amountGiven !== undefined ? amountGiven : effectiveTotal;
 
     // ── Caso speciale: pagamento finale dopo romana parziale ─────────────────
     // Usa la route /fiscal/romana come ultima quota per emettere lo scontrino
     // corretto (solo il restante) e chiudere l'ordine.
     if (paidRomana > 0 && !isSplitPay && !isGestionale) {
-      // Snapshot one-shot del codice lotteria: viene incluso in QUESTO pagamento
-      // e poi cancellato così non si propaga ad altri ordini/scontrini.
-      const lotteriaOneShot = lotteriaCodice || undefined;
-      if (lotteriaOneShot) { setLotteriaCodice(""); setLotteriaInput(""); }
+      const lotteriaOneShot = lotteriaCodice || undefined; // preservata se il pagamento fallisce
+      // operationId stabile per questo tentativo (stesso importo/metodo/saldo) → retry senza doppia stampa
+      const opKey = `${activeOrderId}|${payAmount.toFixed(2)}|${method}|${paidRomana.toFixed(2)}`;
+      if (finalOpRef.current?.key !== opKey) finalOpRef.current = { key: opKey, id: crypto.randomUUID() };
       try {
         const resp = await fetch(`${API}/fiscal/romana`, {
           method: "POST",
@@ -3673,24 +3822,28 @@ export default function FrontOffice() {
             quotaNum: 1,
             quoteTotali: 1,
             tableName: orderLabel ?? "",
-            isUltima: true,
+            isUltima: Math.abs(payAmount - totalNettoRomana) < 0.005,
             lotteria: lotteriaOneShot,
+            operationId: finalOpRef.current.id,
+            expectedPaidRomana: paidRomana.toFixed(2),
           }),
         });
-        const data = await resp.json();
-        if (data.rtOk) {
+        const data = await resp.json().catch(() => ({})) as { ok?: boolean; rtOk?: boolean; rtError?: string; error?: string; receiptId?: number; orderClosed?: boolean };
+        if (resp.ok && data.ok === true && data.rtOk === true) {
           addLog("info", `RT OK — scontrino #${data.receiptId ?? "-"} — €${payAmount.toFixed(2)} ${method} (finale romana)`);
           toast({ title: "Scontrino fiscale emesso", description: `€${payAmount.toFixed(2)} — ${method}` });
+          finalOpRef.current = null;
+          if (lotteriaOneShot) { setLotteriaCodice(""); setLotteriaInput(""); setLotteriaField(""); }
+          if (data.orderClosed) handleExitOrder();
         } else {
-          addLog("error", `RT ERRORE (finale romana) — ${data.rtError ?? "errore sconosciuto"}`);
-          toast({ title: "Scontrino non inviato alla RT", description: data.rtError ?? "Errore sconosciuto", variant: "destructive" });
+          const msg = data.rtError ?? data.error ?? `Errore server (${resp.status})`;
+          addLog("error", `RT ERRORE (finale romana) — ${msg}`);
+          toast({ title: "Incasso NON confermato", description: `${msg} — verifica documenti RT e storico prima di riprovare.`, variant: "destructive" });
         }
-        if (data.orderClosed) handleExitOrder();
       } catch (e) {
-        toast({ title: "Errore pagamento", description: String(e), variant: "destructive" });
+        toast({ title: "Errore pagamento", description: `${String(e)} — riprova.`, variant: "destructive" });
       }
       refresh();
-      toast({ title: "Pagamento registrato", description: `€ ${payAmount.toFixed(2)} — ${method}` });
       return;
     }
 
@@ -3699,7 +3852,6 @@ export default function FrontOffice() {
     // e poi cancellato così non si propaga ai successivi (anche su conto separato,
     // dove non passa per handleExitOrder).
     const lotteriaOneShot = lotteriaCodice || undefined;
-    if (lotteriaOneShot) { setLotteriaCodice(""); setLotteriaInput(""); }
     let paymentRes: unknown;
     try {
       paymentRes = await createPayment.mutateAsync({
@@ -3710,6 +3862,8 @@ export default function FrontOffice() {
         change: method === "cash" && amountGiven !== undefined && amountGiven > effectiveTotal ? (amountGiven - effectiveTotal).toFixed(2) : undefined,
         lotteria: lotteriaOneShot,
         nonFiscale: isGestionale || undefined,
+        invoiceId: draftInvoiceId ?? undefined,
+        operationId: draftInvoiceId ? `invoice-${draftInvoiceId}` : undefined,
         ragioneSocialeCliente: ragioneSocialeCliente || undefined,
         // ── Conto separato: passa esplicitamente articoli + coperti pagati
         // e flag `partial` così il backend NON chiude l'ordine intero anche
@@ -3730,8 +3884,10 @@ export default function FrontOffice() {
       return;
     }
     // Mostra risultato RT
-    const fiscal = (paymentRes as never as { fiscal?: { rtOk?: boolean; rtError?: string; rtIp?: string; receiptId?: number; nonFiscale?: boolean } }).fiscal;
-    if (fiscal) {
+    const fiscal = (paymentRes as never as { fiscal?: { rtOk?: boolean; rtError?: string; rtIp?: string; receiptId?: number; nonFiscale?: boolean; deferredInvoice?: boolean } }).fiscal;
+    if (fiscal?.deferredInvoice) {
+      addLog("info", "Pagamento fattura registrato. Generazione XML e copia di cortesia in corso.");
+    } else if (fiscal) {
       if (fiscal.rtOk) {
         if (fiscal.nonFiscale) {
           addLog("info", `RT OK — documento NON FISCALE @ ${fiscal.rtIp ?? "RT"} — €${payAmount.toFixed(2)} ${method}`);
@@ -3751,97 +3907,13 @@ export default function FrontOffice() {
     } else {
       addLog("info", `Pagamento €${payAmount.toFixed(2)} — ${method} — ${orderLabel}`);
     }
-    setInvoiceCustomer(null);
-    if (invoiceCustomerId && items.length > 0) {
-      try {
-        const righe = items.map(i => ({
-          descrizione: (i as never as { productName: string }).productName,
-          quantita: (i as never as { quantity: number }).quantity,
-          prezzoUnitario: (i as never as { unitPrice: string }).unitPrice,
-          aliquotaIva: "22",
-          imponibile: (i as never as { subtotal: string }).subtotal,
-        }));
-        const imponibile = righe.reduce((s, r) => s + parseFloat(r.imponibile || "0"), 0);
-        const iva = imponibile * 0.22;
-        const nParsed = parseInt(invoiceNumero, 10);
-        const aParsed = parseInt(invoiceAnno, 10);
-        const invoicePayload = {
-          customerId: invoiceCustomerId,
-          orderId: activeOrderId,
-          tipoDocumento: "TD01",
-          imponibile: imponibile.toFixed(2),
-          aliquotaIva: "22",
-          iva: iva.toFixed(2),
-          totale: (imponibile + iva).toFixed(2),
-          righe,
-        };
-        let invRes = await fetch(`${API}/invoices`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...invoicePayload,
-            ...(!isNaN(nParsed) && invoiceNumero ? { numero: nParsed } : {}),
-            ...(!isNaN(aParsed) && invoiceAnno ? { anno: aParsed } : {}),
-          }),
-        });
-        if (invRes.status === 409 && !isNaN(nParsed)) {
-          // Numero manuale già usato: riprova con numerazione automatica
-          addLog("error", `Numero fattura ${nParsed} già usato — riprovo con numerazione automatica`);
-          invRes = await fetch(`${API}/invoices`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(invoicePayload),
-          });
-        }
-        if (!invRes.ok) {
-          const err = await invRes.json().catch(() => ({} as { error?: string }));
-          const msg = (err as { error?: string }).error ?? `Errore server (${invRes.status})`;
-          addLog("error", `Fattura NON creata: ${msg}`);
-          toast({
-            title: "Fattura NON creata",
-            description: `${msg} — il pagamento è registrato. Crea la fattura da Backoffice → Fatture.`,
-            variant: "destructive",
-          });
-        } else {
-          const inv = await invRes.json();
-          const emitRes = await fetch(`${API}/invoices/${inv.id}/emit`, { method: "POST" });
-          if (emitRes.ok) {
-            const emitData = await emitRes.json() as { xml?: string; fileName?: string };
-            if (emitData.xml && emitData.fileName) {
-              const blob = new Blob([emitData.xml], { type: "application/xml" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = emitData.fileName;
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-              URL.revokeObjectURL(url);
-            }
-            toast({ title: "Fattura emessa", description: `N. ${inv.numero}/${inv.anno} — XML scaricato` });
-          } else {
-            addLog("error", `Fattura ${inv.numero}/${inv.anno} salvata ma emissione fallita (${emitRes.status})`);
-            toast({
-              title: "Fattura salvata ma non emessa",
-              description: `N. ${inv.numero}/${inv.anno} — scarica l'XML da Backoffice → Fatture.`,
-              variant: "destructive",
-            });
-          }
-        }
-      } catch (e) {
-        addLog("error", `Errore fattura: ${e instanceof Error ? e.message : String(e)}`);
-        toast({
-          title: "Pagamento OK — errore fattura",
-          description: `${e instanceof Error ? e.message : String(e)} — crea la fattura da Backoffice → Fatture.`,
-          variant: "destructive",
-        });
-      } finally {
-        // Reset SEMPRE i campi fattura (anche su errore): un numero manuale
-        // obsoleto non deve propagarsi al pagamento successivo.
-        setInvoiceNumero("");
-        setInvoiceAnno(String(new Date().getFullYear()));
-        setInvoiceCustomer(null);
-      }
+    if (lotteriaOneShot && (!fiscal || fiscal.rtOk)) { setLotteriaCodice(""); setLotteriaInput(""); setLotteriaField(""); }
+    if (draftInvoiceId !== null) {
+      await emitInvoiceDraft(draftInvoiceId);
+      savedInvoiceRef.current = null;
+      setInvoiceNumero("");
+      setInvoiceAnno(String(new Date().getFullYear()));
+      setInvoiceCustomer(null);
     } else if (isSplitPay) {
       // Elimina articoli pagati nel conto separato
       if (itemIds?.length) {
@@ -3862,6 +3934,10 @@ export default function FrontOffice() {
     if (!isSplitPay) handleExitOrder();
     refresh();
     toast({ title: "Pagamento registrato", description: `€ ${payAmount.toFixed(2)} — ${method}` });
+    } finally {
+      payingRef.current = false;
+      setPaymentBusy(false);
+    }
   }
 
   const searchQ = productSearch.trim().toLowerCase();
@@ -4048,6 +4124,26 @@ export default function FrontOffice() {
           </div>
         )}
 
+        {/* ── Riga coperti fissata sopra gli articoli ── */}
+        {activeOrderId && !isQuickMode && (
+          <button type="button" data-testid="row-covers" onClick={() => setCoverKeypad(true)}
+            className="mx-2.5 mb-1 shrink-0 rounded-xl px-3 py-2 border-2 border-[#174f43]/40 bg-[#edf5e9] flex items-center gap-3 text-left min-h-[52px]">
+            <Users className="h-5 w-5 text-[#174f43] shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-extrabold text-slate-900">Coperto</div>
+              <div className="text-xs text-slate-700 tabular-nums" data-testid="text-covers-detail">
+                {coverCount} × €{coverPrice.toFixed(2)}{orderCoverPrice != null && orderCoverPrice !== "" ? " (prezzo tavolo)" : ""}
+              </div>
+            </div>
+            <span className="text-base font-extrabold text-slate-900 tabular-nums" data-testid="text-covers-total">€{(coverCount * coverPrice).toFixed(2)}</span>
+            <Pencil className="h-4 w-4 text-[#174f43]" />
+          </button>
+        )}
+
+        {activeOrderId && !isQuickMode && (paidRomana > 0.005 || orderPayments.length > 0) && (
+          <div className="mx-2.5 mb-1 shrink-0"><PaymentSummary total={total} paid={paidRomana} payments={orderPayments} testId="order-payment-summary" /></div>
+        )}
+
         {/* Lista articoli ordine */}
         <ScrollArea className="flex-1 min-h-0" onClick={() => setSelectedItemId(null)}>
           <div className="px-2.5 pb-1 space-y-0.5 pt-0.5">
@@ -4094,6 +4190,7 @@ export default function FrontOffice() {
                         setSelectedItemId(item.id);
                         setNumBuffer("");
                         setNumpadMode("qty");
+                        setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus });
                       }
                     }}
                     className={cn(
@@ -4174,38 +4271,6 @@ export default function FrontOffice() {
             </div>
           ));
         })()}
-
-        {/* ── Riga coperti interattiva ── */}
-        {coverPrice > 0 && activeOrderId && !isQuickMode && (
-          <div
-            onClick={e => e.stopPropagation()}
-            className="mt-1 rounded-lg px-2.5 py-1.5 border border-dashed border-[#3a3f58] bg-[#1e2235] flex items-center gap-2"
-          >
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                <Users className="h-3 w-3 text-slate-400 shrink-0" />
-                Coperto
-                {coverCount > 0 && (
-                  <span className="text-slate-500 font-mono">× {coverCount} = €{coverTotal.toFixed(2)}</span>
-                )}
-              </div>
-              {coverCount === 0 && <div className="text-[10px] text-slate-600 mt-0.5">€{coverPrice.toFixed(2)} cad. — nessun coperto</div>}
-            </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <button
-                onClick={(e) => { e.stopPropagation(); handleEditCovers(Math.max(0, coverCount - 1)); }}
-                className="h-7 w-7 rounded-lg bg-[#252840] border border-[#3a3f58] text-slate-300 hover:bg-[#2d3349] hover:text-white active:scale-95 transition-all flex items-center justify-center text-base font-bold">
-                −
-              </button>
-              <span className="text-sm font-bold text-white w-6 text-center tabular-nums">{coverCount}</span>
-              <button
-                onClick={(e) => { e.stopPropagation(); handleEditCovers(coverCount + 1); }}
-                className="h-7 w-7 rounded-lg bg-[#252840] border border-[#3a3f58] text-slate-300 hover:bg-[#2d3349] hover:text-white active:scale-95 transition-all flex items-center justify-center text-base font-bold">
-                +
-              </button>
-            </div>
-          </div>
-        )}
 
           </div>
         </ScrollArea>
@@ -4835,50 +4900,49 @@ export default function FrontOffice() {
           <div className="flex-1 flex flex-col overflow-hidden bg-[#151827]">
             {/* Selected customer banner */}
             {invoiceCustomer && (
-              <div className="mx-3 mt-3 px-4 py-3 bg-emerald-900/40 border-2 border-emerald-600 rounded-xl shrink-0">
+              <div className="mx-3 mt-3 p-3 bg-[#fffefa] border-2 border-[#174f43] rounded-xl shrink-0 text-slate-900" data-testid="card-invoice-customer">
                 <div className="flex items-start gap-3">
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-emerald-400 font-bold uppercase tracking-wider mb-0.5 flex items-center gap-1">
-                      <CheckCircle2 className="h-3 w-3" /> Cliente fattura attivo
+                    <div className="text-[11px] text-[#174f43] font-extrabold uppercase tracking-wider mb-0.5 flex items-center gap-1">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Cliente fattura attivo
                     </div>
-                    <div className="font-bold text-emerald-200 truncate">{invoiceCustomer.ragioneSociale}</div>
-                    {invoiceCustomer.partitaIva && (
-                      <div className="text-[11px] text-emerald-400 font-mono">P.IVA {invoiceCustomer.partitaIva}</div>
-                    )}
-                    {invoiceCustomer.codiceFiscale && (
-                      <div className="text-[11px] text-emerald-400 font-mono">CF {invoiceCustomer.codiceFiscale}</div>
-                    )}
+                    <div className="font-bold truncate">{invoiceCustomer.ragioneSociale}</div>
+                    {invoiceCustomer.partitaIva && <div className="text-xs font-mono text-slate-700">P.IVA {invoiceCustomer.partitaIva}</div>}
+                    {invoiceCustomer.codiceFiscale && <div className="text-xs font-mono text-slate-700">CF {invoiceCustomer.codiceFiscale}</div>}
                   </div>
-                  <button
-                    onClick={() => { setInvoiceCustomer(null); setInvoiceNumero(""); setInvoiceAnno(String(new Date().getFullYear())); }}
-                    className="h-7 w-7 rounded-lg bg-emerald-900/60 hover:bg-emerald-900 flex items-center justify-center shrink-0 transition-colors">
-                    <X className="h-3.5 w-3.5 text-emerald-400" />
+                  <button aria-label="Rimuovi cliente fattura"
+                    onClick={() => { setInvoiceCustomer(null); setInvoiceNumero(""); setInvoiceSezionale("1"); setInvoiceAnno(String(new Date().getFullYear())); }}
+                    className="h-10 w-10 rounded-lg border border-slate-300 bg-white flex items-center justify-center shrink-0">
+                    <X className="h-4 w-4 text-slate-700" />
                   </button>
                 </div>
 
-                {/* N° fattura opzionale */}
-                <div className="mt-2.5 flex items-center gap-2">
-                  <span className="text-[10px] text-emerald-500 font-bold whitespace-nowrap shrink-0">N° fattura:</span>
-                  <input
-                    value={invoiceNumero}
-                    onChange={e => setInvoiceNumero(e.target.value.replace(/\D/g, ""))}
-                    placeholder="auto"
-                    maxLength={6}
-                    className="w-14 text-center font-mono text-xs bg-[#0d1a14] border border-emerald-700 rounded-lg px-2 py-1.5 text-emerald-200 placeholder:text-emerald-800 outline-none focus:border-emerald-500 transition-colors"
-                    title="Numero progressivo (lascia vuoto per automatico)"
-                  />
-                  <span className="text-emerald-500 font-bold text-sm shrink-0">/</span>
-                  <input
-                    value={invoiceAnno}
-                    onChange={e => setInvoiceAnno(e.target.value.replace(/\D/g, ""))}
-                    maxLength={4}
-                    className="w-16 text-center font-mono text-xs bg-[#0d1a14] border border-emerald-700 rounded-lg px-2 py-1.5 text-emerald-200 outline-none focus:border-emerald-500 transition-colors"
-                    title="Anno"
-                  />
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <label className="block">
+                    <span className="text-[11px] font-bold text-slate-700">Sezionale</span>
+                    <input data-testid="input-invoice-sezionale" value={invoiceSezionale} inputMode="text" maxLength={10}
+                      onChange={e => setInvoiceSezionale(e.target.value.replace(/[^A-Za-z0-9]/g, ""))}
+                      className="mt-0.5 w-full h-11 text-center font-mono text-lg font-bold bg-white border-2 border-slate-400 rounded-lg text-slate-900 outline-none focus:border-[#174f43]" />
+                  </label>
+                  <label className="block">
+                    <span className="text-[11px] font-bold text-slate-700">Progressivo *</span>
+                    <input data-testid="input-invoice-numero" value={invoiceNumero} inputMode="numeric" maxLength={9} placeholder="es. 23"
+                      onChange={e => setInvoiceNumero(e.target.value.replace(/\D/g, ""))}
+                      className="mt-0.5 w-full h-11 text-center font-mono text-lg font-bold bg-white border-2 border-slate-400 rounded-lg text-slate-900 placeholder:text-slate-400 outline-none focus:border-[#174f43]" />
+                  </label>
+                  <label className="block">
+                    <span className="text-[11px] font-bold text-slate-700">Anno fattura</span>
+                    <input data-testid="input-invoice-anno" value={invoiceAnno} inputMode="numeric" maxLength={4}
+                      onChange={e => setInvoiceAnno(e.target.value.replace(/\D/g, ""))}
+                      className="mt-0.5 w-full h-11 text-center font-mono text-lg font-bold bg-white border-2 border-slate-400 rounded-lg text-slate-900 outline-none focus:border-[#174f43]" />
+                  </label>
                 </div>
 
-                <div className="mt-2 text-[10px] text-emerald-500 bg-emerald-900/40 rounded-lg px-3 py-1.5">
-                  Al pagamento la fattura viene emessa e l'XML scaricato automaticamente
+                <div className="mt-2 rounded-lg bg-[#edf5e9] px-3 py-2 text-sm font-bold text-[#174f43]" data-testid="text-invoice-preview">
+                  {invoiceNumPreview ? `Numero fattura: ${invoiceNumPreview} · anno ${invoiceAnno}` : <span className="text-[#a03f36]">Inserisci sezionale e progressivo: senza numero non si può incassare con fattura</span>}
+                </div>
+                <div className="mt-1.5 text-xs text-slate-700">
+                  Al pagamento la bozza viene salvata prima dell'incasso, poi emessa. Gli importi e l'IVA sono calcolati dal server sull'ordine (i prezzi del menu includono già l'IVA).
                 </div>
               </div>
             )}
@@ -4991,15 +5055,15 @@ export default function FrontOffice() {
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Invoice customer indicator */}
             {invoiceCustomer && (
-              <div className="mx-3 mt-2 px-2.5 py-1.5 bg-emerald-900/40 border border-emerald-700 rounded-xl flex items-center gap-2 shrink-0">
-                <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+              <div className="mx-3 mt-2 px-2.5 py-1.5 bg-[#fffefa] border-2 border-[#174f43] rounded-xl flex items-center gap-2 shrink-0 text-slate-900" data-testid="banner-invoice-tot">
+                <CheckCircle2 className="h-4 w-4 text-[#174f43] shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="text-[10px] text-emerald-400 font-bold">Fattura a:</div>
-                  <div className="text-[11px] text-emerald-200 font-semibold truncate">{invoiceCustomer.ragioneSociale}</div>
+                  <div className="text-[10px] font-bold text-[#174f43]">Fattura a:</div>
+                  <div className="text-xs font-semibold truncate">{invoiceCustomer.ragioneSociale} · {invoiceNumPreview ? `n. ${invoiceNumPreview} (${invoiceAnno})` : <span className="text-[#a03f36]">numero mancante</span>}</div>
                 </div>
-                <button onClick={() => setInvoiceCustomer(null)}
-                  className="text-emerald-500 hover:text-emerald-300 transition-colors shrink-0">
-                  <X className="h-3.5 w-3.5" />
+                <button onClick={() => setRightTab("clnt")} className="text-xs font-bold text-[#174f43] underline px-1">Numero</button>
+                <button aria-label="Rimuovi" onClick={() => setInvoiceCustomer(null)} className="h-8 w-8 flex items-center justify-center shrink-0">
+                  <X className="h-4 w-4 text-slate-700" />
                 </button>
               </div>
             )}
@@ -5027,8 +5091,10 @@ export default function FrontOffice() {
             {paymentMode === "full" && (
               <InlinePaymentPanel
                 key={`pay-${activeOrderId ?? "none"}`}
-                total={total}
-                disabled={items.length === 0}
+                total={paidRomana > 0.005 && !invoiceCustomer ? totalNettoRomana : total}
+                paidSoFar={invoiceCustomer ? undefined : paidRomana}
+                lottery={lotteryProps}
+                disabled={!activeOrderId || total <= 0 || paymentBusy}
                 alertAnomalous={settings["feat_alert_totale_anomalo"] === "true"}
                 orderId={activeOrderId ?? undefined}
                 onPay={(method, amountGiven) => handlePay(method, amountGiven, invoiceCustomer?.id, invoiceCustomer?.ragioneSociale ?? undefined)}
@@ -5075,7 +5141,13 @@ export default function FrontOffice() {
                     <RomanaBody
                       key={`romana-${activeOrderId}`}
                       total={total}
-                      paidRomana={parseFloat((activeOrder as unknown as { paidRomana?: string })?.paidRomana ?? "0")}
+                      paidRomana={paidRomana}
+                      payments={orderPayments}
+                      lottery={lotteryProps}
+                      onLotteryUsed={() => { setLotteriaCodice(""); setLotteriaInput(""); setLotteriaField(""); }}
+                      onQuotaDone={afterQuota}
+                      initialPlan={activeOrderId ? romanaPlans[activeOrderId] : undefined}
+                      onPlanChange={plan => { if (activeOrderId) setRomanaPlans(pl => ({ ...pl, [activeOrderId]: plan })); }}
                       orderId={activeOrderId}
                       tableName={orderLabel}
                       onOrderClosed={() => {
@@ -5124,11 +5196,49 @@ export default function FrontOffice() {
 
       {/* ══ MODALS ════════════════════════════════════════════════════════════ */}
 
+      <InvoiceResultDialog
+        result={invoiceResult}
+        onClose={() => setInvoiceResult(null)}
+        onEmit={() => invoiceResult && void emitInvoiceDraft(invoiceResult.id)}
+        onRecoverXml={() => void recoverInvoiceXml()}
+        onDownload={downloadInvoiceXml}
+        onCopy={() => void copyInvoiceXml()}
+      />
+
       <ItemEditDialog
         open={!!editingItem}
         onClose={() => setEditingItem(null)}
         item={editingItem}
         onSave={handleSaveItemEdit}
+        priceLocked={priceLocked}
+      />
+
+      <NumericKeypadDialog
+        open={!!pendingAdd}
+        title={pendingAdd ? `Aggiungi: ${pendingAdd.name}` : ""}
+        subtitle="Imposta quantità e prezzo prima di aggiungere"
+        fields={pendingAdd ? [
+          { key: "quantity", label: "Quantità", value: "1", decimals: 0, min: 1, max: 999 },
+          { key: "unitPrice", label: "Prezzo unitario", prefix: "€", value: parseFloat(pendingAdd.unitPrice).toFixed(2), decimals: 2, min: 0, max: 99999, locked: priceLocked },
+        ] : []}
+        summary={v => `Totale €${((v.quantity ?? 0) * (v.unitPrice ?? 0)).toFixed(2)}`}
+        confirmLabel="Aggiungi"
+        onClose={() => setPendingAdd(null)}
+        onConfirm={v => { const pa = pendingAdd; setPendingAdd(null); if (pa) void doAddProduct(pa.productId, v.unitPrice, [], undefined, parseInt(v.quantity, 10)); }}
+      />
+
+      <NumericKeypadDialog
+        open={coverKeypad}
+        title="Coperti"
+        subtitle="Prezzo valido solo per questo tavolo"
+        fields={[
+          { key: "covers", label: "Numero coperti", value: String(coverCount), decimals: 0, min: 0, max: 999 },
+          { key: "coverPrice", label: "Prezzo coperto", prefix: "€", value: coverPrice.toFixed(2), decimals: 2, min: 0, max: 999, locked: priceLocked },
+        ]}
+        summary={v => `Totale coperti €${((v.covers ?? 0) * (v.coverPrice ?? 0)).toFixed(2)}`}
+        confirmLabel="Salva coperti"
+        onClose={() => setCoverKeypad(false)}
+        onConfirm={v => { setCoverKeypad(false); void handleEditCovers(parseInt(v.covers, 10), priceLocked ? undefined : v.coverPrice); }}
       />
 
       {/* ── Lotteria degli Scontrini ─────────────────────────────────────────── */}
@@ -5353,7 +5463,13 @@ export default function FrontOffice() {
         open={showRomana}
         onClose={() => setShowRomana(false)}
         total={total}
-        paidRomana={parseFloat((activeOrder as unknown as { paidRomana?: string })?.paidRomana ?? "0")}
+        paidRomana={paidRomana}
+        payments={orderPayments}
+        lottery={lotteryProps}
+        onLotteryUsed={() => { setLotteriaCodice(""); setLotteriaInput(""); setLotteriaField(""); }}
+        onQuotaDone={afterQuota}
+        initialPlan={activeOrderId ? romanaPlans[activeOrderId] : undefined}
+        onPlanChange={plan => { if (activeOrderId) setRomanaPlans(pl => ({ ...pl, [activeOrderId]: plan })); }}
         orderId={activeOrderId}
         tableName={orderLabel}
         onOrderClosed={() => {

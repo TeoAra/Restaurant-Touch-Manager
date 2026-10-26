@@ -27,6 +27,7 @@ export interface FatturaPAData {
   };
   documento: {
     numero: string;
+    progressivoInvio?: string;
     data: string;
     tipoDocumento: string;
     aliquotaIva: string;
@@ -35,6 +36,7 @@ export interface FatturaPAData {
     totale: string;
     righe: Array<{ descrizione: string; quantita: string; prezzoUnitario: string; importo: string; aliquotaIva: string }>;
     metodoPagamento?: string;
+    pagamenti?: Array<{ metodo: "cash" | "card"; importo: string }>;
     note?: string;
   };
 }
@@ -51,7 +53,9 @@ function esc(s: string | undefined | null): string {
 
 export function generateFatturaPAXml(data: FatturaPAData): string {
   const { cedente, cessionario, documento } = data;
-  const progNum = String(documento.numero).padStart(7, "0");
+  // Transmission ID and the human document identifier have different schemas:
+  // Numero may contain '/', ProgressivoInvio must be alphanumeric.
+  const progNum = documento.progressivoInvio ?? documento.numero.replace(/[^A-Za-z0-9]/g, "").slice(-10);
   const idPaese = "IT";
   const idCodice = cedente.partitaIva.replace(/\s/g, "");
 
@@ -79,13 +83,16 @@ export function generateFatturaPAXml(data: FatturaPAData): string {
         </DatiRiepilogo>`;
   }).join("");
 
-  const pagamentoXml = documento.metodoPagamento ? `
+  const pagamenti = documento.pagamenti?.length ? documento.pagamenti
+    : documento.metodoPagamento ? [{ metodo: ["card", "carta"].includes(documento.metodoPagamento) ? "card" : "cash", importo: documento.totale }] : [];
+  const pagamentoXml = pagamenti.length ? `
         <DatiPagamento>
             <CondizioniPagamento>TP02</CondizioniPagamento>
+             ${pagamenti.map(p => `
             <DettaglioPagamento>
-                <ModalitaPagamento>${documento.metodoPagamento === "carta" ? "MP08" : "MP01"}</ModalitaPagamento>
-                <ImportoPagamento>${documento.totale}</ImportoPagamento>
-            </DettaglioPagamento>
+                <ModalitaPagamento>${p.metodo === "card" ? "MP08" : "MP01"}</ModalitaPagamento>
+                <ImportoPagamento>${esc(p.importo)}</ImportoPagamento>
+            </DettaglioPagamento>`).join("")}
         </DatiPagamento>` : "";
 
   const destinatarioSdi = cessionario.codiceDestinatario && cessionario.codiceDestinatario !== "0000000"
@@ -94,15 +101,19 @@ export function generateFatturaPAXml(data: FatturaPAData): string {
       ? `<CodiceDestinatario>0000000</CodiceDestinatario><PECDestinatario>${esc(cessionario.pec)}</PECDestinatario>`
       : `<CodiceDestinatario>0000000</CodiceDestinatario>`;
 
-  const cessionarioAnagrafica = cessionario.tipo === "azienda" || cessionario.partitaIva
+  const cessionarioAnagrafica = cessionario.tipo === "azienda" || cessionario.partitaIva || (!cessionario.nome && !cessionario.cognome)
     ? `<Denominazione>${esc(cessionario.ragioneSociale)}</Denominazione>`
     : `<Nome>${esc(cessionario.nome)}</Nome><Cognome>${esc(cessionario.cognome)}</Cognome>`;
 
-  const cessionarioFiscale = cessionario.partitaIva
-    ? `<IdFiscaleIVA><IdPaese>${cessionario.nazione}</IdPaese><IdCodice>${esc(cessionario.partitaIva)}</IdCodice></IdFiscaleIVA>`
-    : cessionario.codiceFiscale
-      ? `<CodiceFiscale>${esc(cessionario.codiceFiscale)}</CodiceFiscale>`
-      : "";
+  const cessionarioFiscale = (cessionario.partitaIva
+    ? `<IdFiscaleIVA><IdPaese>${esc(cessionario.nazione)}</IdPaese><IdCodice>${esc(cessionario.partitaIva)}</IdCodice></IdFiscaleIVA>` : "")
+    + (cessionario.codiceFiscale ? `<CodiceFiscale>${esc(cessionario.codiceFiscale)}</CodiceFiscale>` : "");
+  const derivedTotal = documento.righe.reduce((sum, r) => sum + Number(r.importo), 0)
+    + aliquote.reduce((sum, aliq) => {
+      const base = documento.righe.filter(r => r.aliquotaIva === aliq).reduce((s, r) => s + Number(r.importo), 0);
+      return sum + Math.round(base * Number(aliq)) / 100;
+    }, 0);
+  const rounding = Math.round((Number(documento.totale) - derivedTotal) * 100) / 100;
 
   const cessionarioSede = (cessionario.indirizzo || cessionario.comune) ? `
                 <Sede>
@@ -172,6 +183,8 @@ export function generateFatturaPAXml(data: FatturaPAData): string {
                 <Divisa>EUR</Divisa>
                 <Data>${esc(documento.data)}</Data>
                 <Numero>${esc(documento.numero)}</Numero>
+                <ImportoTotaleDocumento>${esc(documento.totale)}</ImportoTotaleDocumento>
+                ${rounding ? `<Arrotondamento>${rounding.toFixed(2)}</Arrotondamento>` : ""}
                 ${documento.note ? `<Causale>${esc(documento.note)}</Causale>` : ""}
             </DatiGeneraliDocumento>
         </DatiGenerali>

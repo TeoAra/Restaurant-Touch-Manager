@@ -257,6 +257,10 @@ export const ListOrdersResponseItem = zod.object({
   status: zod.enum(["open", "paid", "cancelled"]),
   notes: zod.string().nullish(),
   total: zod.string(),
+  covers: zod.number().optional(),
+  coverPrice: zod.string().nullish(),
+  paidRomana: zod.string().optional(),
+  modalita: zod.string().optional(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -285,6 +289,22 @@ export const GetOrderResponse = zod.object({
   status: zod.enum(["open", "paid", "cancelled"]),
   notes: zod.string().nullish(),
   total: zod.string(),
+  covers: zod.number().optional(),
+  coverPrice: zod.string().nullish(),
+  paidRomana: zod.string().optional(),
+  modalita: zod.string().optional(),
+  payments: zod
+    .array(
+      zod.object({
+        id: zod.number(),
+        orderId: zod.number(),
+        method: zod.enum(["cash", "card", "ticket", "other"]),
+        amount: zod.string(),
+        change: zod.string().nullish(),
+        createdAt: zod.string(),
+      }),
+    )
+    .optional(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
   items: zod.array(
@@ -332,6 +352,10 @@ export const UpdateOrderResponse = zod.object({
   status: zod.enum(["open", "paid", "cancelled"]),
   notes: zod.string().nullish(),
   total: zod.string(),
+  covers: zod.number().optional(),
+  coverPrice: zod.string().nullish(),
+  paidRomana: zod.string().optional(),
+  modalita: zod.string().optional(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });

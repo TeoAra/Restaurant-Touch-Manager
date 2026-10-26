@@ -14,6 +14,8 @@ import {
 } from "../lib/fiscal-printer";
 import { getSettings } from "../lib/settings";
 import { requireAdminHeader } from "../lib/auth-guard";
+import { cents, money, normalizeLottery, orderDue, validateRomana } from "../lib/billing";
+import { randomUUID } from "node:crypto";
 
 const router = Router();
 
@@ -512,136 +514,62 @@ router.get("/sospesi", async (_req, res) => {
 //
 // Body: { orderId, importo, metodoPagamento, quotaNum, quoteTotali, tableName?, isUltima? }
 router.post("/romana", async (req, res) => {
-  const {
-    orderId,
-    importo,
-    metodoPagamento,
-    quotaNum   = 1,
-    quoteTotali = 1,
-    tableName,
-    isUltima   = false,
-    lotteria,
-  } = req.body as {
-    orderId: number;
-    importo: string;
-    metodoPagamento: "cash" | "card" | "other";
-    quotaNum?: number;
-    quoteTotali?: number;
-    tableName?: string;
-    isUltima?: boolean;
-    lotteria?: string; // codice lotteria one-shot dal POS (solo per questa quota)
-  };
-
-  if (!orderId || !importo || parseFloat(importo) <= 0) {
-    return res.status(400).json({ error: "orderId e importo sono obbligatori" });
+  const { orderId, metodoPagamento, quotaNum = 1, quoteTotali = 1 } = req.body;
+  if (!Number.isInteger(orderId) || orderId < 1 || !["cash", "card", "other"].includes(metodoPagamento) ||
+    !Number.isInteger(quotaNum) || quotaNum < 1 || !Number.isInteger(quoteTotali) || quoteTotali < 1 || quotaNum > quoteTotali) {
+    return res.status(400).json({ ok: false, error: "Ordine, metodo o numero quota non validi" });
   }
-
-  const printer = await getFiscalPrinter();
+  const operationId = req.body.operationId ?? randomUUID();
+  if (typeof operationId !== "string" || !/^[a-zA-Z0-9-]{8,80}$/.test(operationId)) return res.status(400).json({ ok: false, error: "Identificativo operazione non valido" });
+  let amount: number, expectedPaid: number | undefined, lotteria: string | undefined;
+  try {
+    amount = cents(req.body.importo);
+    expectedPaid = req.body.expectedPaidRomana === undefined ? undefined : cents(req.body.expectedPaidRomana);
+    lotteria = normalizeLottery(req.body.lotteria);
+  } catch (error) { return res.status(400).json({ ok: false, error: (error as Error).message }); }
   const settings = await getSettings();
-
-  // Recupera info ordine per IVA e descrizione
-  const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, orderId));
-  const modalita = (order as never as { modalita?: string })?.modalita ?? "tavolo";
-  const aliquotaIva = settings[`iva_${modalita}`] ?? settings["iva_tavolo"] ?? "10";
-
-  // Descrizione quota per la RT (max 32 char)
-  const tavolo = tableName ? tableName.substring(0, 12) : `ORD.${orderId}`;
-  const desc = quoteTotali > 1
-    ? `QUOTA ${quotaNum}/${quoteTotali} ${tavolo}`.substring(0, 32)
-    : `CONTO ${tavolo}`.substring(0, 32);
-
-  // Emetti scontrino fiscale (crea record in fiscal_receipts)
-  let rtOk = false;
-  let rtError: string | undefined;
-  let receiptId: number | undefined;
-  let rtBody: string | undefined;
-
+  const printer = await getFiscalPrinter();
   try {
-    const { receipt, rt } = await emettiFiscalReceipt({
-      orderId,
-      importo,
-      metodoPagamento,
-      righe: [{ desc, qta: 1, prezzoUnitario: importo, aliquotaIva }],
-      lotteria,
-      printer,
-    });
-    receiptId = receipt.id;
-    rtOk = rt.ok;
-    rtError = rt.error;
-    rtBody = rt.body?.substring(0, 200);
-    console.log(`[ROMANA] Quota ${quotaNum}/${quoteTotali} ordine ${orderId}: rtOk=${rt.ok} importo=${importo} metodo=${metodoPagamento}`);
-  } catch (e) {
-    rtError = e instanceof Error ? e.message : String(e);
-    console.error(`[ROMANA] Eccezione quota ${quotaNum}:`, rtError);
-  }
-
-  // ── Aggiorna paid_romana sull'ordine per ogni quota pagata (ATOMICO) ─────
-  // Usa SQL puro (cast text→numeric→text) per evitare race conditions tra
-  // più camerieri che incassano quote contemporaneamente.
-  let orderClosed = false;
-  try {
-    await db.execute(sql`
-      UPDATE orders
-      SET paid_romana = ((paid_romana::numeric) + ${importo}::numeric)::text
-      WHERE id = ${orderId}
-    `);
-  } catch (e) {
-    console.error("[ROMANA] Errore aggiornamento paid_romana:", e);
-  }
-
-  // Se è l'ultima quota: chiudi l'ordine nel gestionale
-  if (isUltima) {
-    // Verifica anti-frode: somma quote romane deve coprire il totale
-    const [orderCheck] = await db.select({ total: ordersTable.total, paidRomana: ordersTable.paidRomana })
-      .from(ordersTable).where(eq(ordersTable.id, orderId)).limit(1);
-    const totaleOrdine = parseFloat(orderCheck?.total ?? "0");
-    const totalePagato = parseFloat(orderCheck?.paidRomana ?? "0");
-    if (totalePagato + 0.01 < totaleOrdine) {
-      return res.status(400).json({
-        ok: false,
-        error: `Pagamento incompleto: incassato € ${totalePagato.toFixed(2)} su € ${totaleOrdine.toFixed(2)}. Manca € ${(totaleOrdine - totalePagato).toFixed(2)}.`,
-      });
-    }
-    try {
-      // Inserisci record di pagamento riepilogativo
-      const [payment] = await db.insert(paymentsTable).values({
-        orderId,
-        method: metodoPagamento,
-        amount: importo,
-        change: null,
-      }).returning();
-
-      // Marca ordine come pagato e azzera paid_romana
-      const [updatedOrder] = await db.update(ordersTable)
-        .set({ status: "paid", paidRomana: "0.00" })
-        .where(eq(ordersTable.id, orderId))
-        .returning();
-
-      // Libera tavolo se non ci sono altri ordini aperti (ATOMICO)
-      if (updatedOrder?.tableId) {
-        await db.execute(sql`
-          UPDATE tables SET status = 'free'
-          WHERE id = ${updatedOrder.tableId}
-            AND NOT EXISTS (SELECT 1 FROM orders WHERE table_id = ${updatedOrder.tableId} AND status = 'open')
-        `);
+    // Serialize quota settlement for a table, including the RT operation.
+    // Replays of an operation ID return the recorded result without reprinting.
+    const result = await db.transaction(async tx => {
+      await tx.execute(sql`SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE`);
+      const [order] = await tx.select().from(ordersTable).where(eq(ordersTable.id, orderId));
+      if (!order) return { status: 404, ok: false, error: "Ordine non trovato" };
+      const [previous] = await tx.select().from(paymentsTable).where(eq(paymentsTable.operationId, operationId));
+      if (previous) {
+        if (previous.orderId !== orderId || cents(previous.amount) !== amount || previous.method !== metodoPagamento) {
+          return { status: 409, ok: false, error: "Identificativo già usato per un pagamento diverso" };
+        }
+        return { status: 200, ok: true, rtOk: true, receiptId: previous.fiscalReceiptId, paidRomana: order.paidRomana, remaining: money(Math.max(0, orderDue(order, settings) - cents(order.paidRomana))), orderClosed: order.status === "paid", repeated: true };
       }
-
-      orderClosed = true;
-      console.log(`[ROMANA] Ordine ${orderId} chiuso, payment id=${payment.id}`);
-    } catch (e) {
-      console.error("[ROMANA] Errore chiusura ordine:", e);
-    }
+      if (order.status !== "open") return { status: 409, ok: false, error: "Il conto non è aperto" };
+      let plan;
+      try { plan = validateRomana({ due: orderDue(order, settings), paid: cents(order.paidRomana), amount, close: req.body.isUltima === true, expectedPaid }); }
+      catch (error) { return { status: 409, ok: false, error: (error as Error).message }; }
+      if (!printer) return { status: 503, ok: false, rtOk: false, error: "Nessuna stampante fiscale configurata. Quota non registrata." };
+      const tavolo = String(req.body.tableName ?? `ORD.${orderId}`).slice(0, 12);
+      const desc = (quoteTotali > 1 ? `QUOTA ${quotaNum}/${quoteTotali} ${tavolo}` : `CONTO ${tavolo}`).slice(0, 32);
+      const importo = money(amount);
+      const { receipt, rt } = await emettiFiscalReceipt({
+        orderId, importo, metodoPagamento, lotteria, printer,
+        righe: [{ desc, qta: 1, prezzoUnitario: importo, aliquotaIva: settings[`iva_${order.modalita}`] ?? settings.iva_tavolo ?? "10" }],
+      });
+      if (!rt.ok) return { status: 502, ok: false, rtOk: false, receiptId: receipt.id, rtError: rt.error, error: "Emissione fiscale non confermata: quota non scalata. Verificare la RT prima di riprovare." };
+      await tx.insert(paymentsTable).values({ orderId, method: metodoPagamento, amount: importo, operationId, fiscalReceiptId: receipt.id });
+      await tx.update(ordersTable).set({ paidRomana: money(plan.paid), ...(plan.close ? { status: "paid" } : {}) }).where(eq(ordersTable.id, orderId));
+      if (plan.close && order.tableId) {
+        await tx.execute(sql`UPDATE tables SET status = 'free' WHERE id = ${order.tableId}
+          AND NOT EXISTS (SELECT 1 FROM orders WHERE table_id = ${order.tableId} AND status = 'open')`);
+      }
+      return { status: 200, ok: true, rtOk: true, receiptId: receipt.id, paidRomana: money(plan.paid), remaining: money(plan.remaining), orderClosed: plan.close, quota: { num: quotaNum, total: quoteTotali, importo, metodoPagamento } };
+    });
+    if (result.ok && !("repeated" in result)) void logAudit({ req, action: "payment.romana", entityType: "order", entityId: orderId, details: { operationId, importo: money(amount), metodoPagamento, quotaNum } });
+    return res.status(result.status).json(result);
+  } catch (error) {
+    console.error("[ROMANA] Errore incasso quota:", error);
+    return res.status(502).json({ ok: false, rtOk: false, error: "Incasso non confermato. Verificare documenti RT e storico pagamenti prima di riprovare." });
   }
-
-  return res.json({
-    ok: true,
-    receiptId,
-    rtOk,
-    rtError: rtError ?? null,
-    rtBody: rtBody ?? null,
-    orderClosed,
-    quota: { num: quotaNum, total: quoteTotali, importo, metodoPagamento },
-  });
 });
 
 export default router;

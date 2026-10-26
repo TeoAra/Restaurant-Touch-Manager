@@ -8,6 +8,7 @@ export const ordersTable = pgTable("orders", {
   status: text("status").notNull().default("open"),
   modalita: text("modalita").notNull().default("tavolo"),
   covers: integer("covers").notNull().default(1),
+  coverPrice: text("cover_price"),
   notes: text("notes"),
   total: text("total").notNull().default("0.00"),
   paidRomana: text("paid_romana").notNull().default("0.00"),

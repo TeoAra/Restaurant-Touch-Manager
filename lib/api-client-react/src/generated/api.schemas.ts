@@ -119,6 +119,11 @@ export interface Order {
   /** @nullable */
   notes?: string | null;
   total: string;
+  covers?: number;
+  /** @nullable */
+  coverPrice?: string | null;
+  paidRomana?: string;
+  modalita?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -131,6 +136,25 @@ export const OrderWithItemsStatus = {
   paid: "paid",
   cancelled: "cancelled",
 } as const;
+
+export type PaymentMethod = (typeof PaymentMethod)[keyof typeof PaymentMethod];
+
+export const PaymentMethod = {
+  cash: "cash",
+  card: "card",
+  ticket: "ticket",
+  other: "other",
+} as const;
+
+export interface Payment {
+  id: number;
+  orderId: number;
+  method: PaymentMethod;
+  amount: string;
+  /** @nullable */
+  change?: string | null;
+  createdAt: string;
+}
 
 export interface OrderItem {
   id: number;
@@ -156,6 +180,12 @@ export interface OrderWithItems {
   /** @nullable */
   notes?: string | null;
   total: string;
+  covers?: number;
+  /** @nullable */
+  coverPrice?: string | null;
+  paidRomana?: string;
+  modalita?: string;
+  payments?: Payment[];
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];
@@ -227,25 +257,6 @@ export interface UpdateOrderItemBody {
   notes?: string | null;
   unitPrice?: string;
   phase?: number;
-}
-
-export type PaymentMethod = (typeof PaymentMethod)[keyof typeof PaymentMethod];
-
-export const PaymentMethod = {
-  cash: "cash",
-  card: "card",
-  ticket: "ticket",
-  other: "other",
-} as const;
-
-export interface Payment {
-  id: number;
-  orderId: number;
-  method: PaymentMethod;
-  amount: string;
-  /** @nullable */
-  change?: string | null;
-  createdAt: string;
 }
 
 export type CreatePaymentBodyMethod =
