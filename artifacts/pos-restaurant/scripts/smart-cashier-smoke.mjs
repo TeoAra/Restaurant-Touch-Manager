@@ -214,6 +214,12 @@ try {
     assert(found, `Missing button: ${text}`);
     await new Promise(r => setTimeout(r, 150));
   };
+  const input = async (selector, value) => { await evaluate(`(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    if (!el) throw Error("Missing input: " + ${JSON.stringify(selector)});
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, ${JSON.stringify(value)});
+    el.dispatchEvent(new Event("input", {bubbles:true}));
+  })()`); await new Promise(r => setTimeout(r, 60)); };
   const showProducts = async () => {
     if (await evaluate(`matchMedia("(max-width:760px)").matches`)) await click('[data-testid="button-open-categories-mobile"]');
     else await click('[data-testid="tab-grp"]');
@@ -271,7 +277,8 @@ try {
   await button("F1", ".pos-phase-selector");
   await wait(`!!document.querySelector("#pos-more-operations")`);
   const operations = await evaluate(`document.querySelector("#pos-more-operations").textContent`);
-  for (const name of ["Sconto", "Lotteria", "Preconto", "Separato", "Romana", "Espandi", "Cancella", "Annulla ordine", "Sospeso", "Cassetto", "Tavolo"]) assert(operations.includes(name), `Operation lost: ${name}`);
+  for (const name of ["Sconto", "Lotteria", "Preconto", "Separato", "Romana", "Espandi", "Cancella", "Annulla ordine", "Tavolo"]) assert(operations.includes(name), `Operation lost: ${name}`);
+  for (const name of ["Sospeso", "Cassetto"]) assert(!operations.includes(name), `Removed operation still visible: ${name}`);
   assert.equal(await evaluate(`!!document.querySelector(".pos-more-toggle")`), false, "Keypad must not require opening a menu");
   await click(".pos-product-grid > button");
   await wait(`document.querySelectorAll(".pos-order-item").length === 3`);
@@ -288,6 +295,19 @@ try {
   await wait(`document.querySelector(".pos-menu-panel").textContent.includes("Romana")`);
   const payment = await evaluate(`document.querySelector(".pos-menu-panel").textContent`);
   for (const name of ["Separato", "Romana", "CONTANTI"]) assert(payment.includes(name), `Payment mode lost: ${name}`);
+  assert(!payment.includes("€200"), "Preset cash denomination buttons must be removed");
+  await input('[data-testid="input-cash-received"]', "100");
+  assert.equal(await evaluate(`document.querySelector('[data-testid="input-cash-received"]').value`), "100");
+  await click('[data-testid="button-cash-keypad"]');
+  await wait(`!!document.querySelector('[data-testid="dialog-keypad"]')`);
+  await click('[data-testid="keypad-key-5"]');
+  await click('[data-testid="keypad-key-0"]');
+  await click('[data-testid="keypad-key-."]');
+  await click('[data-testid="keypad-key-5"]');
+  await click('[data-testid="keypad-confirm"]');
+  await wait(`document.querySelector('[data-testid="input-cash-received"]').value === "50.50"`);
+  assert(!writes.some(w => w.includes("/api/payments")), "Setting received cash must not take payment");
+  console.log("PASS cash: manual entry and decimal touch keypad, no preset denominations, no payment on amount entry");
   await showProducts();
   await mkdir("generated-artifacts/pos-smart", { recursive: true });
   for (const [width, height] of [[1440, 900], [1024, 768], [1024, 640], [800, 600], [390, 844]]) {
@@ -314,7 +334,7 @@ try {
       for(const b of ops.querySelectorAll("button")) {
         b.scrollIntoView({block:"nearest",inline:"nearest"});
         const r=b.getBoundingClientRect(), p=ops.getBoundingClientRect();
-        if(r.left<p.left-1 || r.right>p.right+1 || r.top<p.top-1 || r.bottom>p.bottom+1) return false;
+        if(r.left<p.left-1 || r.right>p.right+1 || r.top<p.top-1 || r.bottom>p.bottom+1) throw Error(JSON.stringify({text:b.textContent,button:r.toJSON(),ops:p.toJSON()}));
       }
       ops.scrollTop=0;ops.scrollLeft=0;return true;
     })()`), `All right-side operations must remain reachable at ${width}×${height}`);

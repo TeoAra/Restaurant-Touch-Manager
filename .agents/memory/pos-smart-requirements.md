@@ -37,6 +37,12 @@ Il tastierino non deve stare sotto la mappa: deve essere in basso nella colonna 
 
 Su desktop il tastierino rimane visibile in tutte le viste, senza menu “Altro”. Su telefono, dove le colonne diventano viste separate, appartiene alla vista Conto: mappa e pagamento non devono essere compressi da un dock separato.
 
+Eccezione alla conservazione dei comandi: l’utente ha chiesto di togliere Sospeso e Cassetto dal front office, aumentare l’altezza delle azioni del conto ed eliminare i tagli contanti preimpostati. L’importo ricevuto si deve poter digitare a mano o con tastierino.
+
+**Why:** l’utente non usa Sospeso e Cassetto e vuole semplificare l’incasso touch.
+
+**How to apply:** non reintrodurre questi pulsanti nella cassa quando si aggiornano i controlli; mantenere il resto automatico.
+
 **Why:** l’utente ha corretto esplicitamente la disposizione sotto la mappa mostrando la cassa reale troppo compressa; la priorità è liberare l’area sinistra mantenendo i controlli nella comanda.
 
 I prodotti devono restare separati anche se selezionati più volte: ogni tocco aggiunge una nuova riga, senza aumentare automaticamente la quantità di una riga già presente.

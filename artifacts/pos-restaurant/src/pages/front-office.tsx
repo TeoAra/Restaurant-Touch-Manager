@@ -2877,7 +2877,6 @@ function EmptyState({ label }: { label: string }) {
 }
 
 // ─── Inline Payment Panel (TOT tab) ────────────────────────────────────────────
-const DENOMINATIONS = [200, 100, 50, 20, 10, 5, 2, 1, 0.5];
 function InlinePaymentPanel({ total, onPay, disabled, alertAnomalous, orderId, lottery, paidSoFar }: {
   lottery?: { field: string; onChange: (v: string) => void; onAdvanced: () => void };
   paidSoFar?: number;
@@ -2897,9 +2896,11 @@ function InlinePaymentPanel({ total, onPay, disabled, alertAnomalous, orderId, l
   };
   const [method, setMethod] = useState<"cash" | "card" | "ticket" | "other" | "satispay">("cash");
   const [given, setGiven] = useState("");
+  const [showCashKeypad, setShowCashKeypad] = useState(false);
   const givenNum = parseFloat(given) || 0;
   const change = method === "cash" && givenNum >= total ? givenNum - total : 0;
-  const canPay = !disabled && total > 0 && (method !== "cash" || givenNum >= total);
+  const validCash = /^\d+(?:\.\d{1,2})?$/.test(given) && Number.isFinite(givenNum);
+  const canPay = !disabled && total > 0 && (method !== "cash" || (validCash && givenNum >= total));
 
   // ── Terminale POS (pagamento carta) ────────────────────────────────────────
   const { data: ipSettings = {} } = useSettings();
@@ -2997,19 +2998,26 @@ function InlinePaymentPanel({ total, onPay, disabled, alertAnomalous, orderId, l
         <>
           <div className="bg-white rounded-2xl border-2 border-slate-200 px-4 py-2.5 shrink-0">
             <div className="text-[10px] text-slate-500 mb-1 font-semibold uppercase tracking-wide">Importo ricevuto</div>
-            <Input type="number" step="0.01" placeholder="0.00" value={given}
-              onChange={e => setGiven(e.target.value)}
-              className="text-2xl font-bold text-center h-11 border-0 bg-slate-50 rounded-xl" />
-          </div>
-          {/* Denomination buttons */}
-          <div className="grid grid-cols-5 gap-1 shrink-0">
-            {DENOMINATIONS.map(d => (
-              <button key={d} onClick={() => setGiven(d.toString())}
-                className="py-1.5 rounded-lg bg-white border-2 border-slate-200 text-xs font-bold text-slate-700 hover:border-primary hover:text-primary active:scale-90 transition-all">
-                {d >= 1 ? `€${d}` : `${(d * 100).toFixed(0)}¢`}
+            <div className="pos-cash-entry">
+              <Input id="cash-received" aria-label="Importo ricevuto" data-testid="input-cash-received"
+                type="number" inputMode="decimal" min="0" step="0.01" placeholder="0.00" value={given}
+                onChange={e => setGiven(e.target.value)}
+                className="text-2xl font-bold text-center h-14 border-0 bg-slate-50 rounded-xl" />
+              <button type="button" data-testid="button-cash-keypad" onClick={() => setShowCashKeypad(true)}
+                className="rounded-xl border border-slate-300 bg-slate-100 px-4 font-bold text-slate-800">
+                Tastierino
               </button>
-            ))}
+            </div>
+            <p className="text-xs text-slate-500 mt-2">Digita l’importo ricevuto o usa il tastierino. Il resto viene calcolato automaticamente.</p>
           </div>
+          <NumericKeypadDialog open={showCashKeypad} title="Importo ricevuto"
+            fields={[{ key: "received", label: "Contanti ricevuti", value: given || "0", prefix: "€ ", decimals: 2, min: 0 }]}
+            summary={values => values.received >= total
+              ? `Resto € ${(values.received - total).toFixed(2)}`
+              : `Mancano € ${(total - values.received).toFixed(2)}`}
+            confirmLabel="Imposta"
+            onClose={() => setShowCashKeypad(false)}
+            onConfirm={values => { setGiven(values.received); setShowCashKeypad(false); }} />
           {givenNum >= total && total > 0 && (
             <div className="flex justify-between items-center px-4 py-2.5 bg-emerald-50 border-2 border-emerald-200 rounded-2xl shrink-0">
               <span className="text-sm font-semibold text-emerald-700">Resto</span>
@@ -4542,45 +4550,6 @@ export default function FrontOffice() {
                 Rapida
               </button>
             )}
-
-            {/* Riga 5 — Sospeso e Cassetto */}
-            <button
-              disabled={!activeOrderId || items.length === 0}
-              onClick={() => setShowSospeso(true)}
-              title="Conto sospeso: il cliente paga in un secondo momento (visibile in backoffice)"
-              className="h-10 rounded-lg flex items-center justify-center bg-yellow-800 text-yellow-100 hover:bg-yellow-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              Sospeso
-            </button>
-            <button
-              onClick={async () => {
-                if (foUser?.role !== "admin") {
-                  toast({ title: "Operazione riservata", description: "Solo gli amministratori possono aprire il cassetto", variant: "destructive" });
-                  return;
-                }
-                try {
-                  const r = await fetch(`${API}/fiscal/open-drawer`, {
-                    method: "POST",
-                    headers: {
-                      "x-user-role": "admin",
-                      "x-user-id": String(foUser.id ?? ""),
-                      "x-user-name": foUser.name ?? "",
-                    },
-                  });
-                  const data = await r.json();
-                  if (data.ok) {
-                    addLog("info", "Cassetto aperto");
-                    toast({ title: "Cassetto aperto" });
-                  } else {
-                    toast({ title: "Cassetto non aperto", description: data.error ?? "Stampante fiscale non disponibile", variant: "destructive" });
-                  }
-                } catch {
-                  toast({ title: "Errore comunicazione RT", description: "Verifica la connessione alla stampante fiscale", variant: "destructive" });
-                }
-              }}
-              title="Apri il cassetto della cassa (comando alla stampante fiscale)"
-              className="h-10 rounded-lg flex items-center justify-center bg-slate-700 text-slate-200 hover:bg-slate-600 text-[10px] font-bold transition-all active:scale-95 leading-tight">
-              Cassetto
-            </button>
 
             {/* Riga 6 — Tavolo (sposta/unisci/sposta articoli) — feature flag */}
             {settings["feat_table_ops"] === "true" && (

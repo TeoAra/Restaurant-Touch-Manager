@@ -375,7 +375,7 @@
 }
 @media (max-height: 650px) and (min-width: 761px) {
   .pos-order-panel > .pos-order-summary { display: none; }
-  .pos-order-panel > .pos-keypad-dock .pos-dock-ops { max-height: 40px; }
+  .pos-order-panel > .pos-keypad-dock .pos-dock-ops { max-height: 60px; }
 }
 .pos-order-panel .pos-dock-pad {
   width: 100%; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
@@ -385,20 +385,20 @@
 .pos-order-panel .pos-dock-modes { grid-template-columns: 1fr; grid-auto-rows: minmax(38px, 1fr); }
 .pos-order-panel .pos-dock-ops {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
-  padding: 0 0 2px; border-left: 0; max-height: 92px; overflow-y: auto; overflow-x: hidden;
+  padding: 0 0 2px; border-left: 0; max-height: 124px; overflow-y: auto; overflow-x: hidden;
 }
-.pos-smart-live .pos-order-panel .pos-dock-ops button { height: 42px; min-width: 0; }
+.pos-smart-live .pos-order-panel .pos-dock-ops button { height: 56px; min-width: 0; font-size: 12px; }
 @media (max-height: 760px) and (min-width: 761px) {
   .pos-order-panel .pos-dock-keys { grid-auto-rows: 34px; }
   .pos-order-panel .pos-dock-modes { grid-auto-rows: minmax(34px, 1fr); }
-  .pos-order-panel .pos-dock-ops { max-height: 82px; }
-  .pos-smart-live .pos-order-panel .pos-dock-ops button { height: 38px; }
+  .pos-order-panel .pos-dock-ops { max-height: 114px; }
+  .pos-smart-live .pos-order-panel .pos-dock-ops button { height: 52px; }
 }
 @media (max-height: 620px) and (min-width: 761px) {
   .pos-order-panel .pos-dock-keys { grid-auto-rows: 32px; gap: 4px; }
   .pos-order-panel .pos-dock-pad { grid-template-columns: minmax(0, .8fr) minmax(0, 1.4fr); }
   .pos-order-panel .pos-dock-readout strong { font-size: 17px; }
-  .pos-order-panel .pos-dock-ops { max-height: 40px; }
+  .pos-order-panel .pos-dock-ops { max-height: 60px; }
 }
 @media (max-width: 760px) {
   .pos-smart-live {
@@ -408,6 +408,8 @@
   .pos-order-panel .pos-dock-pad { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "readout modes" "keys keys"; grid-template-rows: auto auto; }
   .pos-order-panel .pos-dock-modes { grid-template-columns: repeat(2, 76px); grid-auto-rows: 40px; }
   .pos-order-panel .pos-dock-keys { grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-rows: 42px; }
-  .pos-order-panel .pos-dock-ops { display: flex; overflow-x: auto; overflow-y: hidden; max-height: none; scroll-snap-type: x proximity; }
-  .pos-smart-live .pos-order-panel .pos-dock-ops button { flex: 0 0 auto; min-width: 88px; height: 42px; }
+  .pos-order-panel .pos-dock-ops { display: flex; flex: 0 0 auto; min-height: 60px; overflow-x: auto; overflow-y: hidden; max-height: none; scroll-snap-type: none; }
+  .pos-smart-live .pos-order-panel .pos-dock-ops button { flex: 0 0 auto; min-width: 96px; height: 56px; }
 }
+.pos-cash-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+.pos-cash-entry > button { min-height: 56px; }
