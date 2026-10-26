@@ -1,4 +1,4 @@
-import { validDate } from "./reservations";
+import { validDate } from "./reservations.ts";
 
 export function rtReference(input: { numeroChiusura?: unknown; numeroDocumentoRt?: unknown; dataDocumento?: unknown }) {
   const closure = Number(input.numeroChiusura);

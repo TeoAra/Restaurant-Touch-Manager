@@ -21,6 +21,9 @@ export const fiscalReceiptsTable = pgTable("fiscal_receipts", {
   numeroDocumentoRt: integer("numero_documento_rt"), // numero documento assegnato dalla RT
   dataDocumentoRt: text("data_documento_rt"),
   emissionStatus: text("emission_status").notNull().default("legacy"),
+  // A durable attempt survives rollback of the order/payment transaction.
+  operationId: text("operation_id").unique(),
+  paymentSnapshot: text("payment_snapshot"),
   voidStatus: text("void_status"),
   voidError: text("void_error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

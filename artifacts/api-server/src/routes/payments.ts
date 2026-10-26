@@ -6,7 +6,7 @@ import { getFiscalPrinter, emettiFiscalReceipt, emettiDocumentoNonFiscale } from
 import { getSettings } from "../lib/settings";
 import { logAudit } from "../lib/audit";
 import { cents, money, effectiveCoverPrice, normalizeLottery } from "../lib/billing";
-import { paySelectedBill, previewSelectedPayment, SelectedPaymentError } from "../lib/selected-payment";
+import { paySelectedBill, previewSelectedPayment, SelectedPaymentError, assertNoPendingSelectedPayment } from "../lib/selected-payment";
 
 const router = Router();
 
@@ -28,7 +28,7 @@ router.post("/selection-preview", async (req, res) => {
   if (!Number.isInteger(req.body?.orderId) || req.body.orderId < 1) return res.status(400).json({ error: "Ordine non valido" });
   try {
     const bill = await previewSelectedPayment(req.body);
-    return res.json({ amount: bill.amount });
+    return res.json({ amount: bill.amount, resume: bill.resume, operationId: bill.operationId });
   } catch (error) {
     return res.status(error instanceof SelectedPaymentError ? error.status : 409).json({ error: (error as Error).message });
   }
@@ -52,6 +52,8 @@ router.post("/", async (req, res) => {
       return res.status(error instanceof SelectedPaymentError ? error.status : 409).json({ error: (error as Error).message });
     }
   }
+  try { await assertNoPendingSelectedPayment(body.orderId); }
+  catch (error) { return res.status(409).json({ error: (error as Error).message }); }
   const invoiceId = req.body.invoiceId;
   if (invoiceId !== undefined) {
     if (!Number.isInteger(invoiceId) || invoiceId < 1) return res.status(400).json({ error: "Fattura non valida" });

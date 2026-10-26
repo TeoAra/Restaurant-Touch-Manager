@@ -452,15 +452,15 @@ export default function FiscalePage() {
                 <div key={r.id} className={cn("bg-white border rounded-xl p-4 shadow-sm flex items-start gap-3",
                   r.annullato ? "border-red-200 bg-red-50/30" : "border-slate-200")}>
                   <div className={cn("h-9 w-9 rounded-lg flex items-center justify-center shrink-0",
-                    r.annullato ? "bg-red-100 text-red-600" : "bg-green-100 text-green-700")}>
+                    r.annullato ? "bg-red-100 text-red-600" : "bg-slate-100 text-slate-700")}>
                     {r.annullato ? <XCircle className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-slate-800">{r.numeroDocumentoRt != null ? `Documento RT ${r.numeroChiusura}/${r.numeroDocumentoRt}` : "Riferimenti RT da acquisire"}</span>
                       <Badge variant="outline" className={cn("text-xs",
-                        r.annullato ? "bg-red-50 text-red-600 border-red-200" : "bg-green-50 text-green-700 border-green-200")}>
-                        {r.annullato ? "Annullato" : r.voidStatus === "unknown" || r.voidStatus === "pending" ? "Annullo da verificare" : r.emissionStatus === "confirmed" ? "Emissione verificata" : "Emissione da verificare"}
+                        r.annullato ? "bg-red-50 text-red-600 border-red-200" : "bg-slate-50 text-slate-700 border-slate-200")}>
+                        {r.annullato ? "Annullato" : r.voidStatus === "unknown" || r.voidStatus === "pending" ? "Annullo da verificare" : r.emissionStatus === "confirmed" ? "Emissione verificata" : r.emissionStatus === "issued" ? "Emesso · estremi RT da acquisire" : r.emissionStatus === "pending" || r.emissionStatus === "transmitting" ? "Tentativo in corso · non ristampare" : "Emissione da verificare · non ristampare"}
                       </Badge>
                       <span className="text-xs text-slate-500">{r.metodoPagamento}</span>
                     </div>

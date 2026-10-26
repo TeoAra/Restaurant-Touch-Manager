@@ -44,7 +44,8 @@ try {
     ws.send(JSON.stringify({ id, method, params }));
   });
   const createdAt = "2026-10-16T18:14:00.000Z";
-  const tables = Array.from({ length: 14 }, (_, i) => ({ id: i + 1, number: i + 1, name: `Tavolo ${i + 1}`, seats: 4, status: i === 0 ? "occupied" : "free", activeOrderId: i === 0 ? 101 : null, activeOrderTotal: i === 0 ? "26.00" : null, roomName: i > 8 ? "Dehor" : "Sala", elementType: "table", posX: i % 5, posY: Math.floor(i / 5), shape: "square" }));
+  const tables = Array.from({ length: 14 }, (_, i) => ({ id: i + 1, number: i + 1, name: `Tavolo ${i + 1}`, seats: 4, status: i === 0 ? "occupied" : "free", activeOrderId: i === 0 ? 101 : null, activeOrderTotal: i === 0 ? "26.00" : null, roomId: i > 8 ? 2 : 1, roomName: i > 8 ? "Dehor" : "Sala", elementType: "table", posX: i % 5, posY: Math.floor(i / 5), shape: "square" }));
+  const rooms = [{ id: 2, name: "Dehor", sortOrder: 1 }, { id: 3, name: "Privata", sortOrder: 2 }, { id: 1, name: "Sala", sortOrder: 0 }];
   const categories = [{ id: 1, name: "Birre", color: "#a16207" }, { id: 2, name: "Cucina", color: "#166534" }];
   const products = [{ id: 1, name: "Birra artigianale", price: "6.00", categoryId: 1, available: true }, { id: 2, name: "Burger della casa", price: "14.00", categoryId: 2, available: true }];
   const order = { id: 101, tableId: 1, tableName: "Tavolo 1", status: "open", total: "26.00", covers: 2, paidRomana: "0.00", payments: [], createdAt, updatedAt: createdAt, items: [
@@ -99,12 +100,13 @@ try {
         body = settings;
       }
       else if (path === "/api/tables") body = [...tables].sort((a, b) => (a.sortOrder ?? a.number) - (b.sortOrder ?? b.number));
+      else if (path === "/api/rooms") body = [...rooms].sort((a, b) => a.sortOrder - b.sortOrder);
       else if (path === "/api/dashboard/tables-status") body = tables;
       else if (path === "/api/categories") body = categories;
       else if (path === "/api/products") body = products;
       else if (path === "/api/dashboard/summary") body = { todayRevenue: "126.00", todayOrders: 6, openOrders: 1, occupiedTables: 1, totalTables: 14, avgOrderValue: "21.00", yesterdayRevenue: "120.00", yesterdayOrders: 6, lastWeekRevenue: "118.00", lastWeekOrders: 5 };
       else if (path === "/api/dashboard/sales-by-day") body = [{ date: "2026-10-15", revenue: "120.00", orders: 6 }, { date: "2026-10-16", revenue: "126.00", orders: 6 }];
-      else if (path === "/api/orders" && request.method === "POST" && process.env.POS_CHECKOUT_CHECK === "1") {
+      else if (path === "/api/orders" && request.method === "POST" && (process.env.POS_CHECKOUT_CHECK === "1" || process.env.POS_KEYPAD_CHECK === "1")) {
         Object.assign(order, JSON.parse(request.postData));
         body = order;
       }
@@ -267,17 +269,18 @@ try {
   await button("F3", ".pos-phase-selector");
   assert(await evaluate(`document.querySelector(".pos-phase-selector > button:nth-of-type(3)").getAttribute("aria-pressed") === "true"`), "Phase selection must update");
   await button("F1", ".pos-phase-selector");
-  await button("Altro · tastierino e operazioni +");
   await wait(`!!document.querySelector("#pos-more-operations")`);
   const operations = await evaluate(`document.querySelector("#pos-more-operations").textContent`);
-  for (const name of ["Sconto", "Lotteria", "Preconto", "Separato", "Romana", "Espandi", "Cancella", "Annulla ordine", "Sospeso", "Cassetto", "Tavolo", "Imposta Qtà", "Imposta Prezzo"]) assert(operations.includes(name), `Operation lost: ${name}`);
-  await click('[aria-label="Chiudi operazioni"]');
+  for (const name of ["Sconto", "Lotteria", "Preconto", "Separato", "Romana", "Espandi", "Cancella", "Annulla ordine", "Sospeso", "Cassetto", "Tavolo"]) assert(operations.includes(name), `Operation lost: ${name}`);
+  assert.equal(await evaluate(`!!document.querySelector(".pos-more-toggle")`), false, "Keypad must not require opening a menu");
   await click(".pos-product-grid > button");
-  await wait(`document.querySelector(".pos-order-item").textContent.includes("3")`);
-  assert.equal(await evaluate(`!!document.querySelector('[data-testid="dialog-keypad"]')`), false, "One tap must add one product without asking for quantity");
-  assert(writes.includes("PATCH /api/orders/101/items/11"), "Repeated product must update the real mutation route");
-  await click(".pos-product-grid > button:nth-child(2)");
   await wait(`document.querySelectorAll(".pos-order-item").length === 3`);
+  assert.equal(await evaluate(`!!document.querySelector('[data-testid="dialog-keypad"]')`), false, "One tap must add one product without asking for quantity");
+  assert.equal(order.items[0].quantity, 2, "Repeating a product must not aggregate into its existing row");
+  assert.equal(order.items.at(-1).quantity, 1);
+  assert.equal(writes.includes("PATCH /api/orders/101/items/11"), false, "Repeated product must create its own row, not patch another one");
+  await click(".pos-product-grid > button:nth-child(2)");
+  await wait(`document.querySelectorAll(".pos-order-item").length === 4`);
   assert(writes.includes("POST /api/orders/101/items"), "Product must call the real mutation route");
   assert(payloads.some(p => p.path === "/api/orders/101/items" && p.data.productId === 2 && p.data.quantity === 1 && p.data.unitPrice === "14.00"), "New product must be added as one unit at its menu price");
   assert.equal(await evaluate(`!!document.querySelector('[data-testid="dialog-keypad"]')`), false);
@@ -292,6 +295,16 @@ try {
     await new Promise(r => setTimeout(r, 250));
     const layout = await evaluate(`(() => { const rect = s => { const r = document.querySelector(s).getBoundingClientRect(); return {x:r.x, y:r.y, width:r.width, height:r.height, right:r.right, bottom:r.bottom}; }; return {body:document.documentElement.scrollWidth, menu:rect(".pos-menu-panel"), order:rect(".pos-order-panel"), actions:rect(".pos-order-actions")}; })()`);
     assert(layout.body <= width, `Horizontal page overflow at ${width}`);
+    assert(await evaluate(`(() => {
+      const dock=document.querySelector('[data-testid="persistent-keypad"]');
+      const r=dock.getBoundingClientRect();
+      const primary=[...dock.querySelectorAll('[data-testid^="persistent-key-"], [data-testid="persistent-apply-qty"], [data-testid="persistent-apply-price"]')];
+      return r.width>0 && r.height>0 && r.left>=0 && r.right<=innerWidth && r.top>=0 && r.bottom<=innerHeight && primary.length===14 &&
+        primary.every(button=>{
+          const k=button.getBoundingClientRect();
+          return k.width>=28 && k.height>=28 && k.top>=r.top && k.bottom<=r.bottom;
+        });
+    })()`), `Persistent keypad and its primary functions must fit at ${width}×${height}`);
     if (width > 760) {
       assert(layout.menu.x <= 1 && layout.menu.x < layout.order.x, `Unified workspace must use the removed table column at ${width}`);
       assert(layout.actions.bottom <= height, `Actions clipped at ${width}`);
@@ -351,7 +364,7 @@ try {
     })()`);
     await send("Emulation.setDeviceMetricsOverride", { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false });
     await showProducts();
-    await click(".pos-order-item");
+    await click('[data-testid="edit-order-item-11"]');
     await wait(`document.querySelector('[data-testid="dialog-keypad"]')`);
     await click('[data-testid="keypad-field-quantity"]');
     await click('[data-testid="keypad-key-5"]');
@@ -361,10 +374,10 @@ try {
     await wait(`!document.querySelector('[data-testid="dialog-keypad"]') && document.querySelector(".pos-order-item").textContent.includes("5")`);
     assert(payloads.some(p => p.path.endsWith("/items/11") && p.data.quantity === 5 && p.data.unitPrice === "8.00"), "Edit quantity and price must reach real mutation handler");
     await click(".pos-product-grid > button");
-    await wait(`document.querySelectorAll(".pos-order-item").length === 4`);
+    await wait(`document.querySelectorAll(".pos-order-item").length === 5`);
     assert.equal(await evaluate(`!!document.querySelector('[data-testid="dialog-keypad"]')`), false);
     assert(payloads.some(p => p.path.endsWith("/101/items") && p.data.productId === 1 && p.data.quantity === 1 && p.data.unitPrice === "6.00"), "One-tap addition must keep the menu price after editing a different row");
-    await click(".pos-order-item:last-child");
+    await click('.pos-order-item:last-child [data-testid^="edit-order-item-"]');
     await wait(`document.querySelector('[data-testid="dialog-keypad"]')`);
     await click('[data-testid="keypad-field-quantity"]'); await click('[data-testid="keypad-key-3"]');
     await click('[data-testid="keypad-field-unitPrice"]'); await click('[data-testid="keypad-key-7"]');
@@ -631,6 +644,18 @@ try {
       assert(await evaluate(`document.querySelector('[data-testid="tab-tavl"]').getAttribute("aria-pressed") === "true"`), "Map must be the default view");
       assert.equal(await evaluate(`!!document.querySelector('[data-testid="tab-art"], [data-testid="tab-var"]')`), false, "Menu and Variazioni tabs must not be visible");
       assert(await evaluate(`(() => { const m=document.querySelector('[data-testid="map-viewport"]');return m.scrollWidth<=m.clientWidth+1 && m.scrollHeight<=m.clientHeight+1; })()`), "Map must fit without scroll");
+      await wait(`!!document.querySelector('[data-testid="room-button-1"]')`);
+      assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('[data-testid="room-selector"] button')).map(b=>b.textContent.trim())`), ["Sala", "Dehor", "Privata"], "Rooms must respect backoffice sort order, including empty rooms");
+      const canvasSize = await evaluate(`(()=>{const c=document.querySelector('[data-testid="map-canvas"]');return [c.dataset.canvasW,c.dataset.canvasH,c.dataset.scale]})()`);
+      await click('[data-testid="room-button-2"]');
+      await wait(`!!document.querySelector('[data-testid="map-table-10"]')`);
+      assert.deepEqual(await evaluate(`(()=>{const c=document.querySelector('[data-testid="map-canvas"]');return [c.dataset.canvasW,c.dataset.canvasH,c.dataset.scale]})()`), canvasSize, "Map extent and scale must stay the same across rooms");
+      await click('[data-testid="room-button-3"]');
+      await wait(`!!document.querySelector('[data-testid="text-map-empty"]')`);
+      await click('[data-testid="room-button-1"]');
+      await wait(`!!document.querySelector('[data-testid="map-table-1"]')`);
+      assert(await evaluate(`document.querySelector('[data-testid="button-header-log"]').closest('header') !== null && document.querySelector('[data-testid="button-header-map"]').closest('header') !== null`), "Service controls must be in the headbar");
+      assert(await evaluate(`document.querySelector(".pos-order-panel").getBoundingClientRect().width >= 340`), "1024px screens need a wider order panel");
       await selectFirstTable();
       await wait(`document.querySelectorAll(".pos-order-item").length === 1`);
     };
@@ -671,6 +696,12 @@ try {
     await wait(`document.querySelector('[role="alert"]')?.textContent.includes("Quantità o importo non validi")`);
     assert.equal(writes.filter(path => path === "POST /api/pos/sale").length, posBefore, "Stale selection must not start the POS");
     failQuote = false;
+    failSplit = true;
+    await click('[data-testid="button-pay-split"]');
+    await wait(`document.body.textContent.includes("RT di prova non confermata")`);
+    assert.equal(writes.filter(path => path === "POST /api/pos/sale").length, posBefore + 1);
+    assert.equal(order.items[0].quantity, 3);
+    failSplit = false;
     await click('[data-testid="button-pay-split"]');
     await wait(`document.querySelector('[data-testid="split-row-11"]').textContent.includes("max 2")`);
     const card = payloads.filter(p => p.path === "/api/payments" && p.data.partial).at(-1).data;
@@ -678,20 +709,18 @@ try {
     assert.equal(card.amount, "6.50");
     assert.deepEqual(card.selectedItems, [{ itemId: 11, quantity: 1 }]);
     assert.equal(payloads.filter(p => p.path === "/api/pos/sale").at(-1).data.amountCents, 650);
+    assert.equal(writes.filter(path => path === "POST /api/pos/sale").length, posBefore + 1, "An approved POS transaction must not be started again after a fiscal failure");
     assert.equal(order.items[0].quantity, 2);
     settings.pos_pax_enabled = "false";
     await loadThree();
-    await button("Altro · tastierino e operazioni +");
     failExpand = true;
     await button("Espandi", "#pos-more-operations");
     await wait(`document.body.textContent.includes("Errore esplosione")`);
     assert.equal(order.items[0].quantity, 3);
     failExpand = false;
-    if (!await evaluate(`!!document.querySelector("#pos-more-operations")`)) await button("Altro · tastierino e operazioni +");
     await button("Espandi", "#pos-more-operations");
     await wait(`document.querySelectorAll(".pos-order-item").length === 3`);
     assert(order.items.every(row => row.quantity === 1 && row.status === "sent" && row.unitPrice === "6.50"));
-    if (await evaluate(`!!document.querySelector('[aria-label="Chiudi operazioni"]')`)) await click('[aria-label="Chiudi operazioni"]');
     await openSeparated();
     await click('[data-testid="split-row-11"] button');
     await click('[data-testid="button-pay-split"]');
@@ -746,6 +775,54 @@ try {
     const shot = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
     await writeFile("generated-artifacts/pos-smart/table-layout.jpg", Buffer.from(shot.data, "base64"));
     console.log("PASS selected quantities: cash/card one of three, exact POS amount, RT failure preserves quantities, stable retry, atomic expand, single-unit split; rotated/distant map fits; BO mouse/touch drag persists after reload and rolls back failed saves");
+  }
+  if (process.env.POS_KEYPAD_CHECK === "1") {
+    await send("Emulation.setDeviceMetricsOverride", { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false });
+    const fresh = async (withTable) => {
+      order.items = []; order.covers = 0; order.paidRomana = "0"; order.status = "open"; order.tableId = 1; order.total = "0.00";
+      await send("Page.navigate", { url: origin + "/" });
+      await wait(`!!document.querySelector('[data-testid="map-table-1"]')`);
+      if (withTable) await selectFirstTable();
+      else await showProducts();
+    };
+    const key = async value => click(`[data-testid="persistent-key-${value}"]`);
+    await fresh(true);
+    await evaluate(`(() => {const button=document.querySelector(".pos-product-grid > button");button.click();button.click();button.click();})()`);
+    await wait(`document.querySelectorAll(".pos-order-item").length === 3`);
+    assert.equal(new Set(order.items.map(item => item.id)).size, 3);
+    assert(order.items.every(item => item.quantity === 1 && item.unitPrice === "6.00"), "Fast repeated taps must create distinct unit rows");
+    const first = order.items[0].id;
+    await click(`[data-testid="order-item-${first}"]`);
+    assert.equal(await evaluate(`!!document.querySelector('[data-testid="dialog-keypad"]')`), false, "Row selection must use the persistent keypad without forcing a modal");
+    await key("2");
+    await click('[data-testid="persistent-apply-qty"]');
+    await wait(`document.querySelector('[data-testid="order-item-${first}"]').textContent.includes("× 2")`);
+    assert.equal(order.items[0].quantity, 2);
+    await key("8"); await key("dot"); await key("5");
+    await click('[data-testid="persistent-apply-price"]');
+    await wait(`document.querySelector('[data-testid="order-item-${first}"]').textContent.includes("8.50")`);
+    assert.equal(order.items[0].unitPrice, "8.50");
+    assert(order.items.slice(1).every(item => item.quantity === 1 && item.unitPrice === "6.00"), "Editing one row must not affect other identical products");
+    await key("9"); await key("clear");
+    assert.equal(await evaluate(`document.querySelector('[data-testid="persistent-buffer"]').textContent.includes("9")`), false);
+    await fresh(true);
+    await key("3");
+    await click(".pos-product-grid > button");
+    await wait(`document.querySelectorAll(".pos-order-item").length === 3`);
+    assert(order.items.every(item => item.quantity === 1 && item.unitPrice === "6.00"), "Prepared quantity must add separate units, not change their price");
+    await click('[data-testid="persistent-apply-price"]');
+    await key("7"); await key("dot"); await key("5");
+    await click(".pos-product-grid > button");
+    await wait(`document.querySelectorAll(".pos-order-item").length === 4`);
+    assert.equal(order.items.at(-1).unitPrice, "7.50");
+    assert.equal(order.items.at(-1).quantity, 1);
+    await fresh(false);
+    const ordersBefore = writes.filter(write => write === "POST /api/orders").length;
+    await evaluate(`(() => {const button=document.querySelector(".pos-product-grid > button");button.click();button.click();button.click();})()`);
+    await wait(`document.querySelectorAll(".pos-order-item").length === 3`);
+    assert.equal(writes.filter(write => write === "POST /api/orders").length, ordersBefore + 1, "Fast taps without a table must share a single quick order");
+    assert(order.items.every(item => item.quantity === 1));
+    console.log("PASS persistent keypad: selection without modal, quantity/decimal price/clear, prepared quantity as separate rows, price override, triple taps create three rows and a single quick order");
   }
   assert.deepEqual(errors, [], "Browser errors");
   if (process.env.POS_BILLING_CHECK !== "1" && process.env.POS_SPLIT_CHECK !== "1") assert(!writes.some(w => /payments|fiscal|invoices|comanda/.test(w)), "No fiscal writes expected");

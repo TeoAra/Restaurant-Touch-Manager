@@ -542,10 +542,14 @@ export const PreviewSelectedBillBody = zod.object({
   ),
   coversCount: zod.number().min(previewSelectedBillBodyCoversCountMin),
   amount: zod.string(),
+  method: zod.string().optional(),
+  operationId: zod.string().optional(),
 });
 
 export const PreviewSelectedBillResponse = zod.object({
   amount: zod.string(),
+  resume: zod.boolean().optional(),
+  operationId: zod.string().optional(),
 });
 
 /**

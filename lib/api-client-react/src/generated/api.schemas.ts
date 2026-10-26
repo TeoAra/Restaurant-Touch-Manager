@@ -452,10 +452,14 @@ export interface BillSelectionInput {
   /** @minimum 0 */
   coversCount: number;
   amount: string;
+  method?: string;
+  operationId?: string;
 }
 
 export interface BillSelectionPreview {
   amount: string;
+  resume?: boolean;
+  operationId?: string;
 }
 
 export interface ExpandedItemsResult {

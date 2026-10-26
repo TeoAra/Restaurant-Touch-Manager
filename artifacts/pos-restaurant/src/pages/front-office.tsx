@@ -38,7 +38,6 @@ import { NumericKeypadDialog } from "@/components/pos/NumericKeypadDialog";
 import { PaymentSummary, type OrderPayment } from "@/components/pos/PaymentSummary";
 import { LotteryField, isLotteryFormat } from "@/components/pos/LotteryField";
 import { InvoiceResultDialog, type InvoiceResult } from "@/components/pos/InvoiceResultDialog";
-import { usePosPanels } from "@/hooks/use-pos-panels";
 import "./front-office-smart.css";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
@@ -609,22 +608,49 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
     return () => ro.disconnect();
   }, []);
 
-  const rooms = Array.from(new Map(
-    tablesStatus.filter(t => t.roomName).map(t => [t.roomName!, t.roomName!])
-  ).values());
-  const [roomFilter, setRoomFilter] = useState<string | null>(() => rooms[0] ?? null);
+  // Sale nell'ordine configurato in backoffice (GET /rooms, sortOrder). Identita per roomId.
+  const roomsQuery = useQuery<{ id: number; name: string; sortOrder: number }[]>({
+    queryKey: ["rooms"],
+    queryFn: async () => {
+      const response = await fetch(`${API}/rooms`);
+      if (!response.ok) throw new Error(`Errore caricamento sale (${response.status})`);
+      const rows = await response.json();
+      if (!Array.isArray(rows)) throw new Error("Risposta sale non valida");
+      return rows;
+    },
+  });
+  type RoomOpt = { key: string; id: number | null; name: string };
+  const rooms: RoomOpt[] = useMemo(() => {
+    const cfg = roomsQuery.data ?? [];
+    if (cfg.length > 0) {
+      return [...cfg]
+        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.id - b.id)
+        .map(r => ({ key: `id:${r.id}`, id: r.id, name: r.name }));
+    }
+    // Fallback legacy: nessuna sala configurata, nomi nell'ordine dei tavoli.
+    const names = Array.from(new Set(tablesStatus.filter(t => t.roomName).map(t => t.roomName!)));
+    return names.map(n => ({ key: `name:${n}`, id: null, name: n }));
+  }, [roomsQuery.data, tablesStatus]);
+  const [roomKey, setRoomKey] = useState<string | null>(null);
   useEffect(() => {
-    if (roomFilter === null && rooms.length > 0) setRoomFilter(rooms[0]);
-  }, [rooms.join(",")]);
-
-  const filtered = tablesStatus.filter(t => roomFilter === null || t.roomName === roomFilter);
-  // Ingombro reale in px: per ogni elemento il box ruotato+scalato attorno al suo centro,
-  // ingrandito del 5% (scale-105 selezionato) + 6px (ring-4 + offset 2) + ombra.
+    if (rooms.length === 0) { if (roomKey !== null) setRoomKey(null); return; }
+    if (!roomKey || !rooms.some(r => r.key === roomKey)) setRoomKey(rooms[0].key);
+  }, [rooms, roomKey]);
+  const activeRoom = rooms.find(r => r.key === roomKey) ?? null;
+  const roomFilter = activeRoom?.name ?? null;
+  const tableRoomId = (t: FETable) => (t as FETable & { roomId?: number | null }).roomId ?? null;
+  const filtered = tablesStatus.filter(t => {
+    if (!activeRoom) return true;
+    if (activeRoom.id !== null) return tableRoomId(t) === activeRoom.id;
+    return t.roomName === activeRoom.name;
+  });
+  // Ingombro comune a TUTTE le sale: stessa tela e stessa scala passando da una sala all'altra.
+  // Per ogni elemento: box ruotato+scalato attorno al centro, +5% selezione, ring e ombra.
   const mapExtent = useMemo(() => {
-    const M = 14; // margine bordo + ombra shadow-xl
-    if (!filtered.length) return { offX: 0, offY: 0, w: 4 * CELL, h: 2 * CELL };
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const t of filtered) {
+    const M = 14;
+    // Fit the shared occupied extent, not an arbitrary empty grid that shrinks touch targets.
+    let x0 = 0, y0 = 0, x1 = CELL, y1 = CELL;
+    for (const t of tablesStatus) {
       const { w, h } = getElementSize(t);
       const bw = w * CELL - 8, bh = h * CELL - 8;
       const sc = (t.sizeScale && t.sizeScale > 0 ? t.sizeScale : 1) * 1.05;
@@ -638,8 +664,8 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
       y0 = Math.min(y0, cy - hh); y1 = Math.max(y1, cy + hh);
     }
     return { offX: -x0, offY: -y0, w: Math.ceil(x1 - x0), h: Math.ceil(y1 - y0) };
-  }, [filtered]);
-  // Adatta sempre larghezza E altezza (mai oltre 1, nessuno scroll, nessun taglio).
+  }, [tablesStatus]);
+  // Adatta larghezza E altezza (mai oltre 1, nessuno scroll, nessun taglio).
   const fitScale = containerSize.w > 0 && containerSize.h > 0 ? Math.min(containerSize.w / mapExtent.w, containerSize.h / mapExtent.h) : 1;
   const scale = Math.max(Number.EPSILON, Math.min(fitScale, 1));
   const freeCount = filtered.filter(t => t.elementType !== "table" ? false : t.status === "free").length;
@@ -701,13 +727,20 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
             </button>
           </div>
         </div>
-        {rooms.length > 1 && (
-          <div className="flex gap-1.5 mt-1.5 overflow-x-auto pb-0.5">
+        {roomsQuery.isError && (
+          <div className="mt-2 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" data-testid="text-rooms-error">
+            <span className="flex-1">{(roomsQuery.error as Error)?.message ?? "Errore caricamento sale"}</span>
+            <button onClick={() => roomsQuery.refetch()} className="rounded-md border border-red-300 bg-white px-2.5 py-1 font-bold" data-testid="button-rooms-retry">Riprova</button>
+          </div>
+        )}
+        {rooms.length > 0 && (
+          <div className="pos-room-selector" role="tablist" aria-label="Sale" data-testid="room-selector">
             {rooms.map(r => (
-              <button key={r} onClick={() => setRoomFilter(r)}
-                className={cn("px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all",
-                  roomFilter === r ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
-                {r}
+              <button key={r.key} role="tab" aria-selected={roomKey === r.key}
+                onClick={() => setRoomKey(r.key)}
+                className={roomKey === r.key ? "is-active" : ""}
+                data-testid={`room-button-${r.id ?? r.name}`}>
+                {r.name}
               </button>
             ))}
           </div>
@@ -768,7 +801,7 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
           const fullCanvasW = canvasW;
           const fullCanvasH = canvasH;
           return (
-            <div className="bg-[#f8fafc] overflow-hidden shrink-0 rounded-lg" style={{ width: fullCanvasW * scale, height: fullCanvasH * scale }} data-testid="map-canvas">
+            <div className="bg-[#f8fafc] overflow-hidden shrink-0 rounded-lg" style={{ width: fullCanvasW * scale, height: fullCanvasH * scale }} data-testid="map-canvas" data-canvas-w={fullCanvasW} data-canvas-h={fullCanvasH} data-scale={scale.toFixed(4)} data-room={activeRoom?.id ?? activeRoom?.name ?? ""}>
               <div
                 className="relative select-none origin-top-left"
                 style={{ width: fullCanvasW, height: fullCanvasH, transform: `scale(${scale})` }}
@@ -2434,6 +2467,8 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
   // qty[id] = selected quantity for this row (0 = not included)
   const [qty, setQty] = useState<Record<number, number>>({});
   const splitOperationRef = useRef<{ key: string; id: string } | null>(null);
+  const approvedSplitPosRef = useRef<string | null>(null);
+  const [splitRecovery, setSplitRecovery] = useState(false);
   const splitSubmitting = useRef(false);
   const [method, setMethod] = useState<"cash" | "card" | "ticket" | "other" | "satispay">("cash");
   const { data: sbSettings = {} } = useSettings();
@@ -2449,6 +2484,11 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
   function selectedQuantities() {
     return items.map(row => ({ itemId: row.id, quantity: Math.min(row.quantity, qty[row.id] ?? 0) })).filter(row => row.quantity > 0);
   }
+  function operationForSelection() {
+    const key = JSON.stringify([orderId, method, selectedQuantities(), coverRows.filter(r => (qty[r.id] ?? 0) > 0).length, splitTotal]);
+    if (splitOperationRef.current?.key !== key) splitOperationRef.current = { key, id: `split-${crypto.randomUUID()}` };
+    return splitOperationRef.current.id;
+  }
 
   async function doIncassaFinale() {
     if (busy || !hasSelection) return;
@@ -2457,24 +2497,24 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
     const ids = selectedItems.map(row => row.itemId);
     const coversToDeduct = coverRows.filter(r => (qty[r.id] ?? 0) > 0).length;
     setSbPosPhase("idle");
-    const key = JSON.stringify([orderId, method, selectedItems, coversToDeduct, splitTotal]);
-    if (splitOperationRef.current?.key !== key) splitOperationRef.current = { key, id: `split-${crypto.randomUUID()}` };
-    const result = await onPay(method, splitTotal, ids, coversToDeduct, selectedItems, splitOperationRef.current.id);
-    if (result === true) { setQty({}); splitOperationRef.current = null; }
+    const operationId = operationForSelection();
+    if (method === "card" && sbActiveTerminal) approvedSplitPosRef.current = operationId;
+    const result = await onPay(method, splitTotal, ids, coversToDeduct, selectedItems, operationId);
+    if (result === true) { setQty({}); splitOperationRef.current = null; approvedSplitPosRef.current = null; setSplitRecovery(false); }
+    else setSplitRecovery(true);
   }
 
   async function handleIncassa() {
     if (busy || splitSubmitting.current || !hasSelection) return;
     splitSubmitting.current = true;
     try {
-    if (method === "card" && sbActiveTerminal) {
-      setSbPosPhase("waiting");
-      setSbPosError(null);
-      try {
+    const operationId = operationForSelection();
+    setSbPosError(null);
+    try {
         const preview = await fetch(`${API}/payments/selection-preview`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            orderId, selectedItems: selectedQuantities(),
+            orderId, method, operationId, selectedItems: selectedQuantities(),
             coversCount: coverRows.filter(row => (qty[row.id] ?? 0) > 0).length,
             amount: splitTotal.toFixed(2),
           }),
@@ -2485,10 +2525,24 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
           setSbPosError(quote.error ?? "Il conto è cambiato: aggiorna la selezione prima di avviare il POS");
           return;
         }
+        if (quote.resume) {
+          if (quote.operationId && splitOperationRef.current) splitOperationRef.current.id = quote.operationId;
+          await doIncassaFinale();
+          return;
+        }
+        if (approvedSplitPosRef.current === operationId) { await doIncassaFinale(); return; }
+      } catch {
+        setSbPosPhase("idle");
+        setSbPosError("Impossibile verificare il tentativo: nessuna richiesta al POS o alla RT è stata inviata.");
+        return;
+      }
+    if (method === "card" && sbActiveTerminal) {
+      setSbPosPhase("waiting");
+      try {
         const resp = await fetch(`${API}/pos/sale`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ amountCents: Math.round(splitTotal * 100), orderId, terminal: sbActiveTerminal }),
+          body: JSON.stringify({ amountCents: Math.round(splitTotal * 100), orderId, terminal: sbActiveTerminal, operationId }),
         });
         const result = await resp.json();
         if (result.manualConfirmRequired) { setSbPosPhase("manual_confirm"); return; }
@@ -2522,7 +2576,7 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
   return (
     <>
       <div className="space-y-3 py-1">
-      <fieldset disabled={busy || sbPosPhase === "waiting" || sbPosPhase === "manual_confirm"} className="contents" data-testid="split-selection">
+      <fieldset disabled={busy || !!approvedSplitPosRef.current || sbPosPhase === "waiting" || sbPosPhase === "manual_confirm"} className="contents" data-testid="split-selection">
         <div className="flex justify-between items-center text-xs text-slate-500">
           <span>Seleziona le voci da pagare</span>
           <div className="flex gap-2">
@@ -2662,6 +2716,8 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
         >
           {sbPosPhase === "waiting"
             ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Terminale…</>
+            : splitRecovery || approvedSplitPosRef.current
+              ? <>Verifica esito € {splitTotal.toFixed(2)}</>
             : method === "card" && sbActiveTerminal
               ? <><CreditCard className="h-4 w-4 mr-2" />Avvia terminale € {splitTotal.toFixed(2)}</>
               : <>Incassa € {splitTotal.toFixed(2)}</>
@@ -3055,13 +3111,7 @@ export default function FrontOffice() {
   const [rightTab, setRightTab] = useState<"grp" | "art" | "var" | "tavl" | "clnt" | "tot">("tavl");
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [mobilePanel, setMobilePanel] = useState<"left" | "right">("right");
-  const [moreOpen, setMoreOpen] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
-  const closeMore = useCallback(() => setMoreOpen(false), []);
-  usePosPanels(viewportRef, moreOpen, closeMore);
-  useEffect(() => {
-    setMoreOpen(false);
-  }, [mobilePanel, rightTab, selectedTableId]);
   useEffect(() => {
     // Keep the current workspace action visible even on a narrow phone.
     viewportRef.current?.querySelector<HTMLElement>('.pos-work-tab[aria-pressed="true"]')
@@ -3199,6 +3249,11 @@ export default function FrontOffice() {
 
   const addItem = useAddOrderItem();
   const updateItem = useUpdateOrderItem();
+  const quickAddOrderRef = useRef<Promise<number> | null>(null);
+  const productAddQueueRef = useRef<Promise<void>>(Promise.resolve());
+  useEffect(() => {
+    if (activeOrderId) quickAddOrderRef.current = null;
+  }, [activeOrderId]);
   const deleteItem = useDeleteOrderItem();
   const createPayment = useCreatePayment();
 
@@ -3496,44 +3551,68 @@ export default function FrontOffice() {
   }
 
   async function doAddProduct(productId: number, unitPrice: string, mods: FEModifier[], notes?: string, quantity = 1) {
-    // If numBuffer has a value, use it as the price override (not quantity)
-    const priceOverride = numBuffer ? parseFloat(numBuffer) : null;
-    const qty = Math.max(1, quantity);
-    if (priceOverride !== null && !isNaN(priceOverride) && priceOverride > 0) {
-      unitPrice = priceOverride.toFixed(2);
+    const entered = numBuffer ? Number(numBuffer) : null;
+    const qty = entered !== null && numpadMode === "qty" ? entered : quantity;
+    if (!Number.isInteger(qty) || qty < 1 || qty > 5000 ||
+        (entered !== null && (!Number.isFinite(entered) || entered <= 0))) {
+      toast({ title: "Valore non valido", description: "Usa una quantità intera da 1 a 5000 oppure un prezzo maggiore di zero.", variant: "destructive" });
+      return;
     }
+    if (entered !== null && numpadMode === "price") unitPrice = entered.toFixed(2);
     setNumBuffer("");
-    let orderId = activeOrderId;
-    if (!orderId) {
-      const res = await fetch(`${API}/orders`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tableId: null, covers: 0, notes: "Scontrino Rapido" }),
+    let added = 0;
+    try {
+      let orderId = activeOrderId;
+      if (!orderId) {
+        // Fast consecutive taps at Banco must share the same newly created order.
+        if (!quickAddOrderRef.current) {
+          const creation = (async () => {
+            const res = await fetch(`${API}/orders`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ tableId: null, covers: 0, notes: "Scontrino Rapido" }),
+            });
+            const order = await res.json();
+            if (!res.ok || !Number.isInteger(order.id) || order.id <= 0) throw new Error(order.error || "Creazione del conto non riuscita");
+            setIsQuickMode("rapida");
+            setQuickOrderId(order.id);
+            setSelectedTableId(null);
+            setMobilePanel("left");
+            return order.id as number;
+          })();
+          quickAddOrderRef.current = creation;
+          void creation.catch(() => {
+            if (quickAddOrderRef.current === creation) quickAddOrderRef.current = null;
+          });
+        }
+        orderId = await quickAddOrderRef.current;
+      }
+      const targetOrderId = orderId!;
+      const finalPrice = mods.reduce((sum, mod) => sum + parseFloat(mod.priceExtra || "0"), parseFloat(unitPrice)).toFixed(2);
+      const modJson = JSON.stringify(mods.map(m => ({ id: m.id, label: m.label, type: m.type, priceExtra: m.priceExtra })));
+      const operation = productAddQueueRef.current.catch(() => undefined).then(async () => {
+        // Never aggregate taps: each unit has its own row, timestamp and modifiers.
+        try {
+          for (let index = 0; index < qty; index++) {
+            await addItem.mutateAsync({ orderId: targetOrderId, data: {
+              productId, quantity: 1, unitPrice: finalPrice, phase: activePriceList,
+              modifiers: modJson, notes: notes?.trim() || null,
+            } as never });
+            added++;
+          }
+        } finally {
+          // The render that started a quick sale did not yet know its order ID.
+          if (added) await qc.invalidateQueries({ queryKey: getGetOrderQueryKey(targetOrderId) });
+        }
       });
-      const order = await res.json();
-      setIsQuickMode("rapida");
-      setQuickOrderId(order.id);
-      setSelectedTableId(null);
-      setMobilePanel("left");
-      orderId = order.id;
-    }
-    const modJson = JSON.stringify(mods.map(m => ({ id: m.id, label: m.label, type: m.type, priceExtra: m.priceExtra })));
-    const effectivePrice = mods.reduce((acc, m) => acc + parseFloat(m.priceExtra || "0"), parseFloat(unitPrice));
-    const finalPrice = effectivePrice.toFixed(2);
-    const kpNote = notes?.trim() || undefined;
-    // Only merge into existing item if no modifiers and no KP note
-    const existing = (mods.length === 0 && !kpNote) ? items.find(i =>
-      i.productId === productId &&
-      (i as never as { phase: number }).phase === activePriceList &&
-      i.unitPrice === unitPrice &&
-      ((i as never as { modifiers?: string }).modifiers ?? "[]") === "[]" &&
-      !(i as never as { notes?: string }).notes &&
-      (i as never as { status: string }).status === "draft"
-    ) : null;
-    if (existing && orderId === activeOrderId) {
-      await updateItem.mutateAsync({ orderId: orderId!, itemId: existing.id, data: { quantity: existing.quantity + qty } });
-    } else {
-      await addItem.mutateAsync({ orderId: orderId!, data: { productId, quantity: qty, unitPrice: finalPrice, phase: activePriceList, modifiers: modJson, notes: kpNote ?? null } as never });
+      productAddQueueRef.current = operation;
+      await operation;
+    } catch (error) {
+      toast({
+        title: added ? `Aggiunti ${added} di ${qty} prodotti` : "Prodotto non aggiunto",
+        description: `${error instanceof Error ? error.message : "Errore di comunicazione"}. Verifica la comanda prima di riprovare.`,
+        variant: "destructive",
+      });
     }
     refresh();
   }
@@ -3927,7 +4006,11 @@ export default function FrontOffice() {
       return;
     }
     // Mostra risultato RT
-    const fiscal = (paymentRes as never as { fiscal?: { rtOk?: boolean; rtError?: string; rtIp?: string; receiptId?: number; nonFiscale?: boolean; deferredInvoice?: boolean } }).fiscal;
+    const fiscal = (paymentRes as never as { fiscal?: { rtOk?: boolean; rtError?: string; rtIp?: string; receiptId?: number; nonFiscale?: boolean; deferredInvoice?: boolean; identityPending?: boolean; numeroChiusura?: number; numeroDocumentoRt?: number } }).fiscal;
+    if (fiscal?.identityPending) {
+      toast({ title: "Incasso registrato", description: "La RT ha emesso il documento, ma non ha restituito tutti gli estremi. Controlla l’archivio fiscale e non ristampare." });
+      addLog("warn", "Incasso salvato: emissione RT verificata dai contatori; estremi del documento non ancora letti.");
+    }
     if (fiscal?.deferredInvoice) {
       addLog("info", "Pagamento fattura registrato. Generazione XML e copia di cortesia in corso.");
     } else if (fiscal) {
@@ -3935,9 +4018,10 @@ export default function FrontOffice() {
         if (fiscal.nonFiscale) {
           addLog("info", `RT OK — documento NON FISCALE @ ${fiscal.rtIp ?? "RT"} — €${payAmount.toFixed(2)} ${method}`);
           toast({ title: "Documento non fiscale emesso", description: `RT ${fiscal.rtIp ?? ""} — documento gestionale` });
-        } else {
-          addLog("info", `RT OK — scontrino #${fiscal.receiptId} @ ${fiscal.rtIp ?? "RT"} — €${payAmount.toFixed(2)} ${method}`);
-          toast({ title: "Scontrino fiscale emesso", description: `RT ${fiscal.rtIp ?? ""} — ricevuta #${fiscal.receiptId}` });
+        } else if (!fiscal.identityPending) {
+          const reference = fiscal.numeroDocumentoRt != null ? `Documento RT ${fiscal.numeroChiusura}/${fiscal.numeroDocumentoRt}` : "Estremi nell’archivio fiscale";
+          addLog("info", `RT OK — ${reference} — €${payAmount.toFixed(2)} ${method}`);
+          toast({ title: "Scontrino fiscale emesso", description: reference });
         }
       } else {
         addLog("error", `RT ERRORE — ${fiscal.rtError ?? "errore sconosciuto"}`);
@@ -4010,12 +4094,10 @@ export default function FrontOffice() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   function openMap() {
-    setMoreOpen(false);
     setRightTab("tavl");
     setMobilePanel("right");
   }
   function openCheckout() {
-    setMoreOpen(false);
     setPaymentMode("full");
     setRightTab("tot");
     setMobilePanel("right");
@@ -4032,6 +4114,18 @@ export default function FrontOffice() {
           {deliveryEnabled && <button className={isQuickMode === "delivery" ? "is-active" : ""} onClick={() => handleQuickMode("delivery")}><Truck size={15} /> Delivery</button>}
         </div>
         <span className="pos-smart-operator">{foUser?.name}</span>
+        <div className="pos-header-services" data-testid="header-services">
+          <button onClick={() => setShowLog(v => !v)} aria-label="Registro" title="Registro"
+            className={showLog ? "is-active" : ""} data-testid="button-header-log">
+            <ScrollText size={18} />
+            {logEntries.some(e => e.level === "error") && <span className="pos-header-dot" />}
+          </button>
+          <button onClick={openMap} aria-label="Mappa" title="Mappa"
+            className={rightTab === "tavl" ? "is-active" : ""} data-testid="button-header-map">
+            <MapIcon size={18} />
+          </button>
+          <UserMenuButton showUserMenu={showUserMenu} setShowUserMenu={setShowUserMenu} />
+        </div>
       </header>
       {comandaBanner && (
         <div className="absolute top-0 left-0 right-0 z-50 bg-emerald-600 text-white text-center font-bold py-2.5 shadow-lg animate-in slide-in-from-top duration-200">
@@ -4087,28 +4181,6 @@ export default function FrontOffice() {
             )}
           </button>
 
-          <div className="flex items-center gap-1 shrink-0 ml-1">
-            <button onClick={() => setShowLog(v => !v)}
-              className={cn(
-                "h-8 w-8 rounded-lg flex items-center justify-center transition-colors relative",
-                showLog ? "bg-primary/20 text-primary" : "text-slate-500 hover:text-slate-300 hover:bg-[#2d3044]"
-              )}>
-              <ScrollText className="h-3.5 w-3.5" />
-              {logEntries.some(e => e.level === "error") && (
-                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500" />
-              )}
-            </button>
-            <button onClick={() => { setRightTab("tavl"); setMobilePanel("right"); }}
-              className={cn(
-                "h-8 w-8 rounded-lg flex items-center justify-center transition-colors",
-                rightTab === "tavl"
-                  ? "bg-primary/20 text-primary"
-                  : "text-slate-500 hover:text-slate-300 hover:bg-[#2d3044]"
-              )}>
-              <MapIcon className="h-3.5 w-3.5" />
-            </button>
-            <UserMenuButton showUserMenu={showUserMenu} setShowUserMenu={setShowUserMenu} />
-          </div>
         </div>
 
         {/* Totale */}
@@ -4218,7 +4290,7 @@ export default function FrontOffice() {
                 const itemStatus = (item as never as { status: string }).status;
                 const isSelected = item.id === selectedItemId;
                 return (
-                  <div key={item.id}
+                  <div key={item.id} data-testid={`order-item-${item.id}`}
                     onClick={e => {
                       e.stopPropagation();
                       if (isSelected) {
@@ -4228,7 +4300,6 @@ export default function FrontOffice() {
                         setSelectedItemId(item.id);
                         setNumBuffer("");
                         setNumpadMode("qty");
-                        setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus });
                       }
                     }}
                     className={cn(
@@ -4256,6 +4327,8 @@ export default function FrontOffice() {
                         {isSelected && <span className="ml-1.5 text-[9px] text-primary/70 font-semibold">Tocca ancora per le variazioni</span>}
                       </span>
                       <button
+                        data-testid={`edit-order-item-${item.id}`}
+                        aria-label={`Modifica quantità e prezzo di ${item.productName}`}
                         onClick={e => { e.stopPropagation(); setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus }); }}
                         className={cn(
                         "h-9 w-9 rounded-md flex items-center justify-center transition-colors shrink-0",
@@ -4313,201 +4386,6 @@ export default function FrontOffice() {
           </div>
         </ScrollArea>
 
-        {/* Tastierino + bottoni rapidi laterali */}
-        <div className="pos-more-wrap">
-          <button className="pos-more-toggle" aria-expanded={moreOpen} aria-controls="pos-more-operations" onClick={() => setMoreOpen(v => !v)}>
-            <Hash size={16} /> Altro · tastierino e operazioni <span>{moreOpen ? "−" : "+"}</span>
-          </button>
-        {moreOpen && <div id="pos-more-operations" className="pos-more-popover">
-        <div className="pos-more-heading"><strong>Operazioni del conto</strong><button onClick={() => setMoreOpen(false)} aria-label="Chiudi operazioni"><X size={18} /></button></div>
-        <div className="px-2.5 pb-1 shrink-0 flex gap-1.5">
-
-          {/* Numpad compatto 3×4 */}
-          <div className="flex-1 flex flex-col gap-1">
-            {/* Mode bar: always visible so user can set Qtà/Prezzo BEFORE picking a product */}
-            <div className="flex gap-1">
-              <button
-                onClick={async () => {
-                  setNumpadMode("qty");
-                  if (numBuffer && selectedItemId) await applyNumpadToSelectedItem("qty");
-                }}
-                className={cn(
-                  "flex-1 h-8 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-all active:scale-95",
-                  numpadMode === "qty" && numBuffer
-                    ? "bg-primary text-white shadow-sm ring-2 ring-primary/40 animate-pulse"
-                    : numpadMode === "qty"
-                      ? "bg-primary text-white shadow-sm"
-                      : "bg-[#252840] text-slate-400 hover:bg-[#2d3044]"
-                )}>
-                <Hash className="h-3 w-3" /> Imposta Qtà
-              </button>
-              <button
-                onClick={async () => {
-                  setNumpadMode("price");
-                  if (numBuffer && selectedItemId) await applyNumpadToSelectedItem("price");
-                }}
-                className={cn(
-                  "flex-1 h-8 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-all active:scale-95",
-                  numpadMode === "price" && numBuffer
-                    ? "bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-500/40 animate-pulse"
-                    : numpadMode === "price"
-                      ? "bg-emerald-600 text-white shadow-sm"
-                      : "bg-[#252840] text-slate-400 hover:bg-[#2d3044]"
-                )}>
-                <Euro className="h-3 w-3" /> Imposta Prezzo
-              </button>
-            </div>
-            <div className="grid grid-cols-3 gap-1 flex-1">
-              {numpadKeys.map(k => (
-                <button key={k} onClick={() => handleNumpadKey(k)}
-                  className={cn(
-                    "h-9 rounded-lg font-bold text-sm transition-all active:scale-90 select-none",
-                    k === "X"
-                      ? "bg-red-900/60 text-red-400 hover:bg-red-900/80"
-                      : "bg-[#252840] text-slate-200 hover:bg-[#2d3044]"
-                  )}>
-                  {k === "X" ? "⌫" : k}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Bottoni azione — 2 colonne × 4 righe */}
-          <div className="grid grid-cols-2 gap-1 w-[116px] shrink-0">
-            {/* Riga 1 */}
-            <button
-              disabled={!activeOrderId || items.length === 0 || priceLocked}
-              onClick={() => setShowDiscount(true)}
-              title={priceLocked ? "Sconto bloccato — solo amministratore" : "Applica uno sconto al totale del conto (% o € fissi)"}
-              className="h-10 rounded-lg flex items-center justify-center bg-amber-700 text-amber-100 hover:bg-amber-600 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              {priceLocked ? "🔒 Sconto" : "Sconto"}
-            </button>
-            <button
-              disabled={items.length === 0 && !activeOrderId}
-              onClick={() => { setLotteriaInput(lotteriaCodice); setShowLotteria(true); }}
-              title="Inserisci il codice Lotteria degli Scontrini del cliente"
-              className={cn(
-                "h-10 rounded-lg flex items-center justify-center text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed relative leading-tight",
-                lotteriaCodice
-                  ? "bg-green-800 text-green-200 hover:bg-green-700 ring-1 ring-green-500"
-                  : "bg-blue-800 text-blue-200 hover:bg-blue-700"
-              )}>
-              Lotteria
-              {lotteriaCodice && (
-                <span className="absolute -top-1 -right-1 bg-green-500 text-white text-[9px] font-bold rounded-full px-1 leading-4">✓</span>
-              )}
-            </button>
-
-            {/* Riga 2 */}
-            <button
-              disabled={items.length === 0}
-              onClick={() => setShowPreconto(true)}
-              title="Stampa il preconto (ricevuta non fiscale) per il cliente"
-              className="h-10 rounded-lg flex items-center justify-center bg-[#252840] text-slate-300 hover:bg-[#2d3044] text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              Preconto
-            </button>
-            <button
-              disabled={items.length < 2}
-              onClick={() => { setPaymentMode("split"); setRightTab("tot"); setMobilePanel("right"); }}
-              title="Conto separato: apre nella tab Tot, scegli quali articoli pagare in scontrini distinti"
-              className="h-10 rounded-lg flex items-center justify-center bg-purple-800 text-purple-200 hover:bg-purple-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              Separato
-            </button>
-
-            {/* Riga 3 */}
-            <button
-              disabled={items.length === 0}
-              onClick={() => { setPaymentMode("romana"); setRightTab("tot"); setMobilePanel("right"); }}
-              title="Pagamento alla romana: apre nella tab Tot, dividi il totale in N quote uguali"
-              className="h-10 rounded-lg flex items-center justify-center bg-green-800 text-green-200 hover:bg-green-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              Romana
-            </button>
-            <button
-              disabled={!items.some(i => i.quantity > 1)}
-              onClick={handleExplodeAll}
-              title="Espandi: ogni articolo con qty>1 viene separato in righe da 1 (utile per conto separato/romana)"
-              className="h-10 rounded-lg flex items-center justify-center bg-indigo-800 text-indigo-200 hover:bg-indigo-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              Espandi
-            </button>
-
-            {/* Riga 4 */}
-            <button
-              disabled={!selectedItemId}
-              onClick={handleDeleteSelected}
-              title="Cancella l'articolo selezionato dall'ordine"
-              className="h-10 rounded-lg flex items-center justify-center bg-red-900/80 text-red-300 hover:bg-red-800 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              Cancella
-            </button>
-            {activeOrderId ? (
-              <button
-                onClick={() => setShowCancelConfirm(true)}
-                title="Annulla l'intero ordine (registrato in audit log)"
-                className="h-10 rounded-lg flex items-center justify-center bg-red-950 text-red-400 hover:bg-red-900 text-[10px] font-bold transition-all active:scale-95 leading-tight border border-red-900">
-                Annulla ordine
-              </button>
-            ) : (
-              <button
-                onClick={() => handleQuickMode("rapida")}
-                title="Cassa rapida: vendita banco senza tavolo (per asporto, caffè veloce, ecc.)"
-                className="h-10 rounded-lg flex items-center justify-center bg-orange-800 text-orange-200 hover:bg-orange-700 text-[10px] font-bold transition-all active:scale-95 leading-tight">
-                Rapida
-              </button>
-            )}
-
-            {/* Riga 5 — Sospeso e Cassetto */}
-            <button
-              disabled={!activeOrderId || items.length === 0}
-              onClick={() => setShowSospeso(true)}
-              title="Conto sospeso: il cliente paga in un secondo momento (visibile in backoffice)"
-              className="h-10 rounded-lg flex items-center justify-center bg-yellow-800 text-yellow-100 hover:bg-yellow-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              Sospeso
-            </button>
-            <button
-              onClick={async () => {
-                if (foUser?.role !== "admin") {
-                  toast({ title: "Operazione riservata", description: "Solo gli amministratori possono aprire il cassetto", variant: "destructive" });
-                  return;
-                }
-                try {
-                  const r = await fetch(`${API}/fiscal/open-drawer`, {
-                    method: "POST",
-                    headers: {
-                      "x-user-role": "admin",
-                      "x-user-id": String(foUser.id ?? ""),
-                      "x-user-name": foUser.name ?? "",
-                    },
-                  });
-                  const data = await r.json();
-                  if (data.ok) {
-                    addLog("info", "Cassetto aperto");
-                    toast({ title: "Cassetto aperto" });
-                  } else {
-                    toast({ title: "Cassetto non aperto", description: data.error ?? "Stampante fiscale non disponibile", variant: "destructive" });
-                  }
-                } catch {
-                  toast({ title: "Errore comunicazione RT", description: "Verifica la connessione alla stampante fiscale", variant: "destructive" });
-                }
-              }}
-              title="Apri il cassetto della cassa (comando alla stampante fiscale)"
-              className="h-10 rounded-lg flex items-center justify-center bg-slate-700 text-slate-200 hover:bg-slate-600 text-[10px] font-bold transition-all active:scale-95 leading-tight">
-              Cassetto
-            </button>
-
-            {/* Riga 6 — Tavolo (sposta/unisci/sposta articoli) — feature flag */}
-            {settings["feat_table_ops"] === "true" && (
-              <button
-                disabled={!activeOrderId}
-                onClick={() => setShowTableActions(true)}
-                title="Sposta tavolo, unisci con un altro tavolo o sposta singoli articoli"
-                className="col-span-2 h-10 rounded-lg flex items-center justify-center gap-1.5 bg-indigo-800 text-indigo-100 hover:bg-indigo-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-                <ArrowLeftRight className="h-3.5 w-3.5" />
-                Tavolo
-              </button>
-            )}
-          </div>
-        </div>
-        </div>}
-        </div>
 
         {/* Console Log Panel */}
         {showLog && (
@@ -4638,7 +4516,7 @@ export default function FrontOffice() {
               </div>
               {numBuffer && !selectedItemId && (
                 <div className="px-3 py-1.5 rounded-xl bg-primary text-white font-bold text-sm shrink-0 animate-pulse flex items-center gap-0.5">
-                  €{numBuffer}
+                  {numpadMode === "qty" ? "×" : "€"}{numBuffer}
                 </div>
               )}
             </div>
@@ -5208,13 +5086,190 @@ export default function FrontOffice() {
           </div>
         )}
       </div>
+      {/* == TASTIERINO PERSISTENTE: sempre visibile, condiviso da tutte le viste == */}
+      <section id="pos-more-operations" className="pos-keypad-dock" data-testid="persistent-keypad" aria-label="Tastierino e operazioni del conto">
+        <div className="pos-dock-pad">
+          <div className="pos-dock-readout" data-testid="persistent-buffer" aria-live="polite">
+            <span className="pos-dock-mode">
+              {numpadMode === "price" ? <Euro className="h-3 w-3" /> : <Hash className="h-3 w-3" />}
+              {numpadMode === "price" ? "Prezzo" : "Quantità"}
+              {selectedItemId ? " · riga selezionata" : ""}
+            </span>
+            <strong className={numBuffer ? "" : "is-empty"}>{numBuffer || "0"}</strong>
+          </div>
+          <div className="pos-dock-modes">
+            <button
+              data-testid="persistent-apply-qty"
+              aria-pressed={numpadMode === "qty"}
+              onClick={async () => {
+                setNumpadMode("qty");
+                if (numBuffer && selectedItemId) await applyNumpadToSelectedItem("qty");
+              }}
+              className={cn(numpadMode === "qty" && "is-active", numpadMode === "qty" && numBuffer && "is-armed")}>
+              <Hash className="h-3.5 w-3.5" /> Qtà
+            </button>
+            <button
+              data-testid="persistent-apply-price"
+              aria-pressed={numpadMode === "price"}
+              onClick={async () => {
+                setNumpadMode("price");
+                if (numBuffer && selectedItemId) await applyNumpadToSelectedItem("price");
+              }}
+              className={cn(numpadMode === "price" && "is-active", numpadMode === "price" && numBuffer && "is-armed")}>
+              <Euro className="h-3.5 w-3.5" /> Prezzo
+            </button>
+          </div>
+          <div className="pos-dock-keys">
+            {numpadKeys.map(k => (
+              <button key={k} onClick={() => handleNumpadKey(k)}
+                data-testid={`persistent-key-${k === "X" ? "clear" : k === "." ? "dot" : k}`}
+                aria-label={k === "X" ? "Cancella valore" : k === "." ? "Virgola decimale" : k}
+                className={cn("select-none", k === "X" && "is-clear")}>
+                {k === "X" ? "C" : k === "." ? "," : k}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="pos-dock-ops" role="group" aria-label="Operazioni del conto">
+            <button
+              disabled={!activeOrderId || items.length === 0 || priceLocked}
+              onClick={() => setShowDiscount(true)}
+              title={priceLocked ? "Sconto bloccato — solo amministratore" : "Applica uno sconto al totale del conto (% o € fissi)"}
+              className="h-10 rounded-lg flex items-center justify-center bg-amber-700 text-amber-100 hover:bg-amber-600 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              {priceLocked ? "Sconto (bloccato)" : "Sconto"}
+            </button>
+            <button
+              disabled={items.length === 0 && !activeOrderId}
+              onClick={() => { setLotteriaInput(lotteriaCodice); setShowLotteria(true); }}
+              title="Inserisci il codice Lotteria degli Scontrini del cliente"
+              className={cn(
+                "h-10 rounded-lg flex items-center justify-center text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed relative leading-tight",
+                lotteriaCodice
+                  ? "bg-green-800 text-green-200 hover:bg-green-700 ring-1 ring-green-500"
+                  : "bg-blue-800 text-blue-200 hover:bg-blue-700"
+              )}>
+              Lotteria
+              {lotteriaCodice && (
+                <span className="absolute -top-1 -right-1 bg-green-500 text-white text-[9px] font-bold rounded-full px-1 leading-4">OK</span>
+              )}
+            </button>
+
+            {/* Riga 2 */}
+            <button
+              disabled={items.length === 0}
+              onClick={() => setShowPreconto(true)}
+              title="Stampa il preconto (ricevuta non fiscale) per il cliente"
+              className="h-10 rounded-lg flex items-center justify-center bg-[#252840] text-slate-300 hover:bg-[#2d3044] text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              Preconto
+            </button>
+            <button
+              disabled={items.length < 2}
+              onClick={() => { setPaymentMode("split"); setRightTab("tot"); setMobilePanel("right"); }}
+              title="Conto separato: apre nella tab Tot, scegli quali articoli pagare in scontrini distinti"
+              className="h-10 rounded-lg flex items-center justify-center bg-purple-800 text-purple-200 hover:bg-purple-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              Separato
+            </button>
+
+            {/* Riga 3 */}
+            <button
+              disabled={items.length === 0}
+              onClick={() => { setPaymentMode("romana"); setRightTab("tot"); setMobilePanel("right"); }}
+              title="Pagamento alla romana: apre nella tab Tot, dividi il totale in N quote uguali"
+              className="h-10 rounded-lg flex items-center justify-center bg-green-800 text-green-200 hover:bg-green-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              Romana
+            </button>
+            <button
+              disabled={!items.some(i => i.quantity > 1)}
+              onClick={handleExplodeAll}
+              title="Espandi: ogni articolo con qty>1 viene separato in righe da 1 (utile per conto separato/romana)"
+              className="h-10 rounded-lg flex items-center justify-center bg-indigo-800 text-indigo-200 hover:bg-indigo-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              Espandi
+            </button>
+
+            {/* Riga 4 */}
+            <button
+              disabled={!selectedItemId}
+              onClick={handleDeleteSelected}
+              title="Cancella l'articolo selezionato dall'ordine"
+              className="h-10 rounded-lg flex items-center justify-center bg-red-900/80 text-red-300 hover:bg-red-800 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              Cancella
+            </button>
+            {activeOrderId ? (
+              <button
+                onClick={() => setShowCancelConfirm(true)}
+                title="Annulla l'intero ordine (registrato in audit log)"
+                className="h-10 rounded-lg flex items-center justify-center bg-red-950 text-red-400 hover:bg-red-900 text-[10px] font-bold transition-all active:scale-95 leading-tight border border-red-900">
+                Annulla ordine
+              </button>
+            ) : (
+              <button
+                onClick={() => handleQuickMode("rapida")}
+                title="Cassa rapida: vendita banco senza tavolo (per asporto, caffè veloce, ecc.)"
+                className="h-10 rounded-lg flex items-center justify-center bg-orange-800 text-orange-200 hover:bg-orange-700 text-[10px] font-bold transition-all active:scale-95 leading-tight">
+                Rapida
+              </button>
+            )}
+
+            {/* Riga 5 — Sospeso e Cassetto */}
+            <button
+              disabled={!activeOrderId || items.length === 0}
+              onClick={() => setShowSospeso(true)}
+              title="Conto sospeso: il cliente paga in un secondo momento (visibile in backoffice)"
+              className="h-10 rounded-lg flex items-center justify-center bg-yellow-800 text-yellow-100 hover:bg-yellow-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              Sospeso
+            </button>
+            <button
+              onClick={async () => {
+                if (foUser?.role !== "admin") {
+                  toast({ title: "Operazione riservata", description: "Solo gli amministratori possono aprire il cassetto", variant: "destructive" });
+                  return;
+                }
+                try {
+                  const r = await fetch(`${API}/fiscal/open-drawer`, {
+                    method: "POST",
+                    headers: {
+                      "x-user-role": "admin",
+                      "x-user-id": String(foUser.id ?? ""),
+                      "x-user-name": foUser.name ?? "",
+                    },
+                  });
+                  const data = await r.json();
+                  if (data.ok) {
+                    addLog("info", "Cassetto aperto");
+                    toast({ title: "Cassetto aperto" });
+                  } else {
+                    toast({ title: "Cassetto non aperto", description: data.error ?? "Stampante fiscale non disponibile", variant: "destructive" });
+                  }
+                } catch {
+                  toast({ title: "Errore comunicazione RT", description: "Verifica la connessione alla stampante fiscale", variant: "destructive" });
+                }
+              }}
+              title="Apri il cassetto della cassa (comando alla stampante fiscale)"
+              className="h-10 rounded-lg flex items-center justify-center bg-slate-700 text-slate-200 hover:bg-slate-600 text-[10px] font-bold transition-all active:scale-95 leading-tight">
+              Cassetto
+            </button>
+
+            {/* Riga 6 — Tavolo (sposta/unisci/sposta articoli) — feature flag */}
+            {settings["feat_table_ops"] === "true" && (
+              <button
+                disabled={!activeOrderId}
+                onClick={() => setShowTableActions(true)}
+                title="Sposta tavolo, unisci con un altro tavolo o sposta singoli articoli"
+                className="h-10 rounded-lg flex items-center justify-center gap-1.5 bg-indigo-800 text-indigo-100 hover:bg-indigo-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+                <ArrowLeftRight className="h-3.5 w-3.5" />
+                Tavolo
+              </button>
+            )}
+        </div>
+      </section>
+
 
       {/* ══ MOBILE BOTTOM TAB BAR ═════════════════════════════════════════════ */}
       <nav className="pos-mobile-nav" aria-label="Navigazione cassa"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
         <button data-testid="button-open-map-mobile" onClick={openMap} aria-current={mobilePanel === "right" && rightTab === "tavl" ? "page" : undefined}
           className={mobilePanel === "right" && rightTab === "tavl" ? "text-primary" : ""}><Users size={20} />Tavoli</button>
-        <button onClick={() => { setMoreOpen(false); setMobilePanel("left"); }}
+        <button onClick={() => { setMobilePanel("left"); }}
           aria-current={mobilePanel === "left" ? "page" : undefined}
           className={cn("flex-1 flex flex-col items-center gap-1 py-3 text-xs font-bold transition-colors",
             mobilePanel === "left" ? "text-primary" : "text-slate-500")}>
@@ -5228,7 +5283,7 @@ export default function FrontOffice() {
           </div>
           Conto{total > 0 ? ` · €${total.toFixed(2)}` : ""}
         </button>
-        <button data-testid="button-open-categories-mobile" onClick={() => { setMoreOpen(false); setMobilePanel("right"); setRightTab("grp"); }}
+        <button data-testid="button-open-categories-mobile" onClick={() => { setMobilePanel("right"); setRightTab("grp"); }}
           aria-current={mobilePanel === "right" && rightTab !== "tavl" && rightTab !== "tot" ? "page" : undefined}
           className={cn("flex-1 flex flex-col items-center gap-1 py-3 text-xs font-bold transition-colors",
             mobilePanel === "right" && rightTab !== "tavl" && rightTab !== "tot" ? "text-primary" : "text-slate-500")}>

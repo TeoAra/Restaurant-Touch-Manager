@@ -26,7 +26,7 @@ import { db, fiscalReceiptsTable } from "@workspace/db";
 import { printersTable } from "@workspace/db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { getSettings } from "./settings";
-import { rtDate } from "./fiscal-identity";
+import { fiscalEmissionEvidence } from "./fiscal-emission-evidence";
 
 const XON  = 0x11;
 const XOFF = 0x13;
@@ -738,20 +738,27 @@ export async function inviaLotteriaRt(ip: string, _codice: string, port = 1126):
 }
 
 // ── Emetti documento commerciale sulla RT e salva in fiscal_receipts ────────
-export async function emettiFiscalReceipt(opts: {
+type FiscalReceiptOptions = {
   orderId: number;
   importo: string;
   metodoPagamento: string;
   righe: { desc: string; qta: number; prezzoUnitario: string; aliquotaIva: string }[];
   lotteria?: string;
   printer?: RtPrinter | null;
-}): Promise<{ receipt: typeof fiscalReceiptsTable.$inferSelect; rt: CgiResult }> {
+  operationId?: string;
+  paymentSnapshot?: string;
+};
+
+export async function reserveFiscalReceipt(
+  opts: FiscalReceiptOptions,
+  writer: Pick<typeof db, "execute" | "insert"> = db,
+) {
   const { orderId, importo, metodoPagamento, righe, lotteria } = opts;
-  const printer = opts.printer ?? await getFiscalPrinter();
+  const printer = opts.printer;
 
   // ── Salva scontrino in DB ─────────────────────────────────────────────────
   const anno = new Date().getFullYear();
-  const rows = await db.execute(
+  const rows = await writer.execute(
     sql`SELECT COALESCE(MAX(numero), 0) + 1 AS next FROM fiscal_receipts WHERE anno = ${anno}`
   );
   const numero = Number((rows.rows[0] as { next: number }).next);
@@ -761,7 +768,7 @@ export async function emettiFiscalReceipt(opts: {
   const imponibile = importoNum / (1 + aliquota / 100);
   const ivaAmount = (importoNum - imponibile).toFixed(2);
 
-  let [receipt] = await db.insert(fiscalReceiptsTable).values({
+  const [receipt] = await writer.insert(fiscalReceiptsTable).values({
     numero,
     anno,
     data: new Date().toISOString().slice(0, 10),
@@ -770,9 +777,39 @@ export async function emettiFiscalReceipt(opts: {
     iva: ivaAmount,
     metodoPagamento,
     emissionStatus: "pending",
+    operationId: opts.operationId,
+    paymentSnapshot: opts.paymentSnapshot,
     printerRef: printer?.name ?? null,
     printerSerial: printer?.matricola ?? null,
   }).returning();
+  return receipt;
+}
+
+const fiscalJobs = new Map<string, Promise<unknown>>();
+
+export async function emettiFiscalReceipt(opts: FiscalReceiptOptions & { receiptId?: number }): Promise<{ receipt: typeof fiscalReceiptsTable.$inferSelect; rt: CgiResult }> {
+  const printer = opts.printer ?? await getFiscalPrinter();
+  const key = printer ? `${printer.ip}:${printer.port ?? 1126}` : "unconfigured";
+  const previous = fiscalJobs.get(key) ?? Promise.resolve();
+  const job = previous.catch(() => undefined).then(() => emitFiscalReceiptOnce({ ...opts, printer }));
+  fiscalJobs.set(key, job);
+  void job.then(() => undefined, () => undefined).finally(() => {
+    if (fiscalJobs.get(key) === job) fiscalJobs.delete(key);
+  });
+  return job;
+}
+
+async function emitFiscalReceiptOnce(opts: FiscalReceiptOptions & { receiptId?: number }): Promise<{ receipt: typeof fiscalReceiptsTable.$inferSelect; rt: CgiResult }> {
+  const { orderId, importo, metodoPagamento, righe, lotteria } = opts;
+  const printer = opts.printer ?? await getFiscalPrinter();
+  let receipt = opts.receiptId
+    ? (await db.select().from(fiscalReceiptsTable).where(eq(fiscalReceiptsTable.id, opts.receiptId)))[0]
+    : await reserveFiscalReceipt({ ...opts, printer });
+  if (!receipt) throw new Error("Tentativo fiscale non trovato");
+  const [claimed] = await db.update(fiscalReceiptsTable).set({ emissionStatus: "transmitting" })
+    .where(and(eq(fiscalReceiptsTable.id, receipt.id), eq(fiscalReceiptsTable.emissionStatus, "pending"))).returning();
+  if (!claimed) return { receipt, rt: { ok: ["issued", "confirmed"].includes(receipt.emissionStatus), error: "Tentativo già avviato: nessuna nuova stampa inviata" } };
+  receipt = claimed;
 
   // ── Chiama la RT via XonXoff ──────────────────────────────────────────────
   let rt: CgiResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
@@ -786,7 +823,7 @@ export async function emettiFiscalReceipt(opts: {
     // e annulliamo con 'k' se necessario.
     console.log("[FISCAL] Pre-check stato RT...");
     const preStatus = await sendXonXoff(printer.ip, rtPort, "?", 2500);
-    const preQ = parseStatusQ(preStatus.ascii);
+    let preQ = parseStatusQ(preStatus.ascii);
     console.log(`[FISCAL] Pre-check: stato=${preQ?.stato ?? "?"} ascii=${preStatus.ascii.substring(0, 100)}`);
     if (preQ && preQ.stato === 3) {
       // Documento gestionale rimasto aperto → dentro un doc non fiscale il
@@ -803,6 +840,12 @@ export async function emettiFiscalReceipt(opts: {
       // Piccola pausa per dare tempo alla RT di tornare a riposo
       await new Promise(r => setTimeout(r, 500));
     }
+
+    if (preQ && preQ.stato !== 0) {
+      preQ = parseStatusQ((await sendXonXoff(printer.ip, rtPort, "?", 2500)).ascii);
+    }
+    // Only use the identity baseline when the short status query is unavailable.
+    const beforeIdentity = preQ?.stato === 0 ? null : (await getStatus2X(printer.ip, rtPort)).status;
 
     // Carica mapping IVA→Reparto dalle impostazioni
     const settings = await getSettings();
@@ -835,16 +878,17 @@ export async function emettiFiscalReceipt(opts: {
       operatorePin: opPin  || undefined,
       lotteria:     lotteriaCode,
     });
-    console.log("[FISCAL] XonXoff cmd:", cmd);
+    // Do not log the command: it can contain the configured operator PIN.
+    console.log("[FISCAL] Invio documento: order=%s receipt=%s lines=%s", orderId, receipt.id, righe.length);
 
     // Invia ricevuta + chiedi stato per verificare chiusura
     const cmdFull = cmd + "?";
     const raw = await sendXonXoff(printer.ip, rtPort, cmdFull, 6000);
-    console.log("[FISCAL] RT raw: ok=%s xoff=%s ascii=%s", raw.ok, raw.xoffCount, raw.ascii.substring(0, 200));
+    console.log("[FISCAL] Risposta RT: transportOk=%s xoff=%s ms=%s", raw.ok, raw.xoffCount, raw.ms);
 
     if (!raw.ok || raw.xoffCount > 0) {
       rt = { ok: false, ms: raw.ms, body: raw.ascii,
-        error: `RT errore XOFF (verifica reparto/operatore sul display RT) — cmd: ${cmd.substring(0, 80)}` };
+        error: "RT: risposta da verificare sul display (reparto/operatore/trasmissione)" };
     } else {
       const statusQ = parseStatusQ(raw.ascii);
       if (statusQ && statusQ.stato === 0) {
@@ -855,27 +899,25 @@ export async function emettiFiscalReceipt(opts: {
         rt = { ok: false, ms: raw.ms, body: raw.ascii,
           error: "RT: scontrino ancora aperto dopo il pagamento" };
       } else {
-        // Nessuna risposta parsabile → probabilmente OK (modello che non risponde a ?)
-        rt = { ok: raw.xoffCount === 0, ms: raw.ms, body: raw.ascii };
+        rt = { ok: false, ms: raw.ms, error: "Esito fiscale non dimostrato dalla risposta RT" };
       }
     }
-    const statusAfter = parseStatusQ(raw.ascii);
-    if (rt.ok && preQ && statusAfter?.stato === 0 &&
-        statusAfter.chiusura === preQ.chiusura && statusAfter.docCommerciali === preQ.docCommerciali + 1) {
-      const identity = await getStatus2X(printer.ip, rtPort);
-      const status = identity.status;
-      const date = status ? rtDate(status.data) : null;
-      if (identity.ok && status && Number(status.errCode) === 0 && !status.scontrinoAperto &&
-          Number(status.numChiusura) === preQ.chiusura && Number(status.numScontrino) > 0 && date) {
-        [receipt] = await db.update(fiscalReceiptsTable).set({
-          numeroChiusura: Number(status.numChiusura), numeroDocumentoRt: Number(status.numScontrino),
-          printerSerial: status.matricola, dataDocumentoRt: date, emissionStatus: "confirmed",
-        }).where(eq(fiscalReceiptsTable.id, receipt.id)).returning();
-      }
+    const statusAfter = parseStatusQ(raw.ascii) ??
+      parseStatusQ((await sendXonXoff(printer.ip, rtPort, "?", 2500)).ascii);
+    const identityAfter = await getStatus2X(printer.ip, rtPort);
+    const proof = fiscalEmissionEvidence(preQ, statusAfter, beforeIdentity, identityAfter.status);
+    if (proof.issued) {
+      rt = { ok: true, ms: raw.ms };
+      [receipt] = await db.update(fiscalReceiptsTable).set({
+        ...proof.identity,
+        emissionStatus: proof.identity ? "confirmed" : "issued",
+      }).where(eq(fiscalReceiptsTable.id, receipt.id)).returning();
+    } else {
+      rt = { ok: false, ms: raw.ms, error: rt.error ?? "RT: emissione non verificabile; non ripetere la stampa senza riconciliare il documento" };
     }
   }
 
-  if (receipt.emissionStatus !== "confirmed") {
+  if (!["confirmed", "issued"].includes(receipt.emissionStatus)) {
     [receipt] = await db.update(fiscalReceiptsTable).set({
       emissionStatus: rt.ok ? "unverified" : "unknown",
     }).where(eq(fiscalReceiptsTable.id, receipt.id)).returning();

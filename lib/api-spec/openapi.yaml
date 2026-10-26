@@ -1364,12 +1364,20 @@ components:
           minimum: 0
         amount:
           type: string
+        method:
+          type: string
+        operationId:
+          type: string
       required: [orderId, selectedItems, coversCount, amount]
 
     BillSelectionPreview:
       type: object
       properties:
         amount:
+          type: string
+        resume:
+          type: boolean
+        operationId:
           type: string
       required: [amount]
 

@@ -33,6 +33,10 @@ Il prezzo del coperto deve essere preso automaticamente dal back office; non dev
 
 Un tocco su un prodotto deve aggiungere subito una singola unità, come nella versione precedente, senza obbligare a scegliere la quantità. Quantità e prezzo restano modificabili dalla riga della comanda.
 
+Il tastierino con le sue funzioni deve essere sempre visibile, non nascosto dietro “Altro”, anche durante la consultazione di mappa, categorie e pagamento.
+
+I prodotti devono restare separati anche se selezionati più volte: ogni tocco aggiunge una nuova riga, senza aumentare automaticamente la quantità di una riga già presente.
+
 Il pulsante Incassa in basso a destra deve mostrare il prezzo complessivo del tavolo o del banco/scontrino rapido e aprire sempre la pagina dell’incasso, indipendentemente dalla situazione. L’apertura della pagina non è una conferma del pagamento.
 
 Le prenotazioni online devono essere confermate manualmente dall’operatore nell’agenda, non confermate automaticamente. L’utente ha scelto WhatsApp per ricevere gli avvisi oltre alla cassa.
@@ -40,5 +44,7 @@ Le prenotazioni online devono essere confermate manualmente dall’operatore nel
 I terminali indicati dall’utente sono Nexi PAX D230 e myPOS Go 2. Non è stato ancora indicato il modello esatto della stampante fiscale.
 
 **Why:** l’utente ha esplicitamente richiesto questi vincoli per il rinnovo, non una versione ridotta della cassa.
+
+Le sale nella mappa devono avere pulsanti grandi e seguire l’ordine impostato nel backoffice. La dimensione della mappa deve essere uguale e ampia per tutte le sale. La comanda a destra deve essere più larga e leggibile; log e pulsanti di servizio devono stare nella barra superiore.
 
 **How to apply:** prima dell’integrazione confrontare le funzioni con la cassa esistente; non sostituire i flussi reali con quelli simulati del prototipo. Controllare anche finestre basse e scheda intera, non solo il frame desktop del canvas.
