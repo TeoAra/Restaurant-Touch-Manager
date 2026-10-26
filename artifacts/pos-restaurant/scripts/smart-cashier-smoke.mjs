@@ -293,6 +293,10 @@ try {
   for (const [width, height] of [[1440, 900], [1024, 768], [1024, 640], [800, 600], [390, 844]]) {
     await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
     await new Promise(r => setTimeout(r, 250));
+    if (width <= 760) {
+      await click(".pos-mobile-nav > button:nth-child(2)");
+      await wait(`document.querySelector(".pos-order-panel").getBoundingClientRect().width > 0`);
+    }
     const layout = await evaluate(`(() => { const rect = s => { const r = document.querySelector(s).getBoundingClientRect(); return {x:r.x, y:r.y, width:r.width, height:r.height, right:r.right, bottom:r.bottom}; }; return {body:document.documentElement.scrollWidth, menu:rect(".pos-menu-panel"), order:rect(".pos-order-panel"), actions:rect(".pos-order-actions")}; })()`);
     assert(layout.body <= width, `Horizontal page overflow at ${width}`);
     assert(await evaluate(`(() => {
@@ -305,13 +309,29 @@ try {
           return k.width>=28 && k.height>=28 && k.top>=r.top && k.bottom<=r.bottom;
         });
     })()`), `Persistent keypad and its primary functions must fit at ${width}×${height}`);
+    assert(await evaluate(`(() => {
+      const ops=document.querySelector(".pos-dock-ops");
+      for(const b of ops.querySelectorAll("button")) {
+        b.scrollIntoView({block:"nearest",inline:"nearest"});
+        const r=b.getBoundingClientRect(), p=ops.getBoundingClientRect();
+        if(r.left<p.left-1 || r.right>p.right+1 || r.top<p.top-1 || r.bottom>p.bottom+1) return false;
+      }
+      ops.scrollTop=0;ops.scrollLeft=0;return true;
+    })()`), `All right-side operations must remain reachable at ${width}×${height}`);
     if (width > 760) {
       assert(layout.menu.x <= 1 && layout.menu.x < layout.order.x, `Unified workspace must use the removed table column at ${width}`);
       assert(layout.actions.bottom <= height, `Actions clipped at ${width}`);
       assert(layout.menu.width > 200 && layout.order.right <= width, `Panels clipped at ${width}`);
+      assert(await evaluate(`(() => {
+        const order=document.querySelector(".pos-order-panel"), dock=document.querySelector('[data-testid="persistent-keypad"]');
+        const k=dock.getBoundingClientRect(), r=order.getBoundingClientRect(), m=document.querySelector(".pos-menu-panel").getBoundingClientRect();
+        return order.contains(dock) && k.left>=r.left && k.right<=r.right+1 && k.left>=m.right-1 && m.bottom>=r.bottom-1 &&
+          [...dock.querySelectorAll(".pos-dock-ops button")].every(b=>b.getBoundingClientRect().left>=r.left);
+      })()`), `Keypad/actions must stay on the right and the workspace must use the full height at ${width}×${height}`);
     } else {
       await showMap();
       assert(await evaluate(`document.querySelector('[data-testid="map-viewport"]').getBoundingClientRect().width > 0`), "Mobile Tavoli must open the unified map");
+      assert(await evaluate(`document.querySelector('[data-testid="persistent-keypad"]').getBoundingClientRect().height === 0`), "Mobile map must not lose space to the comanda keypad");
       await click(".pos-mobile-nav > button:nth-child(2)");
       await new Promise(r => setTimeout(r, 150));
       assert(await evaluate(`document.querySelector(".pos-order-panel").getBoundingClientRect().width > 0`), "Mobile order missing");
@@ -322,9 +342,12 @@ try {
     // The payment panel must remain scrollable on short and narrow screens.
     await click(".pos-order-actions > button:last-child");
     await wait(`!!document.querySelector(".pos-payment-panel")`);
+    assert(await evaluate(`document.querySelector(".pos-payment-panel").getBoundingClientRect().height >= innerHeight * .42`), `Payment must have useful height at ${width}×${height}`);
     await evaluate(`document.querySelector(".pos-payment-panel > button:last-of-type").scrollIntoView({block:"end"})`);
     const reachable = await evaluate(`(() => { const b = document.querySelector(".pos-payment-panel > button:last-of-type").getBoundingClientRect(); const p = document.querySelector(".pos-payment-panel").getBoundingClientRect(); return b.top >= p.top - 1 && b.bottom <= p.bottom + 1; })()`);
     assert(reachable, `Payment confirmation unreachable at ${width}×${height}`);
+    const paymentShot = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
+    await writeFile(`generated-artifacts/pos-smart/payment-${width}x${height}.jpg`, Buffer.from(paymentShot.data, "base64"));
     await showMap();
     await wait(`document.querySelector(".pos-menu-panel").textContent.includes("Mappa Tavoli")`);
     await wait(`document.querySelectorAll(".pos-menu-panel .origin-top-left button").length > 0`);
@@ -454,7 +477,7 @@ try {
     assert.equal(payment.amount, due.toFixed(2));
     assert.equal(payment.lotteria, "ABCD1234");
     assert(payloads.findIndex(p => p.path === "/api/invoices") < payloads.findIndex(p => p.path === "/api/payments"));
-    assert(await evaluate(`document.querySelector('[data-testid="text-invoice-xml"]').textContent.includes("<Numero>1/23</Numero>")`));
+    await wait(`document.querySelector('[data-testid="text-invoice-xml"]')?.textContent.includes("<Numero>1/23</Numero>")`);
     assert(await evaluate(`!!document.querySelector('[data-testid="button-invoice-download"]') && document.querySelector('[data-testid="dialog-invoice-result"]').textContent.includes("non stampata")`));
     await mkdir(profile + "/downloads", { recursive: true });
     await send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: profile + "/downloads" });

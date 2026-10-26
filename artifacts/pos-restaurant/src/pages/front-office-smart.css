@@ -356,3 +356,58 @@
   .pos-header-services { order: 2; }
   .pos-room-selector > button { min-width: 96px; min-height: 48px; font-size: 15px; }
 }
+
+/* Keypad dock lives INSIDE the comanda column (bottom-right), above Incassa.
+   Left workspace (map/categorie/cliente/pagamento) takes full height. */
+.pos-smart-live { grid-template-rows: 58px minmax(0, 1fr); grid-template-areas: "header header" "menu order"; }
+@media (max-height: 650px) and (min-width: 761px) { .pos-smart-live { grid-template-rows: 48px minmax(0, 1fr); } }
+.pos-order-panel { flex-direction: column; }
+.pos-order-panel > .pos-keypad-dock {
+  flex: 0 0 auto; flex-direction: column; gap: 6px; max-height: none;
+  padding: 7px 10px 0; border-top: 1px solid var(--pos-line); box-shadow: none;
+}
+/* Keep the primary actions pinned on short touch displays, without reducing the
+   whole interface. The total/input repeated above the rows already appear in
+   Incassa and the keypad readout. */
+@media (max-height: 760px) and (min-width: 761px) {
+  .pos-order-panel .pos-order-actions { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); }
+  .pos-order-panel .pos-order-actions > button { min-height: 44px; padding: 8px 5px; font-size: 12px; }
+}
+@media (max-height: 650px) and (min-width: 761px) {
+  .pos-order-panel > .pos-order-summary { display: none; }
+  .pos-order-panel > .pos-keypad-dock .pos-dock-ops { max-height: 40px; }
+}
+.pos-order-panel .pos-dock-pad {
+  width: 100%; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  grid-template-areas: "readout keys" "modes keys"; grid-template-rows: auto 1fr;
+}
+.pos-order-panel .pos-dock-keys { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 38px; }
+.pos-order-panel .pos-dock-modes { grid-template-columns: 1fr; grid-auto-rows: minmax(38px, 1fr); }
+.pos-order-panel .pos-dock-ops {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  padding: 0 0 2px; border-left: 0; max-height: 92px; overflow-y: auto; overflow-x: hidden;
+}
+.pos-smart-live .pos-order-panel .pos-dock-ops button { height: 42px; min-width: 0; }
+@media (max-height: 760px) and (min-width: 761px) {
+  .pos-order-panel .pos-dock-keys { grid-auto-rows: 34px; }
+  .pos-order-panel .pos-dock-modes { grid-auto-rows: minmax(34px, 1fr); }
+  .pos-order-panel .pos-dock-ops { max-height: 82px; }
+  .pos-smart-live .pos-order-panel .pos-dock-ops button { height: 38px; }
+}
+@media (max-height: 620px) and (min-width: 761px) {
+  .pos-order-panel .pos-dock-keys { grid-auto-rows: 32px; gap: 4px; }
+  .pos-order-panel .pos-dock-pad { grid-template-columns: minmax(0, .8fr) minmax(0, 1.4fr); }
+  .pos-order-panel .pos-dock-readout strong { font-size: 17px; }
+  .pos-order-panel .pos-dock-ops { max-height: 40px; }
+}
+@media (max-width: 760px) {
+  .pos-smart-live {
+    grid-template-rows: 92px minmax(0, 1fr) calc(64px + env(safe-area-inset-bottom));
+    grid-template-areas: "header" "main" "nav";
+  }
+  .pos-order-panel .pos-dock-pad { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "readout modes" "keys keys"; grid-template-rows: auto auto; }
+  .pos-order-panel .pos-dock-modes { grid-template-columns: repeat(2, 76px); grid-auto-rows: 40px; }
+  .pos-order-panel .pos-dock-keys { grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-rows: 42px; }
+  .pos-order-panel .pos-dock-ops { display: flex; overflow-x: auto; overflow-y: hidden; max-height: none; scroll-snap-type: x proximity; }
+  .pos-smart-live .pos-order-panel .pos-dock-ops button { flex: 0 0 auto; min-width: 88px; height: 42px; }
+}

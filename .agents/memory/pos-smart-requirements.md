@@ -33,7 +33,11 @@ Il prezzo del coperto deve essere preso automaticamente dal back office; non dev
 
 Un tocco su un prodotto deve aggiungere subito una singola unità, come nella versione precedente, senza obbligare a scegliere la quantità. Quantità e prezzo restano modificabili dalla riga della comanda.
 
-Il tastierino con le sue funzioni deve essere sempre visibile, non nascosto dietro “Altro”, anche durante la consultazione di mappa, categorie e pagamento.
+Il tastierino non deve stare sotto la mappa: deve essere in basso nella colonna destra, sotto la comanda. Sconto, Lotteria, Separato e le altre azioni devono stare a destra o nella scheda Pagamento, mai in una fascia che schiaccia l’area sinistra. Mappa e Pagamento devono usare tutta l’altezza disponibile.
+
+Su desktop il tastierino rimane visibile in tutte le viste, senza menu “Altro”. Su telefono, dove le colonne diventano viste separate, appartiene alla vista Conto: mappa e pagamento non devono essere compressi da un dock separato.
+
+**Why:** l’utente ha corretto esplicitamente la disposizione sotto la mappa mostrando la cassa reale troppo compressa; la priorità è liberare l’area sinistra mantenendo i controlli nella comanda.
 
 I prodotti devono restare separati anche se selezionati più volte: ogni tocco aggiunge una nuova riga, senza aumentare automaticamente la quantità di una riga già presente.
 

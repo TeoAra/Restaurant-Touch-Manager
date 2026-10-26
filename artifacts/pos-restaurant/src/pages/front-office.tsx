@@ -4184,7 +4184,7 @@ export default function FrontOffice() {
         </div>
 
         {/* Totale */}
-        <div className="px-2.5 pt-2 pb-1 shrink-0">
+        <div className="pos-order-summary px-2.5 pt-2 pb-1 shrink-0">
           <div className="bg-[#171b27] rounded-xl px-3 py-2 flex items-center justify-between border border-[#37415c]">
             <div>
               {numBuffer ? (
@@ -4419,6 +4419,182 @@ export default function FrontOffice() {
           </div>
         )}
 
+      {/* == TASTIERINO PERSISTENTE: sempre visibile, condiviso da tutte le viste == */}
+      <section id="pos-more-operations" className="pos-keypad-dock" data-testid="persistent-keypad" aria-label="Tastierino e operazioni del conto">
+        <div className="pos-dock-pad">
+          <div className="pos-dock-readout" data-testid="persistent-buffer" aria-live="polite">
+            <span className="pos-dock-mode">
+              {numpadMode === "price" ? <Euro className="h-3 w-3" /> : <Hash className="h-3 w-3" />}
+              {numpadMode === "price" ? "Prezzo" : "Quantità"}
+              {selectedItemId ? " · riga selezionata" : ""}
+            </span>
+            <strong className={numBuffer ? "" : "is-empty"}>{numBuffer || "0"}</strong>
+          </div>
+          <div className="pos-dock-modes">
+            <button
+              data-testid="persistent-apply-qty"
+              aria-pressed={numpadMode === "qty"}
+              onClick={async () => {
+                setNumpadMode("qty");
+                if (numBuffer && selectedItemId) await applyNumpadToSelectedItem("qty");
+              }}
+              className={cn(numpadMode === "qty" && "is-active", numpadMode === "qty" && numBuffer && "is-armed")}>
+              <Hash className="h-3.5 w-3.5" /> Qtà
+            </button>
+            <button
+              data-testid="persistent-apply-price"
+              aria-pressed={numpadMode === "price"}
+              onClick={async () => {
+                setNumpadMode("price");
+                if (numBuffer && selectedItemId) await applyNumpadToSelectedItem("price");
+              }}
+              className={cn(numpadMode === "price" && "is-active", numpadMode === "price" && numBuffer && "is-armed")}>
+              <Euro className="h-3.5 w-3.5" /> Prezzo
+            </button>
+          </div>
+          <div className="pos-dock-keys">
+            {numpadKeys.map(k => (
+              <button key={k} onClick={() => handleNumpadKey(k)}
+                data-testid={`persistent-key-${k === "X" ? "clear" : k === "." ? "dot" : k}`}
+                aria-label={k === "X" ? "Cancella valore" : k === "." ? "Virgola decimale" : k}
+                className={cn("select-none", k === "X" && "is-clear")}>
+                {k === "X" ? "C" : k === "." ? "," : k}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="pos-dock-ops" role="group" aria-label="Operazioni del conto">
+            <button
+              disabled={!activeOrderId || items.length === 0 || priceLocked}
+              onClick={() => setShowDiscount(true)}
+              title={priceLocked ? "Sconto bloccato — solo amministratore" : "Applica uno sconto al totale del conto (% o € fissi)"}
+              className="h-10 rounded-lg flex items-center justify-center bg-amber-700 text-amber-100 hover:bg-amber-600 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              {priceLocked ? "Sconto (bloccato)" : "Sconto"}
+            </button>
+            <button
+              disabled={items.length === 0 && !activeOrderId}
+              onClick={() => { setLotteriaInput(lotteriaCodice); setShowLotteria(true); }}
+              title="Inserisci il codice Lotteria degli Scontrini del cliente"
+              className={cn(
+                "h-10 rounded-lg flex items-center justify-center text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed relative leading-tight",
+                lotteriaCodice
+                  ? "bg-green-800 text-green-200 hover:bg-green-700 ring-1 ring-green-500"
+                  : "bg-blue-800 text-blue-200 hover:bg-blue-700"
+              )}>
+              Lotteria
+              {lotteriaCodice && (
+                <span className="absolute -top-1 -right-1 bg-green-500 text-white text-[9px] font-bold rounded-full px-1 leading-4">OK</span>
+              )}
+            </button>
+
+            {/* Riga 2 */}
+            <button
+              disabled={items.length === 0}
+              onClick={() => setShowPreconto(true)}
+              title="Stampa il preconto (ricevuta non fiscale) per il cliente"
+              className="h-10 rounded-lg flex items-center justify-center bg-[#252840] text-slate-300 hover:bg-[#2d3044] text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              Preconto
+            </button>
+            <button
+              disabled={items.length < 2}
+              onClick={() => { setPaymentMode("split"); setRightTab("tot"); setMobilePanel("right"); }}
+              title="Conto separato: apre nella tab Tot, scegli quali articoli pagare in scontrini distinti"
+              className="h-10 rounded-lg flex items-center justify-center bg-purple-800 text-purple-200 hover:bg-purple-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              Separato
+            </button>
+
+            {/* Riga 3 */}
+            <button
+              disabled={items.length === 0}
+              onClick={() => { setPaymentMode("romana"); setRightTab("tot"); setMobilePanel("right"); }}
+              title="Pagamento alla romana: apre nella tab Tot, dividi il totale in N quote uguali"
+              className="h-10 rounded-lg flex items-center justify-center bg-green-800 text-green-200 hover:bg-green-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              Romana
+            </button>
+            <button
+              disabled={!items.some(i => i.quantity > 1)}
+              onClick={handleExplodeAll}
+              title="Espandi: ogni articolo con qty>1 viene separato in righe da 1 (utile per conto separato/romana)"
+              className="h-10 rounded-lg flex items-center justify-center bg-indigo-800 text-indigo-200 hover:bg-indigo-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              Espandi
+            </button>
+
+            {/* Riga 4 */}
+            <button
+              disabled={!selectedItemId}
+              onClick={handleDeleteSelected}
+              title="Cancella l'articolo selezionato dall'ordine"
+              className="h-10 rounded-lg flex items-center justify-center bg-red-900/80 text-red-300 hover:bg-red-800 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              Cancella
+            </button>
+            {activeOrderId ? (
+              <button
+                onClick={() => setShowCancelConfirm(true)}
+                title="Annulla l'intero ordine (registrato in audit log)"
+                className="h-10 rounded-lg flex items-center justify-center bg-red-950 text-red-400 hover:bg-red-900 text-[10px] font-bold transition-all active:scale-95 leading-tight border border-red-900">
+                Annulla ordine
+              </button>
+            ) : (
+              <button
+                onClick={() => handleQuickMode("rapida")}
+                title="Cassa rapida: vendita banco senza tavolo (per asporto, caffè veloce, ecc.)"
+                className="h-10 rounded-lg flex items-center justify-center bg-orange-800 text-orange-200 hover:bg-orange-700 text-[10px] font-bold transition-all active:scale-95 leading-tight">
+                Rapida
+              </button>
+            )}
+
+            {/* Riga 5 — Sospeso e Cassetto */}
+            <button
+              disabled={!activeOrderId || items.length === 0}
+              onClick={() => setShowSospeso(true)}
+              title="Conto sospeso: il cliente paga in un secondo momento (visibile in backoffice)"
+              className="h-10 rounded-lg flex items-center justify-center bg-yellow-800 text-yellow-100 hover:bg-yellow-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+              Sospeso
+            </button>
+            <button
+              onClick={async () => {
+                if (foUser?.role !== "admin") {
+                  toast({ title: "Operazione riservata", description: "Solo gli amministratori possono aprire il cassetto", variant: "destructive" });
+                  return;
+                }
+                try {
+                  const r = await fetch(`${API}/fiscal/open-drawer`, {
+                    method: "POST",
+                    headers: {
+                      "x-user-role": "admin",
+                      "x-user-id": String(foUser.id ?? ""),
+                      "x-user-name": foUser.name ?? "",
+                    },
+                  });
+                  const data = await r.json();
+                  if (data.ok) {
+                    addLog("info", "Cassetto aperto");
+                    toast({ title: "Cassetto aperto" });
+                  } else {
+                    toast({ title: "Cassetto non aperto", description: data.error ?? "Stampante fiscale non disponibile", variant: "destructive" });
+                  }
+                } catch {
+                  toast({ title: "Errore comunicazione RT", description: "Verifica la connessione alla stampante fiscale", variant: "destructive" });
+                }
+              }}
+              title="Apri il cassetto della cassa (comando alla stampante fiscale)"
+              className="h-10 rounded-lg flex items-center justify-center bg-slate-700 text-slate-200 hover:bg-slate-600 text-[10px] font-bold transition-all active:scale-95 leading-tight">
+              Cassetto
+            </button>
+
+            {/* Riga 6 — Tavolo (sposta/unisci/sposta articoli) — feature flag */}
+            {settings["feat_table_ops"] === "true" && (
+              <button
+                disabled={!activeOrderId}
+                onClick={() => setShowTableActions(true)}
+                title="Sposta tavolo, unisci con un altro tavolo o sposta singoli articoli"
+                className="h-10 rounded-lg flex items-center justify-center gap-1.5 bg-indigo-800 text-indigo-100 hover:bg-indigo-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
+                <ArrowLeftRight className="h-3.5 w-3.5" />
+                Tavolo
+              </button>
+            )}
+        </div>
+      </section>
         {/* Bottone CASSA */}
         <div className="pos-order-actions px-2.5 pb-2.5 shrink-0">
           <button className="pos-send-button" onClick={handleSendComanda} disabled={!activeOrderId || !hasDraftItems}>
@@ -5086,182 +5262,6 @@ export default function FrontOffice() {
           </div>
         )}
       </div>
-      {/* == TASTIERINO PERSISTENTE: sempre visibile, condiviso da tutte le viste == */}
-      <section id="pos-more-operations" className="pos-keypad-dock" data-testid="persistent-keypad" aria-label="Tastierino e operazioni del conto">
-        <div className="pos-dock-pad">
-          <div className="pos-dock-readout" data-testid="persistent-buffer" aria-live="polite">
-            <span className="pos-dock-mode">
-              {numpadMode === "price" ? <Euro className="h-3 w-3" /> : <Hash className="h-3 w-3" />}
-              {numpadMode === "price" ? "Prezzo" : "Quantità"}
-              {selectedItemId ? " · riga selezionata" : ""}
-            </span>
-            <strong className={numBuffer ? "" : "is-empty"}>{numBuffer || "0"}</strong>
-          </div>
-          <div className="pos-dock-modes">
-            <button
-              data-testid="persistent-apply-qty"
-              aria-pressed={numpadMode === "qty"}
-              onClick={async () => {
-                setNumpadMode("qty");
-                if (numBuffer && selectedItemId) await applyNumpadToSelectedItem("qty");
-              }}
-              className={cn(numpadMode === "qty" && "is-active", numpadMode === "qty" && numBuffer && "is-armed")}>
-              <Hash className="h-3.5 w-3.5" /> Qtà
-            </button>
-            <button
-              data-testid="persistent-apply-price"
-              aria-pressed={numpadMode === "price"}
-              onClick={async () => {
-                setNumpadMode("price");
-                if (numBuffer && selectedItemId) await applyNumpadToSelectedItem("price");
-              }}
-              className={cn(numpadMode === "price" && "is-active", numpadMode === "price" && numBuffer && "is-armed")}>
-              <Euro className="h-3.5 w-3.5" /> Prezzo
-            </button>
-          </div>
-          <div className="pos-dock-keys">
-            {numpadKeys.map(k => (
-              <button key={k} onClick={() => handleNumpadKey(k)}
-                data-testid={`persistent-key-${k === "X" ? "clear" : k === "." ? "dot" : k}`}
-                aria-label={k === "X" ? "Cancella valore" : k === "." ? "Virgola decimale" : k}
-                className={cn("select-none", k === "X" && "is-clear")}>
-                {k === "X" ? "C" : k === "." ? "," : k}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="pos-dock-ops" role="group" aria-label="Operazioni del conto">
-            <button
-              disabled={!activeOrderId || items.length === 0 || priceLocked}
-              onClick={() => setShowDiscount(true)}
-              title={priceLocked ? "Sconto bloccato — solo amministratore" : "Applica uno sconto al totale del conto (% o € fissi)"}
-              className="h-10 rounded-lg flex items-center justify-center bg-amber-700 text-amber-100 hover:bg-amber-600 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              {priceLocked ? "Sconto (bloccato)" : "Sconto"}
-            </button>
-            <button
-              disabled={items.length === 0 && !activeOrderId}
-              onClick={() => { setLotteriaInput(lotteriaCodice); setShowLotteria(true); }}
-              title="Inserisci il codice Lotteria degli Scontrini del cliente"
-              className={cn(
-                "h-10 rounded-lg flex items-center justify-center text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed relative leading-tight",
-                lotteriaCodice
-                  ? "bg-green-800 text-green-200 hover:bg-green-700 ring-1 ring-green-500"
-                  : "bg-blue-800 text-blue-200 hover:bg-blue-700"
-              )}>
-              Lotteria
-              {lotteriaCodice && (
-                <span className="absolute -top-1 -right-1 bg-green-500 text-white text-[9px] font-bold rounded-full px-1 leading-4">OK</span>
-              )}
-            </button>
-
-            {/* Riga 2 */}
-            <button
-              disabled={items.length === 0}
-              onClick={() => setShowPreconto(true)}
-              title="Stampa il preconto (ricevuta non fiscale) per il cliente"
-              className="h-10 rounded-lg flex items-center justify-center bg-[#252840] text-slate-300 hover:bg-[#2d3044] text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              Preconto
-            </button>
-            <button
-              disabled={items.length < 2}
-              onClick={() => { setPaymentMode("split"); setRightTab("tot"); setMobilePanel("right"); }}
-              title="Conto separato: apre nella tab Tot, scegli quali articoli pagare in scontrini distinti"
-              className="h-10 rounded-lg flex items-center justify-center bg-purple-800 text-purple-200 hover:bg-purple-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              Separato
-            </button>
-
-            {/* Riga 3 */}
-            <button
-              disabled={items.length === 0}
-              onClick={() => { setPaymentMode("romana"); setRightTab("tot"); setMobilePanel("right"); }}
-              title="Pagamento alla romana: apre nella tab Tot, dividi il totale in N quote uguali"
-              className="h-10 rounded-lg flex items-center justify-center bg-green-800 text-green-200 hover:bg-green-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              Romana
-            </button>
-            <button
-              disabled={!items.some(i => i.quantity > 1)}
-              onClick={handleExplodeAll}
-              title="Espandi: ogni articolo con qty>1 viene separato in righe da 1 (utile per conto separato/romana)"
-              className="h-10 rounded-lg flex items-center justify-center bg-indigo-800 text-indigo-200 hover:bg-indigo-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              Espandi
-            </button>
-
-            {/* Riga 4 */}
-            <button
-              disabled={!selectedItemId}
-              onClick={handleDeleteSelected}
-              title="Cancella l'articolo selezionato dall'ordine"
-              className="h-10 rounded-lg flex items-center justify-center bg-red-900/80 text-red-300 hover:bg-red-800 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              Cancella
-            </button>
-            {activeOrderId ? (
-              <button
-                onClick={() => setShowCancelConfirm(true)}
-                title="Annulla l'intero ordine (registrato in audit log)"
-                className="h-10 rounded-lg flex items-center justify-center bg-red-950 text-red-400 hover:bg-red-900 text-[10px] font-bold transition-all active:scale-95 leading-tight border border-red-900">
-                Annulla ordine
-              </button>
-            ) : (
-              <button
-                onClick={() => handleQuickMode("rapida")}
-                title="Cassa rapida: vendita banco senza tavolo (per asporto, caffè veloce, ecc.)"
-                className="h-10 rounded-lg flex items-center justify-center bg-orange-800 text-orange-200 hover:bg-orange-700 text-[10px] font-bold transition-all active:scale-95 leading-tight">
-                Rapida
-              </button>
-            )}
-
-            {/* Riga 5 — Sospeso e Cassetto */}
-            <button
-              disabled={!activeOrderId || items.length === 0}
-              onClick={() => setShowSospeso(true)}
-              title="Conto sospeso: il cliente paga in un secondo momento (visibile in backoffice)"
-              className="h-10 rounded-lg flex items-center justify-center bg-yellow-800 text-yellow-100 hover:bg-yellow-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-              Sospeso
-            </button>
-            <button
-              onClick={async () => {
-                if (foUser?.role !== "admin") {
-                  toast({ title: "Operazione riservata", description: "Solo gli amministratori possono aprire il cassetto", variant: "destructive" });
-                  return;
-                }
-                try {
-                  const r = await fetch(`${API}/fiscal/open-drawer`, {
-                    method: "POST",
-                    headers: {
-                      "x-user-role": "admin",
-                      "x-user-id": String(foUser.id ?? ""),
-                      "x-user-name": foUser.name ?? "",
-                    },
-                  });
-                  const data = await r.json();
-                  if (data.ok) {
-                    addLog("info", "Cassetto aperto");
-                    toast({ title: "Cassetto aperto" });
-                  } else {
-                    toast({ title: "Cassetto non aperto", description: data.error ?? "Stampante fiscale non disponibile", variant: "destructive" });
-                  }
-                } catch {
-                  toast({ title: "Errore comunicazione RT", description: "Verifica la connessione alla stampante fiscale", variant: "destructive" });
-                }
-              }}
-              title="Apri il cassetto della cassa (comando alla stampante fiscale)"
-              className="h-10 rounded-lg flex items-center justify-center bg-slate-700 text-slate-200 hover:bg-slate-600 text-[10px] font-bold transition-all active:scale-95 leading-tight">
-              Cassetto
-            </button>
-
-            {/* Riga 6 — Tavolo (sposta/unisci/sposta articoli) — feature flag */}
-            {settings["feat_table_ops"] === "true" && (
-              <button
-                disabled={!activeOrderId}
-                onClick={() => setShowTableActions(true)}
-                title="Sposta tavolo, unisci con un altro tavolo o sposta singoli articoli"
-                className="h-10 rounded-lg flex items-center justify-center gap-1.5 bg-indigo-800 text-indigo-100 hover:bg-indigo-700 text-[10px] font-bold transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed leading-tight">
-                <ArrowLeftRight className="h-3.5 w-3.5" />
-                Tavolo
-              </button>
-            )}
-        </div>
-      </section>
 
 
       {/* ══ MOBILE BOTTOM TAB BAR ═════════════════════════════════════════════ */}
