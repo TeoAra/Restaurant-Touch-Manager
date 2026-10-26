@@ -313,6 +313,28 @@ try {
   for (const [width, height] of [[1440, 900], [1024, 768], [1024, 640], [800, 600], [390, 844]]) {
     await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
     await new Promise(r => setTimeout(r, 250));
+    await click('[data-testid="button-user-menu"]');
+    await wait(`!!document.querySelector('[data-testid="user-menu-panel"]')`);
+    assert(await evaluate(`(() => {
+      const luminance = color => {
+        const rgb=color.match(/[\\d.]+/g).slice(0,3).map(Number).map(n=>n/255);
+        const v=rgb.map(n=>n<=.04045?n/12.92:((n+.055)/1.055)**2.4);
+        return .2126*v[0]+.7152*v[1]+.0722*v[2];
+      };
+      const panel=document.querySelector('[data-testid="user-menu-panel"]');
+      const p=panel.getBoundingClientRect();
+      return p.left>=0 && p.right<=innerWidth && p.bottom<=innerHeight &&
+        ["button-user-backoffice","button-user-logout"].every(id=>{
+          const el=document.querySelector('[data-testid="'+id+'"]'), r=el.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          const style=getComputedStyle(el), bg=luminance(getComputedStyle(panel).backgroundColor), fg=luminance(style.color);
+          return r.height>=48 && r.top>=p.top && r.bottom<=p.bottom && el.contains(hit) &&
+            (Math.max(bg,fg)+.05)/(Math.min(bg,fg)+.05)>=4.5;
+        });
+    })()`), `User menu must show readable, unobscured touch actions at ${width}×${height}`);
+    const userShot = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
+    await writeFile(`generated-artifacts/pos-smart/user-menu-${width}x${height}.jpg`, Buffer.from(userShot.data, "base64"));
+    await click('[data-testid="user-menu-backdrop"]');
     if (width <= 760) {
       await click(".pos-mobile-nav > button:nth-child(2)");
       await wait(`document.querySelector(".pos-order-panel").getBoundingClientRect().width > 0`);
@@ -370,6 +392,16 @@ try {
     await writeFile(`generated-artifacts/pos-smart/payment-${width}x${height}.jpg`, Buffer.from(paymentShot.data, "base64"));
     await showMap();
     await wait(`document.querySelector(".pos-menu-panel").textContent.includes("Mappa Tavoli")`);
+    assert(await evaluate(`(() => {
+      const toolbar=document.querySelector(".pos-map-toolbar").getBoundingClientRect();
+      const selectors=['[data-testid="button-map-back"]','[data-testid="room-selector"]','[data-testid="button-map-book"]'];
+      return toolbar.height<=58 && selectors.every(s=>{
+        const r=document.querySelector(s).getBoundingClientRect();
+        const ok=r.width>0 && r.height>=44 && r.top>=toolbar.top-1 && r.bottom<=toolbar.bottom+1 && r.left>=0 && r.right<=innerWidth;
+        if(!ok) throw Error(JSON.stringify({selector:s,rect:r.toJSON(),toolbar:toolbar.toJSON()}));
+        return true;
+      });
+    })()`), `Back, rooms and booking must share one touch-friendly row at ${width}×${height}`);
     await wait(`document.querySelectorAll(".pos-menu-panel .origin-top-left button").length > 0`);
     assert(await evaluate(`(() => { const r = document.querySelector(".pos-menu-panel .origin-top-left button").getBoundingClientRect(); return r.width >= 30 && r.height >= 30 && r.right <= innerWidth && r.bottom <= innerHeight; })()`), `Map tables not visible at ${width}×${height}`);
     const mapShot = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });

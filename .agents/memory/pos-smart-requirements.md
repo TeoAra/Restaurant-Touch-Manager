@@ -57,4 +57,8 @@ I terminali indicati dall’utente sono Nexi PAX D230 e myPOS Go 2. Non è stato
 
 Le sale nella mappa devono avere pulsanti grandi e seguire l’ordine impostato nel backoffice. La dimensione della mappa deve essere uguale e ampia per tutte le sale. La comanda a destra deve essere più larga e leggibile; log e pulsanti di servizio devono stare nella barra superiore.
 
+Il comando Indietro della mappa deve stare nella stessa riga dei pulsanti delle sale e degli altri controlli, senza una barra separata.
+
+**Why:** l’utente vuole recuperare spazio per la mappa sulla cassa touch.
+
 **How to apply:** prima dell’integrazione confrontare le funzioni con la cassa esistente; non sostituire i flussi reali con quelli simulati del prototipo. Controllare anche finestre basse e scheda intera, non solo il frame desktop del canvas.

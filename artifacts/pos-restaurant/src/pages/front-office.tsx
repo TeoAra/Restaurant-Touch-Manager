@@ -637,7 +637,6 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
     if (!roomKey || !rooms.some(r => r.key === roomKey)) setRoomKey(rooms[0].key);
   }, [rooms, roomKey]);
   const activeRoom = rooms.find(r => r.key === roomKey) ?? null;
-  const roomFilter = activeRoom?.name ?? null;
   const tableRoomId = (t: FETable) => (t as FETable & { roomId?: number | null }).roomId ?? null;
   const filtered = tablesStatus.filter(t => {
     if (!activeRoom) return true;
@@ -689,26 +688,27 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
 
   return (
     <div className="relative flex flex-col h-full">
-      {/* Panel header */}
-      <div className="px-3 py-2 bg-white border-b border-slate-200 shrink-0">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <button onClick={onBack}
-              className="h-9 w-9 rounded-lg border-2 border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-colors">
+      {/* One toolbar: back, rooms and booking controls share the same row. */}
+      <div className="pos-map-header px-3 py-2 bg-white border-b border-slate-200 shrink-0">
+        <div className="pos-map-toolbar" aria-label="Mappa Tavoli">
+            <span className="sr-only">Mappa Tavoli</span>
+            <button onClick={onBack} aria-label="Indietro" title="Indietro"
+              data-testid="button-map-back"
+              className="pos-map-back rounded-lg border-2 border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-colors">
               <ChevronLeft className="h-5 w-5" />
             </button>
-            <div>
-              <div className="flex items-center gap-2">
-                <MapIcon className="h-4 w-4 text-primary" />
-                <span className="font-bold text-slate-800 text-sm">Mappa Tavoli</span>
-              </div>
-              {roomFilter && (
-                <span className="text-xs text-primary font-semibold ml-6">{roomFilter}</span>
-              )}
+            <div className="pos-room-selector" role="tablist" aria-label="Sale" data-testid="room-selector">
+              {rooms.map(r => (
+                <button key={r.key} role="tab" aria-selected={roomKey === r.key}
+                  onClick={() => setRoomKey(r.key)}
+                  className={roomKey === r.key ? "is-active" : ""}
+                  data-testid={`room-button-${r.id ?? r.name}`}>
+                  {r.name}
+                </button>
+              ))}
             </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-            <div className="flex items-center gap-2 text-xs">
+          <div className="pos-map-tools">
+            <div className="pos-map-counts flex items-center gap-2 text-xs" aria-label={`${freeCount} liberi, ${occupiedCount} occupati, ${reservedCount} prenotati`}>
               <span className="flex items-center gap-1 text-emerald-600 font-semibold">
                 <div className="h-2 w-2 rounded-full bg-emerald-500" /> {freeCount}
               </span>
@@ -722,8 +722,9 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
               )}
             </div>
             <button onClick={() => { setShowNewRes(true); setResForm({ guestName: "", phone: "", time: "20:00", covers: 2, date: mapDate }); setResTableIds([]); }}
-              className="flex items-center gap-1.5 px-3 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:bg-primary/90 active:scale-95 transition-all shrink-0">
-              <CalendarClock className="h-3.5 w-3.5" /> Prenota
+              aria-label="Prenota" title="Prenota" data-testid="button-map-book"
+              className="pos-map-book flex items-center gap-1.5 px-3 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:bg-primary/90 active:scale-95 transition-all shrink-0">
+              <CalendarClock className="h-4 w-4" /><span>Prenota</span>
             </button>
           </div>
         </div>
@@ -731,18 +732,6 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
           <div className="mt-2 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" data-testid="text-rooms-error">
             <span className="flex-1">{(roomsQuery.error as Error)?.message ?? "Errore caricamento sale"}</span>
             <button onClick={() => roomsQuery.refetch()} className="rounded-md border border-red-300 bg-white px-2.5 py-1 font-bold" data-testid="button-rooms-retry">Riprova</button>
-          </div>
-        )}
-        {rooms.length > 0 && (
-          <div className="pos-room-selector" role="tablist" aria-label="Sale" data-testid="room-selector">
-            {rooms.map(r => (
-              <button key={r.key} role="tab" aria-selected={roomKey === r.key}
-                onClick={() => setRoomKey(r.key)}
-                className={roomKey === r.key ? "is-active" : ""}
-                data-testid={`room-button-${r.id ?? r.name}`}>
-                {r.name}
-              </button>
-            ))}
           </div>
         )}
       </div>
@@ -1012,11 +1001,15 @@ function UserMenuButton({ showUserMenu, setShowUserMenu }: {
   const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 
   return (
-    <div className="relative">
+    <div className="pos-user-menu relative">
       <button
         onClick={() => setShowUserMenu(!showUserMenu)}
+        data-testid="button-user-menu"
+        aria-label="Menu utente"
+        aria-expanded={showUserMenu}
+        aria-controls="pos-user-menu-panel"
         className={cn(
-          "h-9 w-9 rounded-xl border-2 flex items-center justify-center transition-all",
+          "pos-user-trigger h-9 w-9 rounded-xl border-2 flex items-center justify-center transition-all",
           showUserMenu
             ? "border-primary bg-primary/10 text-primary"
             : "border-slate-200 bg-white text-slate-500 hover:border-primary hover:text-primary"
@@ -1029,9 +1022,10 @@ function UserMenuButton({ showUserMenu, setShowUserMenu }: {
       {showUserMenu && (
         <>
           {/* Backdrop */}
-          <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
+          <div className="fixed inset-0 z-40" data-testid="user-menu-backdrop" onClick={() => setShowUserMenu(false)} />
           {/* Dropdown */}
-          <div className="absolute right-0 top-11 z-50 w-52 bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
+          <div id="pos-user-menu-panel" data-testid="user-menu-panel" aria-label="Azioni utente"
+            className="pos-user-dropdown absolute right-0 top-11 z-50 bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
             {/* User info */}
             <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
               <div className="flex items-center gap-2.5">
@@ -1051,6 +1045,7 @@ function UserMenuButton({ showUserMenu, setShowUserMenu }: {
               {user?.role === "admin" && (
                 <Link href={`${BASE}/backoffice`}>
                   <button
+                    data-testid="button-user-backoffice"
                     onClick={() => setShowUserMenu(false)}
                     className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-700 hover:bg-primary/10 hover:text-primary transition-colors"
                   >
@@ -1060,6 +1055,7 @@ function UserMenuButton({ showUserMenu, setShowUserMenu }: {
                 </Link>
               )}
               <button
+                data-testid="button-user-logout"
                 onClick={() => { setShowUserMenu(false); logout(); }}
                 className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
               >
