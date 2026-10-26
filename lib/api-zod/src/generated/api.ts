@@ -176,17 +176,69 @@ export const ListTablesResponseItem = zod.object({
   seats: zod.number(),
   status: zod.enum(["free", "occupied", "reserved"]),
   createdAt: zod.string(),
+  roomId: zod.number().nullish(),
+  sortOrder: zod.number().optional(),
+  posX: zod.number().optional(),
+  posY: zod.number().optional(),
+  shape: zod.string().optional(),
+  elementType: zod.string().optional(),
+  rotation: zod.number().optional(),
+  sizeScale: zod.number().optional(),
 });
 export const ListTablesResponse = zod.array(ListTablesResponseItem);
 
 /**
  * @summary Create a table
  */
+export const createTableBodyPosXMin = 0;
+export const createTableBodyPosXMax = 1000;
+export const createTableBodyPosXMultipleOf = 1;
+
+export const createTableBodyPosYMin = 0;
+export const createTableBodyPosYMax = 1000;
+export const createTableBodyPosYMultipleOf = 1;
+
+export const createTableBodyShapeMax = 40;
+
+export const createTableBodyElementTypeMax = 40;
+
+export const createTableBodyRotationMin = 0;
+export const createTableBodyRotationMax = 359;
+
+export const createTableBodySizeScaleMin = 0.3;
+export const createTableBodySizeScaleMax = 10;
+
 export const CreateTableBody = zod.object({
   number: zod.number(),
   name: zod.string(),
   seats: zod.number(),
   status: zod.enum(["free", "occupied", "reserved"]),
+  roomId: zod.number().nullish(),
+  sortOrder: zod.number().optional(),
+  posX: zod
+    .number()
+    .min(createTableBodyPosXMin)
+    .max(createTableBodyPosXMax)
+    .multipleOf(createTableBodyPosXMultipleOf)
+    .optional(),
+  posY: zod
+    .number()
+    .min(createTableBodyPosYMin)
+    .max(createTableBodyPosYMax)
+    .multipleOf(createTableBodyPosYMultipleOf)
+    .optional(),
+  shape: zod.string().max(createTableBodyShapeMax).optional(),
+  elementType: zod.string().max(createTableBodyElementTypeMax).optional(),
+  rotation: zod
+    .number()
+    .min(createTableBodyRotationMin)
+    .max(createTableBodyRotationMax)
+    .optional(),
+  sizeScale: zod
+    .number()
+    .min(createTableBodySizeScaleMin)
+    .max(createTableBodySizeScaleMax)
+    .optional(),
 });
 
 /**
@@ -203,6 +255,14 @@ export const GetTableResponse = zod.object({
   seats: zod.number(),
   status: zod.enum(["free", "occupied", "reserved"]),
   createdAt: zod.string(),
+  roomId: zod.number().nullish(),
+  sortOrder: zod.number().optional(),
+  posX: zod.number().optional(),
+  posY: zod.number().optional(),
+  shape: zod.string().optional(),
+  elementType: zod.string().optional(),
+  rotation: zod.number().optional(),
+  sizeScale: zod.number().optional(),
 });
 
 /**
@@ -212,11 +272,55 @@ export const UpdateTableParams = zod.object({
   id: zod.coerce.number(),
 });
 
+export const updateTableBodyPosXMin = 0;
+export const updateTableBodyPosXMax = 1000;
+export const updateTableBodyPosXMultipleOf = 1;
+
+export const updateTableBodyPosYMin = 0;
+export const updateTableBodyPosYMax = 1000;
+export const updateTableBodyPosYMultipleOf = 1;
+
+export const updateTableBodyShapeMax = 40;
+
+export const updateTableBodyElementTypeMax = 40;
+
+export const updateTableBodyRotationMin = 0;
+export const updateTableBodyRotationMax = 359;
+
+export const updateTableBodySizeScaleMin = 0.3;
+export const updateTableBodySizeScaleMax = 10;
+
 export const UpdateTableBody = zod.object({
   number: zod.number().optional(),
   name: zod.string().optional(),
   seats: zod.number().optional(),
   status: zod.enum(["free", "occupied", "reserved"]).optional(),
+  roomId: zod.number().nullish(),
+  sortOrder: zod.number().optional(),
+  posX: zod
+    .number()
+    .min(updateTableBodyPosXMin)
+    .max(updateTableBodyPosXMax)
+    .multipleOf(updateTableBodyPosXMultipleOf)
+    .optional(),
+  posY: zod
+    .number()
+    .min(updateTableBodyPosYMin)
+    .max(updateTableBodyPosYMax)
+    .multipleOf(updateTableBodyPosYMultipleOf)
+    .optional(),
+  shape: zod.string().max(updateTableBodyShapeMax).optional(),
+  elementType: zod.string().max(updateTableBodyElementTypeMax).optional(),
+  rotation: zod
+    .number()
+    .min(updateTableBodyRotationMin)
+    .max(updateTableBodyRotationMax)
+    .optional(),
+  sizeScale: zod
+    .number()
+    .min(updateTableBodySizeScaleMin)
+    .max(updateTableBodySizeScaleMax)
+    .optional(),
 });
 
 export const UpdateTableResponse = zod.object({
@@ -226,6 +330,14 @@ export const UpdateTableResponse = zod.object({
   seats: zod.number(),
   status: zod.enum(["free", "occupied", "reserved"]),
   createdAt: zod.string(),
+  roomId: zod.number().nullish(),
+  sortOrder: zod.number().optional(),
+  posX: zod.number().optional(),
+  posY: zod.number().optional(),
+  shape: zod.string().optional(),
+  elementType: zod.string().optional(),
+  rotation: zod.number().optional(),
+  sizeScale: zod.number().optional(),
 });
 
 /**
@@ -404,6 +516,39 @@ export const AddOrderItemBody = zod.object({
 });
 
 /**
+ * @summary Atomically separate quantities into individual rows
+ */
+export const ExpandOrderItemsParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ExpandOrderItemsResponse = zod.object({
+  expanded: zod.number(),
+});
+
+/**
+ * @summary Validate selected quantities before starting a card transaction
+ */
+
+export const previewSelectedBillBodyCoversCountMin = 0;
+
+export const PreviewSelectedBillBody = zod.object({
+  orderId: zod.number(),
+  selectedItems: zod.array(
+    zod.object({
+      itemId: zod.number().min(1),
+      quantity: zod.number().min(1),
+    }),
+  ),
+  coversCount: zod.number().min(previewSelectedBillBodyCoversCountMin),
+  amount: zod.string(),
+});
+
+export const PreviewSelectedBillResponse = zod.object({
+  amount: zod.string(),
+});
+
+/**
  * @summary Update order item quantity or notes
  */
 export const UpdateOrderItemParams = zod.object({
@@ -455,11 +600,28 @@ export const ListPaymentsResponse = zod.array(ListPaymentsResponseItem);
 /**
  * @summary Register a payment for an order
  */
+
+export const createPaymentBodyCoversCountMin = 0;
+
+export const createPaymentBodyOperationIdMax = 120;
+
 export const CreatePaymentBody = zod.object({
   orderId: zod.number(),
   method: zod.enum(["cash", "card", "ticket", "other", "satispay"]),
   amount: zod.string(),
   change: zod.string().nullish(),
+  selectedItems: zod
+    .array(
+      zod.object({
+        itemId: zod.number().min(1),
+        quantity: zod.number().min(1),
+      }),
+    )
+    .optional(),
+  itemIds: zod.array(zod.number()).optional(),
+  coversCount: zod.number().min(createPaymentBodyCoversCountMin).optional(),
+  partial: zod.boolean().optional(),
+  operationId: zod.string().max(createPaymentBodyOperationIdMax).optional(),
 });
 
 /**

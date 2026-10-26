@@ -34,7 +34,6 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link } from "wouter";
-import { SmartTables } from "@/components/pos/SmartTables";
 import { NumericKeypadDialog } from "@/components/pos/NumericKeypadDialog";
 import { PaymentSummary, type OrderPayment } from "@/components/pos/PaymentSummary";
 import { LotteryField, isLotteryFormat } from "@/components/pos/LotteryField";
@@ -93,7 +92,7 @@ function PosTerminalPicker({ terminals, value, onChange, compact }: {
             className={cn(
               "flex items-center justify-center gap-1.5 rounded-lg border-2 font-semibold transition-all active:scale-95",
               compact ? "py-2 text-[11px]" : "py-2.5 text-xs",
-              value === t ? "border-primary bg-[#edf5e9] text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300"
+              value === t ? "border-primary bg-[#eef1f5] text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300"
             )}>
             <CreditCard className="h-3.5 w-3.5" /> {POS_TERMINAL_LABEL[t]}
           </button>
@@ -196,6 +195,8 @@ function FloorElement({ t, isSelected, onClick, reservation, assignMode, moveMod
     <button
       disabled={isDecor || ((assignMode || moveMode) && !isTargetable)}
       onClick={isDecor ? undefined : onClick}
+      data-testid={isDecor ? undefined : `map-table-${t.id}`}
+      aria-label={isDecor ? undefined : `Tavolo ${t.name}, ${status === "occupied" ? "occupato" : status === "reserved" ? "prenotato" : "libero"}`}
       title={
         status === "occupied"
           ? prePrinted ? "Preconto stampato — in attesa di pagamento"
@@ -369,7 +370,7 @@ function TableActionsDialog({ open, onClose, order, items, tablesStatus, onDone 
         {mode === "menu" && (
           <div className="space-y-2 py-2">
             <button onClick={() => setMode("move")}
-              className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border-2 border-slate-200 hover:border-primary hover:bg-[#edf5e9] transition-all text-left">
+              className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border-2 border-slate-200 hover:border-primary hover:bg-[#eef1f5] transition-all text-left">
               <ArrowRightFromLine className="h-6 w-6 text-primary shrink-0" />
               <div>
                 <div className="font-bold text-sm text-slate-800">Sposta tavolo</div>
@@ -377,7 +378,7 @@ function TableActionsDialog({ open, onClose, order, items, tablesStatus, onDone 
               </div>
             </button>
             <button onClick={() => setMode("merge")} disabled={occupiedTables.length === 0}
-              className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border-2 border-slate-200 hover:border-primary hover:bg-[#edf5e9] transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed">
+              className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border-2 border-slate-200 hover:border-primary hover:bg-[#eef1f5] transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed">
               <GitMerge className="h-6 w-6 text-primary shrink-0" />
               <div>
                 <div className="font-bold text-sm text-slate-800">Unisci con altro tavolo</div>
@@ -385,7 +386,7 @@ function TableActionsDialog({ open, onClose, order, items, tablesStatus, onDone 
               </div>
             </button>
             <button onClick={() => setMode("moveItems")} disabled={items.length === 0 || occupiedTables.length === 0}
-              className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border-2 border-slate-200 hover:border-primary hover:bg-[#edf5e9] transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed">
+              className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border-2 border-slate-200 hover:border-primary hover:bg-[#eef1f5] transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed">
               <ArrowLeftRight className="h-6 w-6 text-primary shrink-0" />
               <div>
                 <div className="font-bold text-sm text-slate-800">Sposta articoli</div>
@@ -405,7 +406,7 @@ function TableActionsDialog({ open, onClose, order, items, tablesStatus, onDone 
                 ) : freeTables.map(t => (
                   <button key={t.id} onClick={() => setTargetTableId(t.id)}
                     className={cn("p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1",
-                      targetTableId === t.id ? "border-primary bg-[#edf5e9] ring-2 ring-primary/30" : "border-slate-200 hover:border-slate-400")}>
+                      targetTableId === t.id ? "border-primary bg-[#eef1f5] ring-2 ring-primary/30" : "border-slate-200 hover:border-slate-400")}>
                     <span className="font-bold text-base text-slate-800">{t.name}</span>
                     <span className="text-[10px] text-slate-500 flex items-center gap-1"><Users className="h-2.5 w-2.5" />{t.seats}</span>
                     {t.roomName && <span className="text-[9px] text-slate-400 truncate w-full text-center">{t.roomName}</span>}
@@ -432,7 +433,7 @@ function TableActionsDialog({ open, onClose, order, items, tablesStatus, onDone 
                 ) : occupiedTables.map(t => (
                   <button key={t.id} onClick={() => setTargetOrderId(t.activeOrderId ?? null)}
                     className={cn("w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all",
-                      targetOrderId === t.activeOrderId ? "border-primary bg-[#edf5e9] ring-2 ring-primary/30" : "border-slate-200 hover:border-slate-400")}>
+                      targetOrderId === t.activeOrderId ? "border-primary bg-[#eef1f5] ring-2 ring-primary/30" : "border-slate-200 hover:border-slate-400")}>
                     <div className="flex items-center gap-2">
                       <div className="h-9 w-9 rounded-lg bg-[#e3eed9] flex items-center justify-center font-bold text-sm text-primary">{t.name}</div>
                       <div className="text-left">
@@ -466,7 +467,7 @@ function TableActionsDialog({ open, onClose, order, items, tablesStatus, onDone 
                       <button key={it.id}
                         onClick={() => setSelectedItems(prev => prev.includes(it.id) ? prev.filter(x => x !== it.id) : [...prev, it.id])}
                         className={cn("w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm transition-colors",
-                          checked ? "bg-[#edf5e9] text-primary font-semibold" : "hover:bg-slate-50")}>
+                          checked ? "bg-[#eef1f5] text-primary font-semibold" : "hover:bg-slate-50")}>
                         <div className={cn("h-4 w-4 rounded border-2 flex items-center justify-center shrink-0",
                           checked ? "bg-primary border-primary" : "border-slate-300")}>
                           {checked && <CheckCircle2 className="h-3 w-3 text-white" />}
@@ -486,7 +487,7 @@ function TableActionsDialog({ open, onClose, order, items, tablesStatus, onDone 
                   {occupiedTables.map(t => (
                     <button key={t.id} onClick={() => setTargetOrderId(t.activeOrderId ?? null)}
                       className={cn("w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm transition-colors",
-                        targetOrderId === t.activeOrderId ? "bg-[#edf5e9] text-primary font-semibold" : "hover:bg-slate-50")}>
+                        targetOrderId === t.activeOrderId ? "bg-[#eef1f5] text-primary font-semibold" : "hover:bg-slate-50")}>
                       <span className="h-7 w-7 rounded bg-orange-100 flex items-center justify-center text-xs font-bold">{t.name}</span>
                       <span className="flex-1">{t.roomName ?? "—"}</span>
                       {t.activeOrderTotal && <span className="text-xs text-slate-500">€ {t.activeOrderTotal}</span>}
@@ -617,30 +618,30 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
   }, [rooms.join(",")]);
 
   const filtered = tablesStatus.filter(t => roomFilter === null || t.roomName === roomFilter);
-  // Ingombro reale (celle + rotazione/scala + margine per etichette e anello selezione)
+  // Ingombro reale in px: per ogni elemento il box ruotato+scalato attorno al suo centro,
+  // ingrandito del 5% (scale-105 selezionato) + 6px (ring-4 + offset 2) + ombra.
   const mapExtent = useMemo(() => {
-    const els = filtered;
-    const minX = els.length ? Math.min(...els.map(t => t.posX ?? 0)) : 0;
-    const minY = els.length ? Math.min(...els.map(t => t.posY ?? 0)) : 0;
-    let inflate = 0;
-    let cw = 0, ch = 0;
-    for (const t of els) {
+    const M = 14; // margine bordo + ombra shadow-xl
+    if (!filtered.length) return { offX: 0, offY: 0, w: 4 * CELL, h: 2 * CELL };
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const t of filtered) {
       const { w, h } = getElementSize(t);
-      const sc = t.sizeScale && t.sizeScale > 0 ? t.sizeScale : 1;
-      const angle = (t.rotation ?? 0) * Math.PI / 180;
-      const rotatedW = sc * (Math.abs(Math.cos(angle)) * w + Math.abs(Math.sin(angle)) * h) * CELL;
-      const rotatedH = sc * (Math.abs(Math.sin(angle)) * w + Math.abs(Math.cos(angle)) * h) * CELL;
-      const infl = Math.max(0, (rotatedW - w * CELL) / 2, (rotatedH - h * CELL) / 2);
-      inflate = Math.max(inflate, infl);
-      cw = Math.max(cw, ((t.posX ?? 0) - minX + w) * CELL);
-      ch = Math.max(ch, ((t.posY ?? 0) - minY + h) * CELL);
+      const bw = w * CELL - 8, bh = h * CELL - 8;
+      const sc = (t.sizeScale && t.sizeScale > 0 ? t.sizeScale : 1) * 1.05;
+      const ang = (t.rotation ?? 0) * Math.PI / 180;
+      const c = Math.abs(Math.cos(ang)), si = Math.abs(Math.sin(ang));
+      const hw = sc * (c * bw + si * bh) / 2 + 6 + M;
+      const hh = sc * (si * bw + c * bh) / 2 + 6 + M;
+      const cx = (t.posX ?? 0) * CELL + 3 + bw / 2;
+      const cy = (t.posY ?? 0) * CELL + 3 + bh / 2;
+      x0 = Math.min(x0, cx - hw); x1 = Math.max(x1, cx + hw);
+      y0 = Math.min(y0, cy - hh); y1 = Math.max(y1, cy + hh);
     }
-    const pad = 20 + Math.ceil(inflate) + 8; // 8 = scale-105 selezionato
-    return { minX, minY, pad, w: Math.max(cw, 4 * CELL) + pad * 2, h: Math.max(ch, 2 * CELL) + pad * 2 };
+    return { offX: -x0, offY: -y0, w: Math.ceil(x1 - x0), h: Math.ceil(y1 - y0) };
   }, [filtered]);
+  // Adatta sempre larghezza E altezza (mai oltre 1, nessuno scroll, nessun taglio).
   const fitScale = containerSize.w > 0 && containerSize.h > 0 ? Math.min(containerSize.w / mapExtent.w, containerSize.h / mapExtent.h) : 1;
-  // Mai oltre 1; mai sotto 0.55 (touch): oltre si scorre/trascina, senza tagliare
-  const scale = Math.max(0.55, Math.min(fitScale, 1));
+  const scale = Math.max(Number.EPSILON, Math.min(fitScale, 1));
   const freeCount = filtered.filter(t => t.elementType !== "table" ? false : t.status === "free").length;
   const occupiedCount = filtered.filter(t => t.elementType !== "table" ? false : t.status === "occupied").length;
 
@@ -758,17 +759,16 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
       )}
 
       {/* Floor plan */}
-      <div ref={containerRef} className="flex-1 overflow-auto bg-[#f4f6fa] relative touch-pan-x touch-pan-y" style={{ WebkitOverflowScrolling: "touch" }}>
+      <div ref={containerRef} className="flex-1 min-h-0 overflow-hidden bg-[#f4f6fa] relative flex items-center justify-center" data-testid="map-viewport">
         {(() => {
-          const { minX, minY, pad } = mapExtent;
-          const canvasW = Math.max(mapExtent.w, containerSize.w / scale);
-          const canvasH = Math.max(mapExtent.h, containerSize.h / scale);
+                    const canvasW = mapExtent.w;
+          const canvasH = mapExtent.h;
           const gridCols = Math.ceil(canvasW / CELL) + 1;
           const gridRows = Math.ceil(canvasH / CELL) + 1;
           const fullCanvasW = canvasW;
           const fullCanvasH = canvasH;
           return (
-            <div className="bg-[#f8fafc]" style={{ width: fullCanvasW * scale, height: fullCanvasH * scale }} data-testid="map-canvas">
+            <div className="bg-[#f8fafc] overflow-hidden shrink-0 rounded-lg" style={{ width: fullCanvasW * scale, height: fullCanvasH * scale }} data-testid="map-canvas">
               <div
                 className="relative select-none origin-top-left"
                 style={{ width: fullCanvasW, height: fullCanvasH, transform: `scale(${scale})` }}
@@ -779,8 +779,11 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
                 {Array.from({ length: gridCols + 1 }).map((_, i) => (
                   <div key={`v${i}`} className="absolute top-0 bottom-0 border-r border-slate-200/60" style={{ left: i * CELL }} />
                 ))}
+                {filtered.length === 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-500" data-testid="text-map-empty">Nessun tavolo in questa sala</div>
+                )}
                 {filtered.map(t => (
-                  <div key={t.id} className="absolute" style={{ left: ((t.posX ?? 0) - minX) * CELL + pad + 3, top: ((t.posY ?? 0) - minY) * CELL + pad + 3 }}>
+                  <div key={t.id} className="absolute" style={{ left: (t.posX ?? 0) * CELL + 3 + mapExtent.offX, top: (t.posY ?? 0) * CELL + 3 + mapExtent.offY }}>
                     <FloorElement
                       t={t}
                       isSelected={t.id === selectedTableId}
@@ -1048,7 +1051,7 @@ function CustomerCard({ c, selected, onSelect }: { c: SimpleCustomer; selected: 
       className={cn(
         "w-full text-left px-4 py-3 rounded-xl border-2 transition-all active:scale-95",
         selected
-          ? "border-[#174f43] bg-[#edf5e9]"
+          ? "border-[#2b3440] bg-[#eef1f5]"
           : "border-slate-300 bg-white hover:border-primary/60",
       )}>
       <div className="font-semibold text-slate-900 text-sm">{c.ragioneSociale}</div>
@@ -1409,7 +1412,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay: onPay
             {methods.map(m => (
               <button key={m.id} onClick={() => setMethod(m.id)}
                 className={cn("flex flex-col items-center gap-1 py-2 rounded-lg border-2 transition-all",
-                  method === m.id ? "border-primary bg-[#edf5e9]" : "border-slate-200 hover:border-slate-300")}>
+                  method === m.id ? "border-primary bg-[#eef1f5]" : "border-slate-200 hover:border-slate-300")}>
                 <m.icon className={cn("h-4 w-4", m.color)} />
                 <span className="text-[9px] font-medium text-slate-700 text-center leading-tight">{m.label}</span>
               </button>
@@ -1451,7 +1454,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay: onPay
           {/* Invoice toggle */}
           <div className={cn(
             "rounded-xl border-2 transition-all",
-            emittiFattura ? "border-primary bg-[#edf5e9]" : "border-slate-200"
+            emittiFattura ? "border-primary bg-[#eef1f5]" : "border-slate-200"
           )}>
             <div
               role="button" tabIndex={0}
@@ -2071,7 +2074,7 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
                   {(hasPagatiPrecedenti ? [1,2,3,4,5] : [2,3,4,5,6,8]).map(n => (
                     <button key={n} onClick={() => setNumSplits(n)}
                       className={cn("h-9 w-9 rounded-lg border-2 text-sm font-bold transition-all",
-                        numSplits === n ? "border-primary bg-[#edf5e9] text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300")}>
+                        numSplits === n ? "border-primary bg-[#eef1f5] text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300")}>
                       {n}
                     </button>
                   ))}
@@ -2153,7 +2156,7 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
                       : isError   ? "border-red-300 bg-red-50"
                       : isPosWait ? "border-blue-300 bg-blue-50"
                       : isPosManual ? "border-amber-300 bg-amber-50"
-                      : isNext    ? "border-primary bg-[#edf5e9]"
+                      : isNext    ? "border-primary bg-[#eef1f5]"
                       : "border-slate-200 bg-white opacity-60"
                     )}>
                       <div className="flex items-center gap-3">
@@ -2408,11 +2411,14 @@ ${covers > 0 ? `<p>${covers} coperti${coverPrice > 0 ? ` × €${coverPrice.toFi
 }
 
 // ─── Split Bill: body riusabile (dialog + tab "tot" inline) ───────────────────
-function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId }: {
+type SelectedBillItem = { itemId: number; quantity: number };
+type SplitPayHandler = (method: string, amount: number, itemIds: number[], coversToDeduct: number, selectedItems: SelectedBillItem[], operationId: string) => unknown;
+
+function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId, busy = false }: {
   items: Array<{ id: number; productName: string; quantity: number; unitPrice: string; subtotal: string }>;
-  onPay: (method: string, amount: number, itemIds: number[], coversToDeduct: number) => void;
+  onPay: SplitPayHandler;
   onCancel: () => void;
-  coverPrice: number; coverCount: number; orderId?: number;
+  coverPrice: number; coverCount: number; orderId?: number; busy?: boolean;
 }) {
   const coverRows = coverPrice > 0 && coverCount > 0
     ? Array.from({ length: coverCount }, (_, i) => ({
@@ -2427,6 +2433,8 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
 
   // qty[id] = selected quantity for this row (0 = not included)
   const [qty, setQty] = useState<Record<number, number>>({});
+  const splitOperationRef = useRef<{ key: string; id: string } | null>(null);
+  const splitSubmitting = useRef(false);
   const [method, setMethod] = useState<"cash" | "card" | "ticket" | "other" | "satispay">("cash");
   const { data: sbSettings = {} } = useSettings();
   const sbBuoniPastoOn = sbSettings["feat_buoni_pasto"] === "true";
@@ -2438,19 +2446,45 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
   const [sbPosPhase, setSbPosPhase] = useState<"idle" | "waiting" | "manual_confirm" | "declined">("idle");
   const [sbPosError, setSbPosError] = useState<string | null>(null);
 
-  function doIncassaFinale() {
+  function selectedQuantities() {
+    return items.map(row => ({ itemId: row.id, quantity: Math.min(row.quantity, qty[row.id] ?? 0) })).filter(row => row.quantity > 0);
+  }
+
+  async function doIncassaFinale() {
+    if (busy || !hasSelection) return;
     if (method === "satispay" && !window.confirm("Confermi di aver verificato nell’app Satispay Business il pagamento ricevuto? La verifica è manuale.")) return;
-    const ids = allRows.filter(r => (qty[r.id] ?? 0) > 0 && !r.isCover).map(r => r.id);
+    const selectedItems = selectedQuantities();
+    const ids = selectedItems.map(row => row.itemId);
     const coversToDeduct = coverRows.filter(r => (qty[r.id] ?? 0) > 0).length;
     setSbPosPhase("idle");
-    onPay(method, splitTotal, ids, coversToDeduct);
+    const key = JSON.stringify([orderId, method, selectedItems, coversToDeduct, splitTotal]);
+    if (splitOperationRef.current?.key !== key) splitOperationRef.current = { key, id: `split-${crypto.randomUUID()}` };
+    const result = await onPay(method, splitTotal, ids, coversToDeduct, selectedItems, splitOperationRef.current.id);
+    if (result === true) { setQty({}); splitOperationRef.current = null; }
   }
 
   async function handleIncassa() {
+    if (busy || splitSubmitting.current || !hasSelection) return;
+    splitSubmitting.current = true;
+    try {
     if (method === "card" && sbActiveTerminal) {
       setSbPosPhase("waiting");
       setSbPosError(null);
       try {
+        const preview = await fetch(`${API}/payments/selection-preview`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orderId, selectedItems: selectedQuantities(),
+            coversCount: coverRows.filter(row => (qty[row.id] ?? 0) > 0).length,
+            amount: splitTotal.toFixed(2),
+          }),
+        });
+        const quote = await preview.json();
+        if (!preview.ok || quote.amount !== splitTotal.toFixed(2)) {
+          setSbPosPhase("idle");
+          setSbPosError(quote.error ?? "Il conto è cambiato: aggiorna la selezione prima di avviare il POS");
+          return;
+        }
         const resp = await fetch(`${API}/pos/sale`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2458,7 +2492,7 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
         });
         const result = await resp.json();
         if (result.manualConfirmRequired) { setSbPosPhase("manual_confirm"); return; }
-        if (result.approved) { doIncassaFinale(); return; }
+        if (result.approved) { await doIncassaFinale(); return; }
         setSbPosPhase("declined");
         setSbPosError(result.error ?? result.responseMessage ?? "Transazione rifiutata");
       } catch {
@@ -2467,7 +2501,8 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
       }
       return;
     }
-    doIncassaFinale();
+    await doIncassaFinale();
+    } finally { splitSubmitting.current = false; }
   }
 
   function setRowQty(id: number, val: number, max: number) {
@@ -2479,14 +2514,15 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
   function selectNone() { setQty({}); }
 
   const splitTotal = allRows.reduce((sum, r) => {
-    const q = qty[r.id] ?? 0;
-    return sum + q * parseFloat(r.unitPrice);
-  }, 0);
+    const q = Math.min(r.quantity, qty[r.id] ?? 0);
+    return sum + q * Math.round(parseFloat(r.unitPrice) * 100);
+  }, 0) / 100;
   const hasSelection = allRows.some(r => (qty[r.id] ?? 0) > 0);
 
   return (
     <>
       <div className="space-y-3 py-1">
+      <fieldset disabled={busy || sbPosPhase === "waiting" || sbPosPhase === "manual_confirm"} className="contents" data-testid="split-selection">
         <div className="flex justify-between items-center text-xs text-slate-500">
           <span>Seleziona le voci da pagare</span>
           <div className="flex gap-2">
@@ -2501,9 +2537,9 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
               const rowTotal = selected * unitPrice;
               const isActive = selected > 0;
               return (
-                <div key={row.id} className={cn(
+                <div key={row.id} data-testid={`split-row-${row.id}`} className={cn(
                   "flex items-center gap-2 p-2.5 rounded-lg border-2 transition-all",
-                  isActive ? "border-primary bg-[#edf5e9]" : "border-slate-200 bg-white"
+                  isActive ? "border-primary bg-[#eef1f5]" : "border-slate-200 bg-white"
                 )}>
                   {/* Name + price */}
                   <div className="flex-1 min-w-0">
@@ -2520,6 +2556,7 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
                   {row.quantity === 1 ? (
                     /* Simple toggle for qty=1 */
                     <button
+                      aria-label={`Seleziona ${row.productName}`}
                       onClick={() => setRowQty(row.id, selected === 0 ? 1 : 0, 1)}
                       className={cn("h-7 w-7 rounded-lg border-2 flex items-center justify-center transition-all",
                         isActive ? "border-primary bg-primary text-white" : "border-slate-300 hover:border-primary")}
@@ -2529,7 +2566,7 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
                   ) : (
                     /* Stepper for qty>1 */
                     <div className="flex items-center gap-1 shrink-0">
-                      <button onClick={() => setRowQty(row.id, selected - 1, row.quantity)}
+                      <button aria-label={`Rimuovi un pezzo di ${row.productName}`} onClick={() => setRowQty(row.id, selected - 1, row.quantity)}
                         className="h-7 w-7 rounded-lg border-2 border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-all text-slate-600">
                         <Minus className="h-3 w-3" />
                       </button>
@@ -2537,7 +2574,7 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
                         isActive ? "text-primary" : "text-slate-400")}>
                         {selected}/{row.quantity}
                       </span>
-                      <button onClick={() => setRowQty(row.id, selected + 1, row.quantity)}
+                      <button aria-label={`Aggiungi un pezzo di ${row.productName}`} onClick={() => setRowQty(row.id, selected + 1, row.quantity)}
                         className="h-7 w-7 rounded-lg border-2 border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-all text-slate-600">
                         <Plus className="h-3 w-3" />
                       </button>
@@ -2573,7 +2610,7 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
                   return (
                     <button key={m} onClick={() => setMethod(m)}
                       className={cn("flex items-center justify-center gap-1 py-2 rounded-lg text-[10px] font-semibold border-2 transition-colors",
-                        method === m ? "border-primary bg-[#edf5e9] text-primary" : "border-slate-200 text-slate-600")}>
+                        method === m ? "border-primary bg-[#eef1f5] text-primary" : "border-slate-200 text-slate-600")}>
                       {icons[m]} {labels[m]}
                     </button>
                   );
@@ -2588,6 +2625,8 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
             </div>
           )}
 
+      </fieldset>
+          {sbPosError && sbPosPhase === "idle" && <p role="alert" className="text-sm text-red-700">{sbPosError}</p>}
           {sbPosPhase === "manual_confirm" && (
             <div className="p-3 bg-amber-50 rounded-xl border-2 border-amber-300 space-y-2">
               <p className="text-xs font-bold text-amber-800 text-center">
@@ -2618,7 +2657,8 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
         <Button variant="outline" onClick={onCancel}>Annulla</Button>
         <Button
           onClick={handleIncassa}
-          disabled={!hasSelection || sbPosPhase === "waiting"}
+          data-testid="button-pay-split"
+          disabled={!hasSelection || busy || sbPosPhase === "waiting" || sbPosPhase === "manual_confirm"}
         >
           {sbPosPhase === "waiting"
             ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Terminale…</>
@@ -2633,10 +2673,11 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
 }
 
 // ─── Split Bill Dialog (thin wrapper attorno a SplitBillBody) ─────────────────
-function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }: {
+function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount, orderId, busy }: {
   open: boolean; onClose: () => void;
   items: Array<{ id: number; productName: string; quantity: number; unitPrice: string; subtotal: string }>;
-  onPay: (method: string, amount: number, itemIds: number[], coversToDeduct: number) => void;
+  onPay: SplitPayHandler;
+  orderId?: number; busy?: boolean;
   coverPrice: number; coverCount: number;
 }) {
   return (
@@ -2648,7 +2689,13 @@ function SplitBillDialog({ open, onClose, items, onPay, coverPrice, coverCount }
             items={items}
             coverPrice={coverPrice}
             coverCount={coverCount}
-            onPay={(m, a, ids, c) => { onPay(m, a, ids, c); onClose(); }}
+            orderId={orderId}
+            busy={busy}
+            onPay={async (m, a, ids, c, selectedItems, operationId) => {
+              const result = await onPay(m, a, ids, c, selectedItems, operationId);
+              if (result === true) onClose();
+              return result;
+            }}
             onCancel={onClose}
           />
         )}
@@ -2684,15 +2731,14 @@ function ItemEditDialog({ open, onClose, item, onSave, priceLocked }: {
   );
 }
 
-// ─── Category Button (MOito-style large colored tile) ─────────────────────────
+// ─── Large responsive category tile ──────────────────────────────────────────
 type PosCategory = { id: number; name: string; color?: string | null };
 function CategoryButton({ cat, onClick }: { cat: PosCategory; onClick: () => void }) {
-  const bg = cat.color ?? "#64748b";
   return (
-    <button onClick={onClick}
-      className="rounded-xl flex flex-col items-center justify-center p-3 min-h-[80px] active:scale-95 transition-all shadow-sm select-none"
-      style={{ backgroundColor: bg }}>
-      <span className="text-white font-bold text-sm text-center leading-tight uppercase tracking-wide drop-shadow">{cat.name}</span>
+    <button onClick={onClick} data-testid={`category-${cat.id}`}
+      className="pos-category-tile select-none">
+      <i aria-hidden="true" />
+      <span>{cat.name}</span>
     </button>
   );
 }
@@ -2848,7 +2894,7 @@ function InlinePaymentPanel({ total, onPay, disabled, alertAnomalous, orderId, l
       </div>
 
       {paidSoFar != null && paidSoFar > 0.005 && (
-        <div className="shrink-0 text-center text-xs font-bold text-[#174f43] bg-[#edf5e9] rounded-lg py-1.5" data-testid="text-paid-so-far">
+        <div className="shrink-0 text-center text-xs font-bold text-[#2b3440] bg-[#eef1f5] rounded-lg py-1.5" data-testid="text-paid-so-far">
           Già pagato alla romana: €{paidSoFar.toFixed(2)} — questo incasso chiude il residuo
         </div>
       )}
@@ -3006,18 +3052,16 @@ export default function FrontOffice() {
   const [numBuffer, setNumBuffer] = useState(""); // numpad buffer
   const [numpadMode, setNumpadMode] = useState<"qty" | "price">("qty"); // what the numpad applies to
   const [activePriceList, setActivePriceList] = useState(0); // 0=Servito 1=Asporto 2=Fidelity 3=Staff
-  const [rightTab, setRightTab] = useState<"grp" | "art" | "var" | "tavl" | "clnt" | "tot">("art");
+  const [rightTab, setRightTab] = useState<"grp" | "art" | "var" | "tavl" | "clnt" | "tot">("tavl");
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [mobilePanel, setMobilePanel] = useState<"left" | "right">("right");
-  const [tablesOpen, setTablesOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
-  const closeTables = useCallback(() => setTablesOpen(false), []);
   const closeMore = useCallback(() => setMoreOpen(false), []);
-  usePosPanels(viewportRef, tablesOpen, closeTables, moreOpen, closeMore);
+  usePosPanels(viewportRef, moreOpen, closeMore);
   useEffect(() => {
     setMoreOpen(false);
-  }, [mobilePanel, rightTab, selectedTableId, tablesOpen]);
+  }, [mobilePanel, rightTab, selectedTableId]);
   useEffect(() => {
     // Keep the current workspace action visible even on a narrow phone.
     viewportRef.current?.querySelector<HTMLElement>('.pos-work-tab[aria-pressed="true"]')
@@ -3596,30 +3640,10 @@ export default function FrontOffice() {
       return;
     }
     try {
-      let totalNewRows = 0;
-      for (const it of explodable) {
-        const qty = it.quantity;
-        await fetch(`${API}/orders/${activeOrderId}/items/${it.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ quantity: 1 }),
-        });
-        for (let i = 1; i < qty; i++) {
-          await fetch(`${API}/orders/${activeOrderId}/items`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              productId: it.productId,
-              quantity: 1,
-              unitPrice: it.unitPrice,
-              phase: (it as never as { phase?: string }).phase ?? "F1",
-              notes: (it as never as { notes?: string | null }).notes ?? null,
-              modifiers: (it as never as { modifiers?: string }).modifiers ?? "[]",
-            }),
-          });
-          totalNewRows++;
-        }
-      }
+      const response = await fetch(`${API}/orders/${activeOrderId}/expand-items`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Separazione non riuscita");
+      const totalNewRows = Number(result.expanded);
       setSelectedItemId(null);
       setNumBuffer("");
       refresh();
@@ -3788,7 +3812,7 @@ export default function FrontOffice() {
     catch { toast({ title: "Copia non riuscita", description: "Usa Scarica XML", variant: "destructive" }); }
   }
 
-  async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number, ragioneSocialeCliente?: string, itemIds?: number[], coversToDeduct = 0) {
+  async function handlePay(method: string, amountGiven?: number, invoiceCustomerId?: number, ragioneSocialeCliente?: string, itemIds?: number[], coversToDeduct = 0, selectedItems?: SelectedBillItem[], operationId?: string) {
     if (!activeOrderId || payingRef.current) return;
     if (lotteriaField && !isLotteryFormat(lotteriaField)) {
       toast({ title: "Codice lotteria incompleto", description: "Inserisci 8 lettere o numeri, oppure cancella il campo.", variant: "destructive" });
@@ -3881,12 +3905,13 @@ export default function FrontOffice() {
         lotteria: lotteriaOneShot,
         nonFiscale: isGestionale || undefined,
         invoiceId: draftInvoiceId ?? undefined,
-        operationId: draftInvoiceId ? `invoice-${draftInvoiceId}` : undefined,
+        operationId: draftInvoiceId ? `invoice-${draftInvoiceId}` : operationId,
         ragioneSocialeCliente: ragioneSocialeCliente || undefined,
         // ── Conto separato: passa esplicitamente articoli + coperti pagati
         // e flag `partial` così il backend NON chiude l'ordine intero anche
         // quando l'utente paga solo coperti (caso senza itemIds).
         itemIds: itemIds && itemIds.length > 0 ? itemIds : undefined,
+        selectedItems: isSplitPay ? selectedItems ?? [] : undefined,
         coversCount: coversToDeduct > 0 ? coversToDeduct : undefined,
         partial: isSplitPay || undefined,
         } as never
@@ -3895,7 +3920,7 @@ export default function FrontOffice() {
       addLog("error", `Pagamento FALLITO: ${e instanceof Error ? e.message : String(e)}`);
       toast({
         title: "Pagamento NON registrato",
-        description: `${e instanceof Error ? e.message : String(e)} — l'ordine resta aperto, riprova.`,
+        description: isSplitPay ? (e instanceof Error ? e.message : String(e)) : `${e instanceof Error ? e.message : String(e)} — l'ordine resta aperto, riprova.`,
         variant: "destructive",
       });
       refresh();
@@ -3933,25 +3958,17 @@ export default function FrontOffice() {
       setInvoiceAnno(String(new Date().getFullYear()));
       setInvoiceCustomer(null);
     } else if (isSplitPay) {
-      // Elimina articoli pagati nel conto separato
-      if (itemIds?.length) {
-        await Promise.all(itemIds.map(itemId =>
-          fetch(`${API}/orders/${activeOrderId}/items/${itemId}`, { method: "DELETE" }).catch(() => {})
-        ));
-      }
-      // Scala i coperti pagati nel conto separato
-      if (coversToDeduct > 0) {
-        const newCovers = Math.max(0, coverCount - coversToDeduct);
-        await fetch(`${API}/orders/${activeOrderId}/covers`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ covers: newCovers }),
-        }).catch(() => {});
+      // The server atomically deducts only the paid quantities after fiscal confirmation.
+      if (!(paymentRes as { selectionApplied?: boolean }).selectionApplied) {
+        toast({ title: "Verifica il conto separato", description: "Il server non ha confermato lo scalo delle quantità. Nessuna riga viene eliminata dalla cassa.", variant: "destructive" });
+        refresh();
+        return;
       }
     }
-    if (!isSplitPay) handleExitOrder();
+    if (!isSplitPay || (paymentRes as { orderClosed?: boolean }).orderClosed) handleExitOrder();
     refresh();
     toast({ title: "Pagamento registrato", description: `€ ${payAmount.toFixed(2)} — ${method}` });
+    return true;
     } finally {
       payingRef.current = false;
       setPaymentBusy(false);
@@ -3992,35 +4009,30 @@ export default function FrontOffice() {
   const numpadKeys = ["7","8","9","4","5","6","1","2","3","X","0","."];
 
   // ── Render ─────────────────────────────────────────────────────────────────
+  function openMap() {
+    setMoreOpen(false);
+    setRightTab("tavl");
+    setMobilePanel("right");
+  }
   function openCheckout() {
     setMoreOpen(false);
-    setTablesOpen(false);
     setPaymentMode("full");
     setRightTab("tot");
     setMobilePanel("right");
   }
 
   return (
-    <div ref={viewportRef} className={cn("pos-smart-live", tablesOpen && "pos-tables-open", mobilePanel === "left" ? "pos-view-order" : "pos-view-menu")}>
+    <div ref={viewportRef} className={cn("pos-smart-live", mobilePanel === "left" ? "pos-view-order" : "pos-view-menu")}>
       <header className="pos-smart-header">
         <div className="pos-smart-brand">Hello<span>Table</span><small>Cassa</small></div>
         <div className="pos-sale-modes" aria-label="Tipo di vendita">
-          <button className={!isQuickMode ? "is-active" : ""} onClick={() => {
-            if (window.matchMedia("(max-width: 760px)").matches) setTablesOpen(true);
-            else { setRightTab("tavl"); setMobilePanel("right"); }
-          }}><Users size={15} /> Sala</button>
+          <button className={!isQuickMode ? "is-active" : ""} data-testid="button-open-map" onClick={openMap}><Users size={15} /> Sala</button>
           <button className={isQuickMode === "rapida" ? "is-active" : ""} onClick={() => handleQuickMode("rapida")}><Zap size={15} /> Banco</button>
           {asportoEnabled && <button className={isQuickMode === "asporto" ? "is-active" : ""} onClick={() => handleQuickMode("asporto")}><ShoppingBag size={15} /> Asporto</button>}
           {deliveryEnabled && <button className={isQuickMode === "delivery" ? "is-active" : ""} onClick={() => handleQuickMode("delivery")}><Truck size={15} /> Delivery</button>}
         </div>
         <span className="pos-smart-operator">{foUser?.name}</span>
       </header>
-      <button className="pos-table-scrim" onClick={closeTables} aria-label="Chiudi la sala" tabIndex={-1} aria-hidden={!tablesOpen} />
-      <SmartTables tables={tablesStatus as FETable[]} selectedId={selectedTableId}
-        onClose={() => setTablesOpen(false)}
-        onMap={() => { setTablesOpen(false); setRightTab("tavl"); setMobilePanel("right"); }}
-        onSelect={table => { handleTableClick(table); setTablesOpen(false); setRightTab("art"); setMobilePanel("right"); }}
-      />
       {comandaBanner && (
         <div className="absolute top-0 left-0 right-0 z-50 bg-emerald-600 text-white text-center font-bold py-2.5 shadow-lg animate-in slide-in-from-top duration-200">
           ✓ {comandaBanner}
@@ -4153,8 +4165,8 @@ export default function FrontOffice() {
         {/* ── Riga coperti fissata sopra gli articoli ── */}
         {activeOrderId && !isQuickMode && (
           <button type="button" data-testid="row-covers" onClick={() => setCoverKeypad(true)}
-            className="mx-2.5 mb-1 shrink-0 rounded-xl px-3 py-2 border-2 border-[#174f43]/40 bg-[#edf5e9] flex items-center gap-3 text-left min-h-[52px]">
-            <Users className="h-5 w-5 text-[#174f43] shrink-0" />
+            className="mx-2.5 mb-1 shrink-0 rounded-xl px-3 py-2 border-2 border-[#2b3440]/40 bg-[#eef1f5] flex items-center gap-3 text-left min-h-[52px]">
+            <Users className="h-5 w-5 text-[#2b3440] shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="text-sm font-extrabold text-slate-900">Coperto</div>
               <div className="text-xs text-slate-700 tabular-nums" data-testid="text-covers-detail">
@@ -4162,7 +4174,7 @@ export default function FrontOffice() {
               </div>
             </div>
             <span className="text-base font-extrabold text-slate-900 tabular-nums" data-testid="text-covers-total">€{(coverCount * coverPrice).toFixed(2)}</span>
-            <Pencil className="h-4 w-4 text-[#174f43]" />
+            <Pencil className="h-4 w-4 text-[#2b3440]" />
           </button>
         )}
 
@@ -4554,21 +4566,21 @@ export default function FrontOffice() {
 
         {/* Tab bar: GRP | ART | VAR | TAVL | CLNT | TOT */}
         <div className="pos-work-tabs flex bg-[#151922] border-b border-[#37415c] shrink-0">
-          {(["grp","art","var","tavl","clnt","tot"] as const).map((tab) => {
+          {(["tavl","grp","clnt","tot"] as const).map((tab) => {
             const labels: Record<string, string> = { grp:"Categorie", art:"Menu", var:"Variazioni", tavl:"Mappa", clnt:"Cliente", tot:"Pagamento" };
             const active = rightTab === tab;
             const hasBadge = tab === "clnt" && !!invoiceCustomer;
             return (
-              <button key={tab} onClick={() => setRightTab(tab)} aria-pressed={active}
+              <button key={tab} onClick={() => setRightTab(tab)} aria-pressed={active || (tab === "grp" && (rightTab === "art" || rightTab === "var"))} data-testid={`tab-${tab}`}
                 className={cn(
                   "flex-1 h-14 flex items-center justify-center transition-all border-b-2 text-xs tracking-wide relative pos-work-tab",
                   active
                     ? "font-bold text-primary border-primary bg-primary/10"
                     : "font-medium text-slate-500 border-transparent hover:text-slate-300 hover:bg-[#1a1d2a]"
                 )}>
-                {labels[tab]}
+                <span className="pos-work-tab-label">{labels[tab]}</span>
                 {hasBadge && (
-                  <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-500" />
+                  <span className="pos-work-tab-badge absolute top-2 right-2 w-2 h-2 rounded-full" />
                 )}
               </button>
             );
@@ -4578,7 +4590,7 @@ export default function FrontOffice() {
         {/* ── GRP: category grid */}
         {rightTab === "grp" && (
           <ScrollArea className="flex-1 bg-[#151827]">
-            <div className="p-4 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))" }}>
+            <div className="pos-category-grid" data-testid="category-grid">
               {categories.map(cat => (
                 <CategoryButton key={cat.id} cat={cat} onClick={() => {
                   setSelectedCategoryId(cat.id);
@@ -4929,10 +4941,10 @@ export default function FrontOffice() {
           <div className="flex-1 flex flex-col overflow-hidden bg-[#151827]">
             {/* Selected customer banner */}
             {invoiceCustomer && (
-              <div className="mx-3 mt-3 p-3 bg-[#fffefa] border-2 border-[#174f43] rounded-xl shrink-0 text-slate-900" data-testid="card-invoice-customer">
+              <div className="mx-3 mt-3 p-3 bg-[#fffefa] border-2 border-[#2b3440] rounded-xl shrink-0 text-slate-900" data-testid="card-invoice-customer">
                 <div className="flex items-start gap-3">
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-[#174f43] font-extrabold uppercase tracking-wider mb-0.5 flex items-center gap-1">
+                    <div className="text-[11px] text-[#2b3440] font-extrabold uppercase tracking-wider mb-0.5 flex items-center gap-1">
                       <CheckCircle2 className="h-3.5 w-3.5" /> Cliente fattura attivo
                     </div>
                     <div className="font-bold truncate">{invoiceCustomer.ragioneSociale}</div>
@@ -4951,23 +4963,23 @@ export default function FrontOffice() {
                     <span className="text-[11px] font-bold text-slate-700">Sezionale</span>
                     <input data-testid="input-invoice-sezionale" value={invoiceSezionale} inputMode="text" maxLength={10}
                       onChange={e => setInvoiceSezionale(e.target.value.replace(/[^A-Za-z0-9]/g, ""))}
-                      className="mt-0.5 w-full h-11 text-center font-mono text-lg font-bold bg-white border-2 border-slate-400 rounded-lg text-slate-900 outline-none focus:border-[#174f43]" />
+                      className="mt-0.5 w-full h-11 text-center font-mono text-lg font-bold bg-white border-2 border-slate-400 rounded-lg text-slate-900 outline-none focus:border-[#2b3440]" />
                   </label>
                   <label className="block">
                     <span className="text-[11px] font-bold text-slate-700">Progressivo *</span>
                     <input data-testid="input-invoice-numero" value={invoiceNumero} inputMode="numeric" maxLength={9} placeholder="es. 23"
                       onChange={e => setInvoiceNumero(e.target.value.replace(/\D/g, ""))}
-                      className="mt-0.5 w-full h-11 text-center font-mono text-lg font-bold bg-white border-2 border-slate-400 rounded-lg text-slate-900 placeholder:text-slate-400 outline-none focus:border-[#174f43]" />
+                      className="mt-0.5 w-full h-11 text-center font-mono text-lg font-bold bg-white border-2 border-slate-400 rounded-lg text-slate-900 placeholder:text-slate-400 outline-none focus:border-[#2b3440]" />
                   </label>
                   <label className="block">
                     <span className="text-[11px] font-bold text-slate-700">Anno fattura</span>
                     <input data-testid="input-invoice-anno" value={invoiceAnno} inputMode="numeric" maxLength={4}
                       onChange={e => setInvoiceAnno(e.target.value.replace(/\D/g, ""))}
-                      className="mt-0.5 w-full h-11 text-center font-mono text-lg font-bold bg-white border-2 border-slate-400 rounded-lg text-slate-900 outline-none focus:border-[#174f43]" />
+                      className="mt-0.5 w-full h-11 text-center font-mono text-lg font-bold bg-white border-2 border-slate-400 rounded-lg text-slate-900 outline-none focus:border-[#2b3440]" />
                   </label>
                 </div>
 
-                <div className="mt-2 rounded-lg bg-[#edf5e9] px-3 py-2 text-sm font-bold text-[#174f43]" data-testid="text-invoice-preview">
+                <div className="mt-2 rounded-lg bg-[#eef1f5] px-3 py-2 text-sm font-bold text-[#2b3440]" data-testid="text-invoice-preview">
                   {invoiceNumPreview ? `Numero fattura: ${invoiceNumPreview} · anno ${invoiceAnno}` : <span className="text-[#a03f36]">Inserisci sezionale e progressivo: senza numero non si può incassare con fattura</span>}
                 </div>
                 <div className="mt-1.5 text-xs text-slate-700">
@@ -5084,13 +5096,13 @@ export default function FrontOffice() {
           <div id="pos-payment-hub" className="flex-1 flex flex-col overflow-hidden">
             {/* Invoice customer indicator */}
             {invoiceCustomer && (
-              <div className="mx-3 mt-2 px-2.5 py-1.5 bg-[#fffefa] border-2 border-[#174f43] rounded-xl flex items-center gap-2 shrink-0 text-slate-900" data-testid="banner-invoice-tot">
-                <CheckCircle2 className="h-4 w-4 text-[#174f43] shrink-0" />
+              <div className="mx-3 mt-2 px-2.5 py-1.5 bg-[#fffefa] border-2 border-[#2b3440] rounded-xl flex items-center gap-2 shrink-0 text-slate-900" data-testid="banner-invoice-tot">
+                <CheckCircle2 className="h-4 w-4 text-[#2b3440] shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="text-[10px] font-bold text-[#174f43]">Fattura a:</div>
+                  <div className="text-[10px] font-bold text-[#2b3440]">Fattura a:</div>
                   <div className="text-xs font-semibold truncate">{invoiceCustomer.ragioneSociale} · {invoiceNumPreview ? `n. ${invoiceNumPreview} (${invoiceAnno})` : <span className="text-[#a03f36]">numero mancante</span>}</div>
                 </div>
-                <button onClick={() => setRightTab("clnt")} className="text-xs font-bold text-[#174f43] underline px-1">Numero</button>
+                <button onClick={() => setRightTab("clnt")} className="text-xs font-bold text-[#2b3440] underline px-1">Numero</button>
                 <button aria-label="Rimuovi" onClick={() => setInvoiceCustomer(null)} className="h-8 w-8 flex items-center justify-center shrink-0">
                   <X className="h-4 w-4 text-slate-700" />
                 </button>
@@ -5133,9 +5145,9 @@ export default function FrontOffice() {
             {/* Modalità: conto separato inline */}
             {paymentMode === "split" && (
               <div className="flex-1 overflow-y-auto p-3 bg-[#f4f6fa]">
-                {items.length < 2 ? (
+                {items.length === 0 && coverCount === 0 ? (
                   <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center text-slate-500 text-sm">
-                    Servono almeno 2 articoli per il conto separato.
+                    Nessun articolo o coperto da selezionare.
                     <div className="mt-2 text-xs text-slate-400">
                       Suggerimento: usa <strong>Espandi</strong> per separare gli articoli con quantità maggiore di 1.
                     </div>
@@ -5148,8 +5160,9 @@ export default function FrontOffice() {
                       coverPrice={coverPrice}
                       coverCount={coverCount}
                       orderId={activeOrderId ?? undefined}
-                      onPay={(method, amount, ids, coversToDeduct) => {
-                        handlePay(method, amount, undefined, undefined, ids, coversToDeduct);
+                      busy={paymentBusy}
+                      onPay={(method, amount, ids, coversToDeduct, selectedItems, operationId) => {
+                        return handlePay(method, amount, undefined, undefined, ids, coversToDeduct, selectedItems, operationId);
                       }}
                       onCancel={() => setPaymentMode("full")}
                     />
@@ -5199,9 +5212,10 @@ export default function FrontOffice() {
       {/* ══ MOBILE BOTTOM TAB BAR ═════════════════════════════════════════════ */}
       <nav className="pos-mobile-nav" aria-label="Navigazione cassa"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-        <button onClick={() => setTablesOpen(v => !v)} aria-expanded={tablesOpen} aria-controls="pos-tables"><Users size={20} />Tavoli</button>
-        <button onClick={() => { closeTables(); setMobilePanel("left"); }}
-          aria-current={mobilePanel === "left" && !tablesOpen ? "page" : undefined}
+        <button data-testid="button-open-map-mobile" onClick={openMap} aria-current={mobilePanel === "right" && rightTab === "tavl" ? "page" : undefined}
+          className={mobilePanel === "right" && rightTab === "tavl" ? "text-primary" : ""}><Users size={20} />Tavoli</button>
+        <button onClick={() => { setMoreOpen(false); setMobilePanel("left"); }}
+          aria-current={mobilePanel === "left" ? "page" : undefined}
           className={cn("flex-1 flex flex-col items-center gap-1 py-3 text-xs font-bold transition-colors",
             mobilePanel === "left" ? "text-primary" : "text-slate-500")}>
           <div className="relative">
@@ -5214,16 +5228,16 @@ export default function FrontOffice() {
           </div>
           Conto{total > 0 ? ` · €${total.toFixed(2)}` : ""}
         </button>
-        <button onClick={() => { closeTables(); setMobilePanel("right"); setRightTab("art"); }}
-          aria-current={mobilePanel === "right" && !tablesOpen ? "page" : undefined}
+        <button data-testid="button-open-categories-mobile" onClick={() => { setMoreOpen(false); setMobilePanel("right"); setRightTab("grp"); }}
+          aria-current={mobilePanel === "right" && rightTab !== "tavl" && rightTab !== "tot" ? "page" : undefined}
           className={cn("flex-1 flex flex-col items-center gap-1 py-3 text-xs font-bold transition-colors",
-            mobilePanel === "right" ? "text-primary" : "text-slate-500")}>
+            mobilePanel === "right" && rightTab !== "tavl" && rightTab !== "tot" ? "text-primary" : "text-slate-500")}>
           <UtensilsCrossed className="h-5 w-5" />
-          Menu
+          Categorie
         </button>
         <button type="button" onClick={openCheckout} className="pos-mobile-checkout"
           data-testid="button-open-checkout-mobile" aria-controls="pos-payment-hub"
-          aria-current={rightTab === "tot" && mobilePanel === "right" && !tablesOpen ? "page" : undefined}>
+          aria-current={rightTab === "tot" && mobilePanel === "right" ? "page" : undefined}>
           <span>Incassa</span>
           <strong className="tabular-nums">€{total.toFixed(2)}</strong>
         </button>
@@ -5517,11 +5531,13 @@ export default function FrontOffice() {
         coverCount={coverCount} />
       <SplitBillDialog
         open={showSplitBill}
+        orderId={activeOrderId ?? undefined}
+        busy={paymentBusy}
         onClose={() => setShowSplitBill(false)}
         items={items as never}
         coverPrice={coverPrice}
         coverCount={coverCount}
-        onPay={(method, amount, itemIds, coversToDeduct) => handlePay(method, amount, undefined, undefined, itemIds, coversToDeduct)}
+        onPay={(method, amount, itemIds, coversToDeduct, selectedItems, operationId) => handlePay(method, amount, undefined, undefined, itemIds, coversToDeduct, selectedItems, operationId)}
       />
 
       {/* ── Modifier Picker ─────────────────────────────────────────── */}

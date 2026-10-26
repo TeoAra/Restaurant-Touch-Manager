@@ -13,13 +13,13 @@ export function LotteryField({ value, onChange, onAdvanced }: {
         <label htmlFor="input-lottery-code" className="text-[11px] font-bold uppercase tracking-wide text-slate-700 flex items-center gap-1">
           <Ticket className="h-3.5 w-3.5" /> Codice lotteria
         </label>
-        {onAdvanced && <button type="button" onClick={onAdvanced} className="text-[11px] font-semibold text-[#174f43] underline">Tastierino</button>}
+        {onAdvanced && <button type="button" onClick={onAdvanced} className="text-[11px] font-semibold text-[#1f2633] underline">Tastierino</button>}
       </div>
       <input id="input-lottery-code" data-testid="input-lottery-code" value={value} autoComplete="off" inputMode="text"
         placeholder="Scansiona o digita (8 caratteri)"
         onChange={e => onChange(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8))}
-        className="w-full h-11 rounded-lg border border-slate-300 bg-slate-50 px-3 font-mono text-lg font-bold tracking-[0.25em] text-slate-900 outline-none focus:border-[#174f43]" />
-      <div data-testid="status-lottery-format" className={value ? (valid ? "text-xs mt-1 font-bold text-[#174f43]" : "text-xs mt-1 font-bold text-[#a03f36]") : "text-xs mt-1 text-slate-600"}>
+        className="w-full h-11 rounded-lg border border-slate-300 bg-slate-50 px-3 font-mono text-lg font-bold tracking-[0.25em] text-slate-900 outline-none focus:border-[#1f2633]" />
+      <div data-testid="status-lottery-format" className={value ? (valid ? "text-xs mt-1 font-bold text-[#1f2633]" : "text-xs mt-1 font-bold text-[#a03f36]") : "text-xs mt-1 text-slate-600"}>
         {!value ? "Facoltativo. Inviato solo con questo pagamento." : valid ? "Formato valido (controllo solo sintattico, non verificato dall'Agenzia)" : `Formato non valido: ${value.length}/8, servono lettere maiuscole o numeri`}
       </div>
     </div>

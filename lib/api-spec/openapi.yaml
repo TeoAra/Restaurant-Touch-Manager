@@ -461,6 +461,44 @@ paths:
               schema:
                 $ref: "#/components/schemas/OrderItem"
 
+  /orders/{id}/expand-items:
+    post:
+      operationId: expandOrderItems
+      tags: [orders]
+      summary: Atomically separate quantities into individual rows
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Items separated without changing their total
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpandedItemsResult"
+
+  /payments/selection-preview:
+    post:
+      operationId: previewSelectedBill
+      tags: [payments]
+      summary: Validate selected quantities before starting a card transaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillSelectionInput"
+      responses:
+        "200":
+          description: Canonical amount of the selected items and covers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillSelectionPreview"
+
   /orders/{orderId}/items/{itemId}:
     patch:
       operationId: updateOrderItem
@@ -966,6 +1004,22 @@ components:
           enum: ["free", "occupied", "reserved"]
         createdAt:
           type: string
+        roomId:
+          type: ["integer", "null"]
+        sortOrder:
+          type: integer
+        posX:
+          type: integer
+        posY:
+          type: integer
+        shape:
+          type: string
+        elementType:
+          type: string
+        rotation:
+          type: integer
+        sizeScale:
+          type: number
       required:
         - id
         - number
@@ -986,6 +1040,34 @@ components:
         status:
           type: string
           enum: ["free", "occupied", "reserved"]
+        roomId:
+          type: ["integer", "null"]
+        sortOrder:
+          type: integer
+        posX:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          multipleOf: 1
+        posY:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          multipleOf: 1
+        shape:
+          type: string
+          maxLength: 40
+        elementType:
+          type: string
+          maxLength: 40
+        rotation:
+          type: integer
+          minimum: 0
+          maximum: 359
+        sizeScale:
+          type: number
+          minimum: 0.3
+          maximum: 10
       required:
         - number
         - name
@@ -1004,6 +1086,34 @@ components:
         status:
           type: string
           enum: ["free", "occupied", "reserved"]
+        roomId:
+          type: ["integer", "null"]
+        sortOrder:
+          type: integer
+        posX:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          multipleOf: 1
+        posY:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          multipleOf: 1
+        shape:
+          type: string
+          maxLength: 40
+        elementType:
+          type: string
+          maxLength: 40
+        rotation:
+          type: integer
+          minimum: 0
+          maximum: 359
+        sizeScale:
+          type: number
+          minimum: 0.3
+          maximum: 10
 
     Order:
       type: object
@@ -1208,10 +1318,67 @@ components:
           type: string
         change:
           type: ["string", "null"]
+        selectedItems:
+          type: array
+          items:
+            $ref: "#/components/schemas/BillSelectedItem"
+        itemIds:
+          type: array
+          items:
+            type: integer
+        coversCount:
+          type: integer
+          minimum: 0
+        partial:
+          type: boolean
+        operationId:
+          type: string
+          maxLength: 120
       required:
         - orderId
         - method
         - amount
+
+    BillSelectedItem:
+      type: object
+      properties:
+        itemId:
+          type: integer
+          minimum: 1
+        quantity:
+          type: integer
+          minimum: 1
+      required: [itemId, quantity]
+
+    BillSelectionInput:
+      type: object
+      properties:
+        orderId:
+          type: integer
+        selectedItems:
+          type: array
+          items:
+            $ref: "#/components/schemas/BillSelectedItem"
+        coversCount:
+          type: integer
+          minimum: 0
+        amount:
+          type: string
+      required: [orderId, selectedItems, coversCount, amount]
+
+    BillSelectionPreview:
+      type: object
+      properties:
+        amount:
+          type: string
+      required: [amount]
+
+    ExpandedItemsResult:
+      type: object
+      properties:
+        expanded:
+          type: integer
+      required: [expanded]
 
     DashboardSummary:
       type: object

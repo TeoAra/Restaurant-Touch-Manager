@@ -5,7 +5,8 @@ import { CreatePaymentBody, GetPaymentParams } from "@workspace/api-zod";
 import { getFiscalPrinter, emettiFiscalReceipt, emettiDocumentoNonFiscale } from "../lib/fiscal-printer";
 import { getSettings } from "../lib/settings";
 import { logAudit } from "../lib/audit";
-import { effectiveCoverPrice, normalizeLottery } from "../lib/billing";
+import { cents, money, effectiveCoverPrice, normalizeLottery } from "../lib/billing";
+import { paySelectedBill, previewSelectedPayment, SelectedPaymentError } from "../lib/selected-payment";
 
 const router = Router();
 
@@ -23,11 +24,34 @@ router.get("/", async (req, res) => {
   res.json(payments.reverse());
 });
 
+router.post("/selection-preview", async (req, res) => {
+  if (!Number.isInteger(req.body?.orderId) || req.body.orderId < 1) return res.status(400).json({ error: "Ordine non valido" });
+  try {
+    const bill = await previewSelectedPayment(req.body);
+    return res.json({ amount: bill.amount });
+  } catch (error) {
+    return res.status(error instanceof SelectedPaymentError ? error.status : 409).json({ error: (error as Error).message });
+  }
+});
+
 router.post("/", async (req, res) => {
   let lotteria: string | undefined;
   try { lotteria = normalizeLottery(req.body?.lotteria); }
   catch (error) { return res.status(400).json({ error: (error as Error).message }); }
-  const body = CreatePaymentBody.parse(req.body);
+  const parsed = CreatePaymentBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Dati del pagamento non validi", details: parsed.error.issues });
+  const body = parsed.data;
+  if (req.body?.selectedItems !== undefined || req.body?.itemIds !== undefined || req.body?.partial === true || req.body?.coversCount > 0) {
+    if (req.body?.invoiceId || req.body?.nonFiscale) return res.status(400).json({ error: "Il conto separato si conclude con il documento fiscale delle sole voci selezionate" });
+    try {
+      const payment = await paySelectedBill({ ...body, selectedItems: req.body.selectedItems, itemIds: req.body.itemIds, coversCount: req.body.coversCount }, lotteria);
+      void logAudit({ req, action: "payment.create", entityType: "order", entityId: body.orderId, details: { amount: body.amount, method: body.method, isSplit: true, selectedItems: req.body.selectedItems, coversCount: req.body.coversCount ?? 0 } });
+      return res.status(201).json(payment);
+    } catch (error) {
+      req.log.warn({ err: error, orderId: body.orderId }, "Selected payment not completed");
+      return res.status(error instanceof SelectedPaymentError ? error.status : 409).json({ error: (error as Error).message });
+    }
+  }
   const invoiceId = req.body.invoiceId;
   if (invoiceId !== undefined) {
     if (!Number.isInteger(invoiceId) || invoiceId < 1) return res.status(400).json({ error: "Fattura non valida" });
@@ -109,9 +133,15 @@ router.post("/", async (req, res) => {
     }
 
     // Mark order as paid only when fully paid (not a partial split)
+    const splitPayments = await tx.select().from(paymentsTable).where(eq(paymentsTable.orderId, body.orderId));
+    const priorSelectedCents = splitPayments.filter(row => row.operationId?.startsWith("split-"))
+      .reduce((sum, row) => sum + cents(row.amount), 0);
     const [ord] = remainder
       ? await tx.select().from(ordersTable).where(eq(ordersTable.id, body.orderId)).limit(1)
-      : await tx.update(ordersTable).set({ status: "paid" }).where(eq(ordersTable.id, body.orderId)).returning();
+      : await tx.update(ordersTable).set({
+        status: "paid",
+        ...(priorSelectedCents > 0 ? { total: money(priorSelectedCents + cents(body.amount) - cents(body.change ?? "0")) } : {}),
+      }).where(eq(ordersTable.id, body.orderId)).returning();
 
     return { payment: pay, order: ord, isSplitWithRemainder: remainder };
   });

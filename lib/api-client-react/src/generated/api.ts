@@ -18,6 +18,8 @@ import type {
 
 import type {
   AddOrderItemBody,
+  BillSelectionInput,
+  BillSelectionPreview,
   Category,
   CreateCategoryBody,
   CreateOrderBody,
@@ -25,6 +27,7 @@ import type {
   CreateProductBody,
   CreateTableBody,
   DashboardSummary,
+  ExpandedItemsResult,
   GetPublicBookingConfig200,
   GetSalesByDayParams,
   GetTopProductsParams,
@@ -2017,6 +2020,176 @@ export const useAddOrderItem = <
   TContext
 > => {
   return useMutation(getAddOrderItemMutationOptions(options));
+};
+
+/**
+ * @summary Atomically separate quantities into individual rows
+ */
+export const getExpandOrderItemsUrl = (id: number) => {
+  return `/api/orders/${id}/expand-items`;
+};
+
+export const expandOrderItems = async (
+  id: number,
+  options?: RequestInit,
+): Promise<ExpandedItemsResult> => {
+  return customFetch<ExpandedItemsResult>(getExpandOrderItemsUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getExpandOrderItemsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof expandOrderItems>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof expandOrderItems>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["expandOrderItems"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof expandOrderItems>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return expandOrderItems(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ExpandOrderItemsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof expandOrderItems>>
+>;
+
+export type ExpandOrderItemsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Atomically separate quantities into individual rows
+ */
+export const useExpandOrderItems = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof expandOrderItems>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof expandOrderItems>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getExpandOrderItemsMutationOptions(options));
+};
+
+/**
+ * @summary Validate selected quantities before starting a card transaction
+ */
+export const getPreviewSelectedBillUrl = () => {
+  return `/api/payments/selection-preview`;
+};
+
+export const previewSelectedBill = async (
+  billSelectionInput: BillSelectionInput,
+  options?: RequestInit,
+): Promise<BillSelectionPreview> => {
+  return customFetch<BillSelectionPreview>(getPreviewSelectedBillUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(billSelectionInput),
+  });
+};
+
+export const getPreviewSelectedBillMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewSelectedBill>>,
+    TError,
+    { data: BodyType<BillSelectionInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof previewSelectedBill>>,
+  TError,
+  { data: BodyType<BillSelectionInput> },
+  TContext
+> => {
+  const mutationKey = ["previewSelectedBill"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof previewSelectedBill>>,
+    { data: BodyType<BillSelectionInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return previewSelectedBill(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreviewSelectedBillMutationResult = NonNullable<
+  Awaited<ReturnType<typeof previewSelectedBill>>
+>;
+export type PreviewSelectedBillMutationBody = BodyType<BillSelectionInput>;
+export type PreviewSelectedBillMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Validate selected quantities before starting a card transaction
+ */
+export const usePreviewSelectedBill = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewSelectedBill>>,
+    TError,
+    { data: BodyType<BillSelectionInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof previewSelectedBill>>,
+  TError,
+  { data: BodyType<BillSelectionInput> },
+  TContext
+> => {
+  return useMutation(getPreviewSelectedBillMutationOptions(options));
 };
 
 /**

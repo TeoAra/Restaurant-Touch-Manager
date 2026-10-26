@@ -157,6 +157,15 @@ export interface Table {
   seats: number;
   status: TableStatusProperty;
   createdAt: string;
+  /** @nullable */
+  roomId?: number | null;
+  sortOrder?: number;
+  posX?: number;
+  posY?: number;
+  shape?: string;
+  elementType?: string;
+  rotation?: number;
+  sizeScale?: number;
 }
 
 export type CreateTableBodyStatus =
@@ -173,6 +182,33 @@ export interface CreateTableBody {
   name: string;
   seats: number;
   status: CreateTableBodyStatus;
+  /** @nullable */
+  roomId?: number | null;
+  sortOrder?: number;
+  /**
+   * @minimum 0
+   * @maximum 1000
+   */
+  posX?: number;
+  /**
+   * @minimum 0
+   * @maximum 1000
+   */
+  posY?: number;
+  /** @maxLength 40 */
+  shape?: string;
+  /** @maxLength 40 */
+  elementType?: string;
+  /**
+   * @minimum 0
+   * @maximum 359
+   */
+  rotation?: number;
+  /**
+   * @minimum 0.3
+   * @maximum 10
+   */
+  sizeScale?: number;
 }
 
 export type UpdateTableBodyStatus =
@@ -189,6 +225,33 @@ export interface UpdateTableBody {
   name?: string;
   seats?: number;
   status?: UpdateTableBodyStatus;
+  /** @nullable */
+  roomId?: number | null;
+  sortOrder?: number;
+  /**
+   * @minimum 0
+   * @maximum 1000
+   */
+  posX?: number;
+  /**
+   * @minimum 0
+   * @maximum 1000
+   */
+  posY?: number;
+  /** @maxLength 40 */
+  shape?: string;
+  /** @maxLength 40 */
+  elementType?: string;
+  /**
+   * @minimum 0
+   * @maximum 359
+   */
+  rotation?: number;
+  /**
+   * @minimum 0.3
+   * @maximum 10
+   */
+  sizeScale?: number;
 }
 
 export type OrderStatus = (typeof OrderStatus)[keyof typeof OrderStatus];
@@ -361,12 +424,42 @@ export const CreatePaymentBodyMethod = {
   satispay: "satispay",
 } as const;
 
+export interface BillSelectedItem {
+  /** @minimum 1 */
+  itemId: number;
+  /** @minimum 1 */
+  quantity: number;
+}
+
 export interface CreatePaymentBody {
   orderId: number;
   method: CreatePaymentBodyMethod;
   amount: string;
   /** @nullable */
   change?: string | null;
+  selectedItems?: BillSelectedItem[];
+  itemIds?: number[];
+  /** @minimum 0 */
+  coversCount?: number;
+  partial?: boolean;
+  /** @maxLength 120 */
+  operationId?: string;
+}
+
+export interface BillSelectionInput {
+  orderId: number;
+  selectedItems: BillSelectedItem[];
+  /** @minimum 0 */
+  coversCount: number;
+  amount: string;
+}
+
+export interface BillSelectionPreview {
+  amount: string;
+}
+
+export interface ExpandedItemsResult {
+  expanded: number;
 }
 
 export interface DashboardSummary {

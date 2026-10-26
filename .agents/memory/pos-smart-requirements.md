@@ -5,7 +5,9 @@ description: Vincoli richiesti dall’utente per il rinnovo della cassa HelloTab
 
 La nuova grafica deve mantenere assolutamente tutte le funzioni della cassa attuale. L’utente richiede l’orario di inserimento in piccolo per ciascun prodotto, una visione dei tavoli e una grafica scalabile su mobile, touch POS e laptop, anche aprendo la proposta in una scheda grande. La grafica di riferimento è quella mobile.
 
-I tavoli devono stare di lato, non in una fascia in alto, anche sugli schermi piccoli di touch POS e laptop. Tutto deve adattarsi alla pagina principale.
+La colonna Tavoli va rimossa: mappa e area Categorie/Cliente/Pagamento devono essere unificate, sfruttando lo spazio della pagina principale. Questa richiesta sostituisce la precedente disposizione dei tavoli di lato.
+
+Le schede Mappa, Categorie, Cliente e Pagamento devono essere ben visibili; le categorie devono avere pulsanti più grandi, sempre adattabili ai vari schermi.
 
 L’utente vuole una cassa ancora più semplice e intuitiva: semplificare l’accesso alle funzioni, non ridurne il numero.
 
@@ -14,6 +16,14 @@ La schermata reale deve corrispondere al design presentato, con accesso effettiv
 Al posto di “Listino” l’utente vuole vedere le fasi F1–F4.
 
 La grafica deve essere omogenea in tutto il front office e nel back office, con gli stessi colori ben visibili.
+
+L’utente non vuole il verde: usare tonalità più neutre, con riferimenti SumUp e Flatpay, in modo coerente nel front office e nel backoffice.
+
+Nel front office non devono comparire le schede Menu e Variazioni; l’accesso ai prodotti rimane dalle Categorie e alle modifiche dalla comanda. La vista iniziale deve essere la mappa, adattata allo spazio senza scorrimento.
+
+Le posizioni e l’ordine dei tavoli modificati nel backoffice devono essere salvati e mantenuti al ricaricamento.
+
+Un conto separato deve addebitare solo le quantità scelte: selezionare un oggetto da una riga di tre non deve addebitare tutti e tre. Importo incassato in contanti o POS e quantità/importo del documento fiscale devono coincidere; gli oggetti non pagati restano sul tavolo.
 
 Il corpo del back office deve utilizzare tutta la larghezza disponibile, non una colonna centrale stretta.
 

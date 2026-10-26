@@ -5,3 +5,4 @@
 - [Numerazione fatture](invoice-numbering.md) — 1/23 significa sezionale 1 e progressivo corrente 23; anno separato e nessuno zero aggiunto nel Numero XML per Passepartout.
 - [Avvio e vincoli del database](database-startup.md) — la sincronizzazione dello schema all’avvio non deve attendere conferme né troncare dati contabili.
 - [Compatibilità dei terminali](payment-hardware-boundaries.md) — Go 2 ECR non equivale all’ePOS API Android; distinguere sempre incasso verificato e conferma manuale.
+- [Validazione numerica API](api-numeric-validation.md) — Orval può generare number senza controllo degli interi; verificare anche coordinate e quantità frazionarie.

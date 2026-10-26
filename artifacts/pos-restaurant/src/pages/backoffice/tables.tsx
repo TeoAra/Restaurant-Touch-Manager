@@ -217,12 +217,12 @@ function PositionEditor({ tables, rooms, activeRoom, onActiveRoomChange, onEdit,
   onActiveRoomChange: (id: number | null) => void;
   onEdit: (t: ExtTable) => void;
   onDelete: (id: number) => void;
-  onPositionChange: (id: number, x: number, y: number) => void;
+  onPositionChange: (id: number, x: number, y: number) => Promise<void>;
   onRotate: (id: number) => void;
   onResize: (id: number, delta: number) => void;
 }) {
   const canvasRef = useRef<HTMLDivElement>(null);
-  const draggingRef = useRef<{ id: number; startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const draggingRef = useRef<{ id: number; startX: number; startY: number; origX: number; origY: number; x: number; y: number } | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [localPos, setLocalPos] = useState<Record<number, { x: number; y: number }>>({});
 
@@ -235,7 +235,7 @@ function PositionEditor({ tables, rooms, activeRoom, onActiveRoomChange, onEdit,
   function onMouseDown(e: React.MouseEvent, t: ExtTable) {
     e.preventDefault();
     const pos = getPos(t);
-    draggingRef.current = { id: t.id, startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y };
+    draggingRef.current = { id: t.id, startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y, x: pos.x, y: pos.y };
     setDraggingId(t.id);
   }
 
@@ -246,22 +246,30 @@ function PositionEditor({ tables, rooms, activeRoom, onActiveRoomChange, onEdit,
     const dy = Math.round((e.clientY - startY) / CELL);
     const newX = Math.max(0, Math.min(COLS - 2, origX + dx));
     const newY = Math.max(0, Math.min(ROWS - 1, origY + dy));
+    draggingRef.current.x = newX;
+    draggingRef.current.y = newY;
     setLocalPos(p => ({ ...p, [id]: { x: newX, y: newY } }));
   }
 
-  function onMouseUp() {
+  async function onMouseUp() {
     if (!draggingRef.current) return;
-    const { id } = draggingRef.current;
-    const pos = localPos[id];
-    if (pos) onPositionChange(id, pos.x, pos.y);
+    const { id, x, y, origX, origY } = draggingRef.current;
     draggingRef.current = null;
     setDraggingId(null);
+    if (x === origX && y === origY) return;
+    try { await onPositionChange(id, x, y); }
+    catch {
+      setLocalPos(previous => {
+        if (previous[id]?.x !== x || previous[id]?.y !== y) return previous;
+        const copy = { ...previous }; delete copy[id]; return copy;
+      });
+    }
   }
 
   function onTouchStart(e: React.TouchEvent, t: ExtTable) {
     const touch = e.touches[0];
     const pos = getPos(t);
-    draggingRef.current = { id: t.id, startX: touch.clientX, startY: touch.clientY, origX: pos.x, origY: pos.y };
+    draggingRef.current = { id: t.id, startX: touch.clientX, startY: touch.clientY, origX: pos.x, origY: pos.y, x: pos.x, y: pos.y };
     setDraggingId(t.id);
   }
 
@@ -273,6 +281,8 @@ function PositionEditor({ tables, rooms, activeRoom, onActiveRoomChange, onEdit,
     const dy = Math.round((touch.clientY - startY) / CELL);
     const newX = Math.max(0, Math.min(COLS - 2, origX + dx));
     const newY = Math.max(0, Math.min(ROWS - 1, origY + dy));
+    draggingRef.current.x = newX;
+    draggingRef.current.y = newY;
     setLocalPos(p => ({ ...p, [id]: { x: newX, y: newY } }));
   }
 
@@ -323,7 +333,8 @@ function PositionEditor({ tables, rooms, activeRoom, onActiveRoomChange, onEdit,
               <div
                 key={t.id}
                 className={cn("absolute", isDragging ? "z-10" : "z-0")}
-                style={{ left: pos.x * CELL + 3, top: pos.y * CELL + 3 }}
+                data-testid={`map-editor-table-${t.id}`}
+                style={{ left: pos.x * CELL + 3, top: pos.y * CELL + 3, touchAction: "none" }}
               >
                 <TableShape
                   t={t}
@@ -442,6 +453,8 @@ export default function TablesPage() {
   const [view, setView] = useState<"list" | "map">("map");
   const [roomFilter, setRoomFilter] = useState<number | null>(null);
   const [mapRoom, setMapRoom] = useState<number | null>(null);
+  const [positionStatus, setPositionStatus] = useState("Le posizioni si salvano automaticamente");
+  const positionWrites = useRef(new Map<number, Promise<void>>());
   const { toast } = useToast();
   const qc = useQueryClient();
 
@@ -463,18 +476,40 @@ export default function TablesPage() {
 
   const reorder = useCallback(async (newOrder: ExtTable[]) => {
     const items = newOrder.map((t, i) => ({ id: t.id, sortOrder: i + 1 }));
-    await fetch(`${API}/tables/reorder`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(items) });
-    qc.invalidateQueries({ queryKey: getListTablesQueryKey() });
-  }, [qc]);
+    try {
+      const response = await fetch(`${API}/tables/reorder`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(items) });
+      if (!response.ok) throw new Error("Ordinamento non salvato");
+      qc.invalidateQueries({ predicate: query => query.queryKey.some(key => typeof key === "string" && key.includes("tables")) });
+      toast({ title: "Ordine dei tavoli salvato" });
+    } catch {
+      setLocalTables([]);
+      qc.invalidateQueries({ queryKey: getListTablesQueryKey() });
+      toast({ title: "Ordinamento non salvato", description: "Riprova: viene ripristinato l’ordine salvato.", variant: "destructive" });
+    }
+  }, [qc, toast]);
 
-  const savePosition = useCallback(async (id: number, x: number, y: number) => {
-    await fetch(`${API}/tables/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ posX: x, posY: y }),
+  const savePosition = useCallback((id: number, x: number, y: number) => {
+    setPositionStatus("Salvataggio posizione…");
+    const previous = positionWrites.current.get(id) ?? Promise.resolve();
+    const request = previous.catch(() => {}).then(async () => {
+      const response = await fetch(`${API}/tables/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ posX: x, posY: y }),
+      });
+      const saved = await response.json();
+      if (!response.ok || saved.posX !== x || saved.posY !== y) throw new Error(saved.error ?? "La posizione non è stata salvata");
+      setLocalTables(rows => rows.map(table => table.id === id ? { ...table, ...saved } : table));
+      qc.invalidateQueries({ predicate: query => query.queryKey.some(key => typeof key === "string" && key.includes("tables")) });
+      setPositionStatus("Posizione salvata");
+    }).catch(error => {
+      setPositionStatus("Salvataggio non riuscito");
+      toast({ title: "Posizione non salvata", description: (error as Error).message, variant: "destructive" });
+      throw error;
     });
-    qc.invalidateQueries({ queryKey: getListTablesQueryKey() });
-  }, [qc]);
+    positionWrites.current.set(id, request);
+    return request;
+  }, [qc, toast]);
 
   const handleRotate = useCallback(async (id: number) => {
     const table = allTables.find(t => t.id === id);
@@ -563,7 +598,7 @@ export default function TablesPage() {
   return (
     <BackofficeShell
       title="Gestione Tavoli"
-      subtitle={view === "list" ? "Trascina per riordinare" : "Trascina per posizionare nella planimetria"}
+      subtitle={view === "list" ? "Trascina per riordinare" : `Trascina per posizionare nella planimetria · ${positionStatus}`}
       fixedHeight
       actions={
         <div className="flex items-center gap-2">

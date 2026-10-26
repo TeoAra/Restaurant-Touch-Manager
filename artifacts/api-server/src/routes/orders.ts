@@ -6,6 +6,7 @@ import { emettiPreconto } from "../lib/fiscal-printer";
 import { getSettings } from "../lib/settings";
 import { logAudit } from "../lib/audit";
 import { cents, money, effectiveCoverPrice, orderDue } from "../lib/billing";
+import { individualUnits } from "../lib/selected-bill";
 import {
   CreateOrderBody,
   UpdateOrderBody,
@@ -227,6 +228,31 @@ router.get("/:orderId/items", async (req, res) => {
   const { orderId } = ListOrderItemsParams.parse({ orderId: Number(req.params.orderId) });
   const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
   res.json(items);
+});
+
+router.post("/:id/expand-items", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "Ordine non valido" });
+  try {
+    const expanded = await db.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(71824, ${id})`);
+      const [order] = await tx.select().from(ordersTable).where(eq(ordersTable.id, id)).for("update");
+      if (!order || order.status !== "open") throw new Error("Ordine non aperto");
+      const rows = await tx.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id)).for("update");
+      let count = 0;
+      for (const row of rows.filter(row => row.quantity > 1)) {
+        const units = individualUnits(row);
+        await tx.update(orderItemsTable).set({ quantity: 1, subtotal: units[0].subtotal }).where(eq(orderItemsTable.id, row.id));
+        const { id: originalId, ...unit } = units[0];
+        await tx.insert(orderItemsTable).values(units.slice(1).map(() => ({ ...unit })));
+        count += units.length - 1;
+      }
+      return count;
+    });
+    return res.json({ expanded });
+  } catch (error) {
+    return res.status(409).json({ error: (error as Error).message });
+  }
 });
 
 // Add order item

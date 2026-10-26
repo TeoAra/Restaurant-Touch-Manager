@@ -25,14 +25,14 @@ export function BackofficeShell({
 
   return (
     <div className="flex flex-col h-screen bg-background">
-      <header className="h-14 bg-[#174f43] text-[#fffefa] border-b border-[#174f43] flex items-center gap-3 px-4 shrink-0">
+      <header className="h-14 bg-[#1f2633] text-[#fffefa] border-b border-[#1f2633] flex items-center gap-3 px-4 shrink-0">
         {isRoot ? (
-          <div className="h-8 w-8 rounded-lg bg-[#d9eea4] flex items-center justify-center shrink-0">
-            <UtensilsCrossed className="h-4 w-4 text-[#174f43]" />
+          <div className="h-8 w-8 rounded-lg bg-[#e6eaf0] flex items-center justify-center shrink-0">
+            <UtensilsCrossed className="h-4 w-4 text-[#1f2633]" />
           </div>
         ) : (
           <Link href={backHref}>
-            <button className="h-9 w-9 rounded-lg border-2 border-white/30 flex items-center justify-center hover:bg-white/10 hover:border-[#d9eea4] hover:text-[#d9eea4] transition-colors shrink-0">
+            <button className="h-9 w-9 rounded-lg border-2 border-white/30 flex items-center justify-center hover:bg-white/10 hover:border-[#e6eaf0] hover:text-[#e6eaf0] transition-colors shrink-0">
               <ChevronLeft className="h-5 w-5" />
             </button>
           </Link>
