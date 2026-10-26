@@ -116,6 +116,7 @@ try {
   for (let i = 0; i < 4; i++) await button("1", "body");
   await wait(`document.querySelectorAll(".pos-table-card").length === 14`);
   const checkModes = async (asporto, delivery) => {
+    await wait(`(() => { const labels = [...document.querySelectorAll(".pos-sale-modes button")].map(b => b.textContent.trim()); return labels.includes("Asporto") === ${asporto} && labels.includes("Delivery") === ${delivery}; })()`);
     const modes = await evaluate(`[...document.querySelectorAll(".pos-sale-modes button")].map(b => b.textContent.trim())`);
     assert.equal(modes.includes("Asporto"), asporto, "Asporto must follow its backoffice switch");
     assert.equal(modes.includes("Delivery"), delivery, "Delivery must follow its backoffice switch");
@@ -125,6 +126,7 @@ try {
   for (const [asporto, delivery] of [[true, false], [true, true], [false, true], [false, false]]) {
     await send("Page.navigate", { url: new URL("/backoffice/settings", origin).href });
     await wait(`!!document.querySelector('[role="switch"][aria-label="Asporto"]')`);
+    await wait(`!!document.querySelector('input[type="number"][value="1.50"]')`);
     for (const [label, enabled] of [["Asporto", asporto], ["Delivery / Consegna a domicilio", delivery]]) {
       const selector = `[role="switch"][aria-label="${label}"]`;
       const current = await evaluate(`document.querySelector(${JSON.stringify(selector)}).getAttribute("aria-checked") === "true"`);
@@ -216,15 +218,20 @@ try {
     checkContrast(await colorsOf(".pos-phase-selector .is-active"), "Cashier selected phase");
     const app = await readFile("artifacts/pos-restaurant/src/App.tsx", "utf8");
     const routes = [...app.matchAll(/<Route path="(\/backoffice[^"]*)"/g)].map(m => m[1]);
-    for (const [width, height] of [[1024, 768], [390, 844]]) {
+    for (const [width, height] of [[1440, 900], [390, 844]]) {
       await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
       for (const route of routes) {
-        await send("Page.navigate", { url: new URL(route, origin).href });
+        // Use the app router, avoiding dozens of full module reloads through
+        // the development proxy while checking every management page.
+        await evaluate(`history.pushState(null, "", ${JSON.stringify(route)}); window.dispatchEvent(new PopStateEvent("popstate"));`);
+        await new Promise(r => setTimeout(r, 100));
         await wait(`!!document.querySelector("header h1")`);
         await new Promise(r => setTimeout(r, 200));
         const theme = await evaluate(`(() => { const p = document.createElement("i"); p.style.color = "hsl(var(--primary))"; document.body.append(p); const primary = getComputedStyle(p).color; p.remove(); return {primary, width:document.documentElement.scrollWidth}; })()`);
         assert.equal(theme.primary, primaryColor, `${route}: different primary than cashier`);
         assert(theme.width <= width, `${route}: page overflow at ${width}`);
+        const bodyWidth = await evaluate(`(() => { const body = document.querySelector(".backoffice-body"); const content = body?.querySelector(":scope > div"); return body && content ? {available:body.clientWidth, content:content.getBoundingClientRect().width} : null; })()`);
+        assert(bodyWidth && bodyWidth.content >= bodyWidth.available - 2, `${route}: body constrained to a narrow column at ${width}`);
         if (route === "/backoffice/settings" && width === 390) {
           const saveVisible = await evaluate(`(() => { const label = [...document.querySelectorAll("div")].find(e => e.textContent.trim() === "Prezzo Coperto"); const card = label?.closest(".bg-white"); const save = [...(card?.querySelectorAll("button") ?? [])].find(b => b.textContent.trim() === "Salva"); if (!save) return false; save.scrollIntoView({block:"end"}); const r = save.getBoundingClientRect(); return r.width > 40 && r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; })()`);
           assert(saveVisible, "Cover price Save button clipped on phone");

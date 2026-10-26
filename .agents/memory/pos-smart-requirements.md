@@ -15,6 +15,8 @@ Al posto di “Listino” l’utente vuole vedere le fasi F1–F4.
 
 La grafica deve essere omogenea in tutto il front office e nel back office, con gli stessi colori ben visibili.
 
+Il corpo del back office deve utilizzare tutta la larghezza disponibile, non una colonna centrale stretta.
+
 Asporto e Delivery devono essere visibili solo se abilitati con la relativa spunta nel back office.
 
 **Why:** l’utente ha esplicitamente richiesto questi vincoli per il rinnovo, non una versione ridotta della cassa.

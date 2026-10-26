@@ -87,7 +87,7 @@ export default function BackOfficeIndex() {
 
   return (
     <BackofficeShell title="Back Office" subtitle="Gestione ristorante" isRoot>
-      <div className="p-4 md:p-6 max-w-2xl mx-auto space-y-6">
+      <div className="p-4 md:p-6 w-full space-y-6">
 
         {/* KPI strip — dashboard live */}
         {summary && (
@@ -142,6 +142,7 @@ export default function BackOfficeIndex() {
         )}
 
         {/* Groups */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6">
         {GROUPS.map(g => (
           <div key={g.label}>
             <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 px-1">{g.label}</div>
@@ -162,6 +163,7 @@ export default function BackOfficeIndex() {
             </div>
           </div>
         ))}
+        </div>
 
         {/* Sala shortcut */}
         <Link href="/">

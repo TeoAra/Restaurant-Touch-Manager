@@ -63,7 +63,7 @@ export function BackofficeShell({
       </header>
 
       <div className={cn(
-        "flex-1 min-h-0",
+        "backoffice-body flex-1 min-h-0 [&>div]:w-full [&>div]:max-w-none",
         fixedHeight ? "overflow-hidden flex flex-col" : "overflow-y-auto"
       )}>
         {children}
