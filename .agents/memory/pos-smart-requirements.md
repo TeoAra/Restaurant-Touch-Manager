@@ -21,6 +21,8 @@ Asporto e Delivery devono essere visibili solo se abilitati con la relativa spun
 
 Il prezzo del coperto deve essere preso automaticamente dal back office; non deve essere necessario reinserirlo nella cassa per ogni tavolo.
 
+Un tocco su un prodotto deve aggiungere subito una singola unità, come nella versione precedente, senza obbligare a scegliere la quantità. Quantità e prezzo restano modificabili dalla riga della comanda.
+
 Il pulsante Incassa in basso a destra deve mostrare il prezzo complessivo del tavolo o del banco/scontrino rapido e aprire sempre la pagina dell’incasso, indipendentemente dalla situazione. L’apertura della pagina non è una conferma del pagamento.
 
 Le prenotazioni online devono essere confermate manualmente dall’operatore nell’agenda, non confermate automaticamente. L’utente ha scelto WhatsApp per ricevere gli avvisi oltre alla cassa.

@@ -3081,7 +3081,6 @@ export default function FrontOffice() {
   const [showCovers, setShowCovers] = useState(false);
   const [showEditCovers, setShowEditCovers] = useState(false);
   const [coverKeypad, setCoverKeypad] = useState(false);
-  const [pendingAdd, setPendingAdd] = useState<{ productId: number; unitPrice: string; name: string } | null>(null);
   const [showRomana, setShowRomana] = useState(false);
   const [showPreconto, setShowPreconto] = useState(false);
   const [showSplitBill, setShowSplitBill] = useState(false);
@@ -3496,10 +3495,7 @@ export default function FrontOffice() {
   }
 
   async function handleAddProduct(productId: number, unitPrice: string) {
-    // Scorciatoia rapida: se c'è un prezzo digitato nel tastierino laterale, aggiunge subito.
-    if (numBuffer) { await doAddProduct(productId, unitPrice, [], undefined); return; }
-    const name = (products as unknown as Array<{ id: number; name: string }> | undefined)?.find(p => p.id === productId)?.name ?? "Prodotto";
-    setPendingAdd({ productId, unitPrice, name });
+    await doAddProduct(productId, unitPrice, [], undefined, 1);
   }
 
   async function confirmModifiers(withMods: boolean) {
@@ -5250,20 +5246,6 @@ export default function FrontOffice() {
         item={editingItem}
         onSave={handleSaveItemEdit}
         priceLocked={priceLocked}
-      />
-
-      <NumericKeypadDialog
-        open={!!pendingAdd}
-        title={pendingAdd ? `Aggiungi: ${pendingAdd.name}` : ""}
-        subtitle="Imposta quantità e prezzo prima di aggiungere"
-        fields={pendingAdd ? [
-          { key: "quantity", label: "Quantità", value: "1", decimals: 0, min: 1, max: 999 },
-          { key: "unitPrice", label: "Prezzo unitario", prefix: "€", value: parseFloat(pendingAdd.unitPrice).toFixed(2), decimals: 2, min: 0, max: 99999, locked: priceLocked },
-        ] : []}
-        summary={v => `Totale €${((v.quantity ?? 0) * (v.unitPrice ?? 0)).toFixed(2)}`}
-        confirmLabel="Aggiungi"
-        onClose={() => setPendingAdd(null)}
-        onConfirm={v => { const pa = pendingAdd; setPendingAdd(null); if (pa) void doAddProduct(pa.productId, v.unitPrice, [], undefined, parseInt(v.quantity, 10)); }}
       />
 
       <NumericKeypadDialog

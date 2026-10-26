@@ -106,10 +106,11 @@ try {
         order.total = order.items.reduce((total, item) => total + Number(item.subtotal), 0).toFixed(2);
         body = order;
       }
-      else if (path === "/api/orders/101/items/11" && request.method === "PATCH") {
-        Object.assign(order.items[0], JSON.parse(request.postData));
-        order.items[0].subtotal = (order.items[0].quantity * Number(order.items[0].unitPrice)).toFixed(2);
-        body = order.items[0];
+      else if (/^\/api\/orders\/101\/items\/\d+$/.test(path) && request.method === "PATCH") {
+        body = order.items.find(item => item.id === Number(path.split("/").pop()));
+        assert(body, `Missing fixture item: ${path}`);
+        Object.assign(body, JSON.parse(request.postData));
+        body.subtotal = (body.quantity * Number(body.unitPrice)).toFixed(2);
       } else if (path === "/api/orders/101/items" && request.method === "POST") {
         const input = JSON.parse(request.postData);
         const p = products.find(p => p.id === input.productId);
@@ -211,15 +212,14 @@ try {
   for (const name of ["Sconto", "Lotteria", "Preconto", "Separato", "Romana", "Espandi", "Cancella", "Annulla ordine", "Sospeso", "Cassetto", "Tavolo", "Imposta Qtà", "Imposta Prezzo"]) assert(operations.includes(name), `Operation lost: ${name}`);
   await click('[aria-label="Chiudi operazioni"]');
   await click(".pos-product-grid > button");
-  await wait(`document.querySelector('[data-testid="dialog-keypad"]')`);
-  await click('[data-testid="keypad-confirm"]');
   await wait(`document.querySelector(".pos-order-item").textContent.includes("3")`);
+  assert.equal(await evaluate(`!!document.querySelector('[data-testid="dialog-keypad"]')`), false, "One tap must add one product without asking for quantity");
   assert(writes.includes("PATCH /api/orders/101/items/11"), "Repeated product must update the real mutation route");
   await click(".pos-product-grid > button:nth-child(2)");
-  await wait(`document.querySelector('[data-testid="dialog-keypad"]')`);
-  await click('[data-testid="keypad-confirm"]');
   await wait(`document.querySelectorAll(".pos-order-item").length === 3`);
   assert(writes.includes("POST /api/orders/101/items"), "Product must call the real mutation route");
+  assert(payloads.some(p => p.path === "/api/orders/101/items" && p.data.productId === 2 && p.data.quantity === 1 && p.data.unitPrice === "14.00"), "New product must be added as one unit at its menu price");
+  assert.equal(await evaluate(`!!document.querySelector('[data-testid="dialog-keypad"]')`), false);
   await click(".pos-order-actions > button:last-child");
   await wait(`document.querySelector(".pos-menu-panel").textContent.includes("Romana")`);
   const payment = await evaluate(`document.querySelector(".pos-menu-panel").textContent`);
@@ -287,12 +287,16 @@ try {
     await wait(`!document.querySelector('[data-testid="dialog-keypad"]') && document.querySelector(".pos-order-item").textContent.includes("5")`);
     assert(payloads.some(p => p.path.endsWith("/items/11") && p.data.quantity === 5 && p.data.unitPrice === "8.00"), "Edit quantity and price must reach real mutation handler");
     await click(".pos-product-grid > button");
+    await wait(`document.querySelectorAll(".pos-order-item").length === 4`);
+    assert.equal(await evaluate(`!!document.querySelector('[data-testid="dialog-keypad"]')`), false);
+    assert(payloads.some(p => p.path.endsWith("/101/items") && p.data.productId === 1 && p.data.quantity === 1 && p.data.unitPrice === "6.00"), "One-tap addition must keep the menu price after editing a different row");
+    await click(".pos-order-item:last-child");
     await wait(`document.querySelector('[data-testid="dialog-keypad"]')`);
     await click('[data-testid="keypad-field-quantity"]'); await click('[data-testid="keypad-key-3"]');
     await click('[data-testid="keypad-field-unitPrice"]'); await click('[data-testid="keypad-key-7"]');
     await click('[data-testid="keypad-confirm"]');
-    await wait(`document.querySelectorAll(".pos-order-item").length === 4`);
-    assert(payloads.some(p => p.path.endsWith("/101/items") && p.data.quantity === 3 && p.data.unitPrice === "7.00"), "New product keypad values must persist");
+    await wait(`document.querySelector(".pos-order-item:last-child").textContent.includes("7.00")`);
+    assert(payloads.some(p => /\/101\/items\/\d+$/.test(p.path) && p.data.quantity === 3 && p.data.unitPrice === "7.00"), "Quantity and price must remain editable from the order row");
     await click('[data-testid="row-covers"]');
     await wait(`document.querySelector('[data-testid="dialog-keypad"]')`);
     await click('[data-testid="keypad-field-covers"]'); await click('[data-testid="keypad-key-3"]');
@@ -303,7 +307,7 @@ try {
     assert(payloads.some(p => p.path.endsWith("/covers") && p.data.covers === 3 && p.data.coverPrice === "1.25"));
     assert.equal(settings.cover_price, "1.50", "Order cover edits must not change the global price");
     assert(await evaluate(`document.querySelector('[data-testid="row-covers"]').getBoundingClientRect().top < document.querySelector(".pos-order-item").getBoundingClientRect().top`));
-    console.log("PASS touch keypad: add/edit quantity and price; pinned per-order covers");
+    console.log("PASS one-tap product addition, row quantity/price keypad and pinned per-order covers");
 
     await click(".pos-order-actions > button:last-child");
     await contains("Romana");
