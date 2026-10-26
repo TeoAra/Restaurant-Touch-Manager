@@ -9,6 +9,8 @@ const origin = process.env.POS_TEST_URL || `https://${process.env.REPLIT_DEV_DOM
 const profile = `/tmp/pos-smart-browser-${process.pid}`;
 const chrome = spawn("chromium", ["--headless", "--no-sandbox", "--disable-dev-shm-usage", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
 let ws;
+const bookingRecords = [];
+let bookingEnabled = false;
 try {
   const endpoint = await new Promise((resolve, reject) => {
     let log = "";
@@ -65,6 +67,24 @@ try {
       if (request.method !== "GET") payloads.push({ path, data: JSON.parse(request.postData || "{}") });
       let responseCode = 200;
       if (path === "/api/auth/login") body = { id: 9999, name: "Operatore test", role: "admin" };
+      else if (path === "/api/auth/session") body = { id: 9999, name: "Operatore test", role: "admin" };
+      else if (path === "/api/reservations/public/config") body = { enabled: bookingEnabled, restaurantName: "Locale test", maxCovers: 30, whatsappConfigured: false };
+      else if (path === "/api/reservations/public/request" && request.method === "POST") {
+        const input = JSON.parse(request.postData);
+        bookingRecords.push({ ...input, id: 501, status: "pending", source: "online", durationMinutes: 120, tableId: null, tableIds: null, tableName: null });
+        body = { id: 501, status: "pending", message: "Richiesta ricevuta. Attendi la conferma del locale." };
+      }
+      else if (path === "/api/reservations") {
+        const status = new URL(request.url).searchParams.get("status");
+        body = bookingRecords.filter(r => !status || r.status === status);
+      }
+      else if (path === "/api/reservations/501" && request.method === "PATCH") {
+        Object.assign(bookingRecords[0], JSON.parse(request.postData));
+        body = bookingRecords[0];
+      }
+      else if (path === "/api/fiscal/receipts" && process.env.POS_BOOKING_CHECK === "1") {
+        body = [{ id: 88, numero: 73, anno: 2026, data: "2026-10-26", importo: "24.00", iva: "2.18", metodoPagamento: "card", annullato: false, numeroChiusura: 42, numeroDocumentoRt: 1, printerSerial: "DC2B000001", emissionStatus: "confirmed", voidStatus: "unknown", voidError: "Esito da verificare sulla RT" }];
+      }
       else if (path === "/api/setup-status") body = { completed: true, reason: "flag" };
       else if (path === "/api/settings") {
         if (request.method === "PATCH") {
@@ -411,6 +431,48 @@ try {
     const { data } = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
     await writeFile("generated-artifacts/pos-smart/theme-customer-dialog.jpg", Buffer.from(data, "base64"));
     console.log("PASS primary action contrast and shared color in portaled customer dialog");
+  }
+  if (process.env.POS_BOOKING_CHECK === "1") {
+    bookingEnabled = true;
+    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await send("Page.navigate", { url: origin + "/prenota" });
+    await wait(`!!document.querySelector('[data-testid="input-name"]')`);
+    const fill = async (selector, value) => evaluate(`(() => {
+      const input = document.querySelector(${JSON.stringify(selector)});
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(value)});
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    })()`);
+    await fill('[data-testid="input-name"]', "Prenotazione test");
+    await fill('[data-testid="input-phone"]', "+39 123456789");
+    await wait(`!document.querySelector('[data-testid="button-submit"]').disabled`);
+    await click('[data-testid="button-submit"]');
+    await wait(`!!document.querySelector('[data-testid="text-booking-sent"]')`);
+    assert.equal(bookingRecords[0].status, "pending");
+    assert.equal(bookingRecords[0].guestName, "Prenotazione test");
+    assert(await evaluate(`document.body.textContent.includes("non è valida finché")`));
+    await send("Emulation.setDeviceMetricsOverride", { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false });
+    await send("Page.navigate", { url: origin + "/backoffice/prenotazioni" });
+    await wait(`document.body.textContent.includes("Prenotazione test")`);
+    await button("Tavolo / modifica", "body");
+    await wait(`!!document.querySelector('[role="dialog"]')`);
+    await evaluate(`(() => {
+      const inputs = [...document.querySelectorAll('[role="dialog"] input[type="number"]')];
+      const input = inputs.find(i => i.value === "120");
+      if (!input) throw new Error("Booking duration field missing");
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "90");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    })()`);
+    await button("Salva e conferma", "body");
+    await wait(`!document.querySelector('[role="dialog"]')`);
+    assert.equal(bookingRecords[0].status, "confirmed");
+    assert.equal(bookingRecords[0].durationMinutes, 90);
+    await send("Page.navigate", { url: origin + "/backoffice/fiscale" });
+    await wait(`document.body.textContent.includes("Documento RT 42/1")`);
+    assert(await evaluate(`document.body.textContent.includes("ID interno 73/2026")`));
+    assert(await evaluate(`document.body.textContent.includes("Annullo da verificare")`));
+    assert.equal(await evaluate(`[...document.querySelectorAll("button")].some(b => b.textContent.trim() === "Annulla")`), false, "Unknown cancellation must not expose another print attempt");
+    console.log("PASS public booking mobile submission stays pending, staff edits duration and confirms, RT identity distinct from internal ID and unknown void cannot be repeated. All APIs mocked.");
   }
   assert.deepEqual(errors, [], "Browser errors");
   if (process.env.POS_BILLING_CHECK !== "1") assert(!writes.some(w => /payments|fiscal|invoices|comanda/.test(w)), "No fiscal writes expected");

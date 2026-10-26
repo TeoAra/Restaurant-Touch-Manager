@@ -298,7 +298,7 @@ export const GetOrderResponse = zod.object({
       zod.object({
         id: zod.number(),
         orderId: zod.number(),
-        method: zod.enum(["cash", "card", "ticket", "other"]),
+        method: zod.enum(["cash", "card", "ticket", "other", "satispay"]),
         amount: zod.string(),
         change: zod.string().nullish(),
         createdAt: zod.string(),
@@ -445,7 +445,7 @@ export const DeleteOrderItemParams = zod.object({
 export const ListPaymentsResponseItem = zod.object({
   id: zod.number(),
   orderId: zod.number(),
-  method: zod.enum(["cash", "card", "ticket", "other"]),
+  method: zod.enum(["cash", "card", "ticket", "other", "satispay"]),
   amount: zod.string(),
   change: zod.string().nullish(),
   createdAt: zod.string(),
@@ -457,7 +457,7 @@ export const ListPaymentsResponse = zod.array(ListPaymentsResponseItem);
  */
 export const CreatePaymentBody = zod.object({
   orderId: zod.number(),
-  method: zod.enum(["cash", "card", "ticket", "other"]),
+  method: zod.enum(["cash", "card", "ticket", "other", "satispay"]),
   amount: zod.string(),
   change: zod.string().nullish(),
 });
@@ -472,7 +472,7 @@ export const GetPaymentParams = zod.object({
 export const GetPaymentResponse = zod.object({
   id: zod.number(),
   orderId: zod.number(),
-  method: zod.enum(["cash", "card", "ticket", "other"]),
+  method: zod.enum(["cash", "card", "ticket", "other", "satispay"]),
   amount: zod.string(),
   change: zod.string().nullish(),
   createdAt: zod.string(),
@@ -538,3 +538,203 @@ export const GetTablesStatusResponseItem = zod.object({
   activeOrderCreatedAt: zod.string().nullish(),
 });
 export const GetTablesStatusResponse = zod.array(GetTablesStatusResponseItem);
+
+export const GetPublicBookingConfigResponse = zod.object({
+  enabled: zod.boolean(),
+  restaurantName: zod.string(),
+  maxCovers: zod.number(),
+  whatsappConfigured: zod.boolean(),
+});
+
+export const requestOnlineReservationBodyTimeRegExp = new RegExp(
+  "^([01]\\d|2[0-3]):[0-5]\\d$",
+);
+export const requestOnlineReservationBodyCoversMax = 30;
+
+export const requestOnlineReservationBodyGuestNameMax = 100;
+
+export const requestOnlineReservationBodyPhoneMin = 5;
+export const requestOnlineReservationBodyPhoneMax = 30;
+
+export const requestOnlineReservationBodyNotesMax = 2000;
+
+export const RequestOnlineReservationBody = zod.object({
+  date: zod.coerce.date(),
+  time: zod.string().regex(requestOnlineReservationBodyTimeRegExp),
+  covers: zod.number().min(1).max(requestOnlineReservationBodyCoversMax),
+  guestName: zod.string().min(1).max(requestOnlineReservationBodyGuestNameMax),
+  phone: zod
+    .string()
+    .min(requestOnlineReservationBodyPhoneMin)
+    .max(requestOnlineReservationBodyPhoneMax),
+  notes: zod.string().max(requestOnlineReservationBodyNotesMax).optional(),
+  website: zod.string().optional().describe("Honeypot; must be empty"),
+});
+
+export const ListReservationsQueryParams = zod.object({
+  date: zod.date().optional(),
+  from: zod.date().optional(),
+  to: zod.date().optional(),
+  status: zod.coerce.string().optional(),
+});
+
+export const ListReservationsResponseItem = zod.object({
+  id: zod.number(),
+  date: zod.coerce.date(),
+  time: zod.string(),
+  guestName: zod.string(),
+  phone: zod.string().nullish(),
+  notes: zod.string().nullish(),
+  covers: zod.number(),
+  tableId: zod.number().nullish(),
+  tableIds: zod
+    .string()
+    .nullish()
+    .describe("Legacy serialized JSON array of table IDs"),
+  tableName: zod.string().nullish(),
+  status: zod.string(),
+  source: zod.string(),
+  durationMinutes: zod.number(),
+  createdAt: zod.coerce.date(),
+});
+export const ListReservationsResponse = zod.array(ListReservationsResponseItem);
+
+export const createReservationBodyGuestNameMax = 100;
+
+export const createReservationBodyCoversDefault = 2;
+export const createReservationBodyCoversMax = 100;
+
+export const createReservationBodyDurationMinutesDefault = 120;
+export const createReservationBodyDurationMinutesMin = 15;
+export const createReservationBodyDurationMinutesMax = 720;
+
+export const createReservationBodyStatusDefault = `confirmed`;
+
+export const CreateReservationBody = zod.object({
+  date: zod.coerce.date(),
+  time: zod.string(),
+  guestName: zod.string().min(1).max(createReservationBodyGuestNameMax),
+  phone: zod.string().nullish(),
+  notes: zod.string().nullish(),
+  covers: zod
+    .number()
+    .min(1)
+    .max(createReservationBodyCoversMax)
+    .default(createReservationBodyCoversDefault),
+  durationMinutes: zod
+    .number()
+    .min(createReservationBodyDurationMinutesMin)
+    .max(createReservationBodyDurationMinutesMax)
+    .default(createReservationBodyDurationMinutesDefault),
+  tableId: zod.number().nullish(),
+  tableIds: zod.array(zod.number()).optional(),
+  status: zod
+    .enum([
+      "pending",
+      "confirmed",
+      "arrived",
+      "cancelled",
+      "noshow",
+      "completed",
+    ])
+    .default(createReservationBodyStatusDefault),
+});
+
+export const UpdateReservationParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const updateReservationBodyCoversMax = 100;
+
+export const updateReservationBodyDurationMinutesMin = 15;
+export const updateReservationBodyDurationMinutesMax = 720;
+
+export const UpdateReservationBody = zod.object({
+  date: zod.coerce.date().optional(),
+  time: zod.string().optional(),
+  guestName: zod.string().optional(),
+  phone: zod.string().nullish(),
+  notes: zod.string().nullish(),
+  covers: zod.number().min(1).max(updateReservationBodyCoversMax).optional(),
+  durationMinutes: zod
+    .number()
+    .min(updateReservationBodyDurationMinutesMin)
+    .max(updateReservationBodyDurationMinutesMax)
+    .optional(),
+  tableId: zod.number().nullish(),
+  tableIds: zod.array(zod.number()).optional(),
+  status: zod
+    .enum([
+      "pending",
+      "confirmed",
+      "arrived",
+      "cancelled",
+      "noshow",
+      "completed",
+    ])
+    .optional(),
+});
+
+export const UpdateReservationResponse = zod.object({
+  id: zod.number(),
+  date: zod.coerce.date(),
+  time: zod.string(),
+  guestName: zod.string(),
+  phone: zod.string().nullish(),
+  notes: zod.string().nullish(),
+  covers: zod.number(),
+  tableId: zod.number().nullish(),
+  tableIds: zod
+    .string()
+    .nullish()
+    .describe("Legacy serialized JSON array of table IDs"),
+  tableName: zod.string().nullish(),
+  status: zod.string(),
+  source: zod.string(),
+  durationMinutes: zod.number(),
+  createdAt: zod.coerce.date(),
+});
+
+export const CancelReservationParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const VoidFiscalReceiptParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const voidFiscalReceiptBodyNumeroChiusuraMax = 9999;
+
+export const voidFiscalReceiptBodyNumeroDocumentoRtMax = 9999;
+
+export const voidFiscalReceiptBodyMotivoMax = 500;
+
+export const VoidFiscalReceiptBody = zod.object({
+  numeroChiusura: zod
+    .number()
+    .min(1)
+    .max(voidFiscalReceiptBodyNumeroChiusuraMax),
+  numeroDocumentoRt: zod
+    .number()
+    .min(1)
+    .max(voidFiscalReceiptBodyNumeroDocumentoRtMax),
+  dataDocumento: zod.coerce.date(),
+  printerSerial: zod.string(),
+  motivo: zod.string().max(voidFiscalReceiptBodyMotivoMax).optional(),
+});
+
+export const ListFiscalReportsResponseItem = zod.object({
+  id: zod.number(),
+  type: zod.string(),
+  printerSerial: zod.string(),
+  numeroChiusura: zod.number(),
+  status: zod.enum(["pending", "confirmed", "unknown"]),
+  totalDb: zod.string(),
+  error: zod.string().nullish(),
+  response: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+  completedAt: zod.coerce.date().nullish(),
+});
+export const ListFiscalReportsResponse = zod.array(
+  ListFiscalReportsResponseItem,
+);

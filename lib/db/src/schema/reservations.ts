@@ -11,6 +11,8 @@ export const reservationsTable = pgTable("reservations", {
   phone: text("phone"),
   notes: text("notes"),
   status: text("status").notNull().default("confirmed"),
+  durationMinutes: integer("duration_minutes").notNull().default(120),
+  source: text("source").notNull().default("desk"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

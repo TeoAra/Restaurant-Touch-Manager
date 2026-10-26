@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, fiscalReceiptsTable, ordersTable, paymentsTable } from "@workspace/db";
+import { db, fiscalReceiptsTable, fiscalReportsTable, ordersTable, paymentsTable } from "@workspace/db";
 import { eq, desc, and, sql } from "drizzle-orm";
 import { logAudit } from "../lib/audit";
 import {
@@ -16,6 +16,8 @@ import { getSettings } from "../lib/settings";
 import { requireAdminHeader } from "../lib/auth-guard";
 import { cents, money, normalizeLottery, orderDue, validateRomana } from "../lib/billing";
 import { randomUUID } from "node:crypto";
+import { requireStaffAdmin } from "../lib/staff-session";
+import { rtReference, cancellationConfirmed } from "../lib/fiscal-identity";
 
 const router = Router();
 
@@ -23,11 +25,12 @@ const router = Router();
 router.get("/receipts", async (req, res) => {
   const { anno, numero } = req.query;
   let rows;
-  if (anno && numero) {
+  if (numero) {
     rows = await db.select().from(fiscalReceiptsTable)
-      .where(and(eq(fiscalReceiptsTable.anno, Number(anno)), eq(fiscalReceiptsTable.numero, Number(numero))));
+      .where(and(anno ? eq(fiscalReceiptsTable.anno, Number(anno)) : undefined, eq(fiscalReceiptsTable.numeroDocumentoRt, Number(numero))))
+      .orderBy(desc(fiscalReceiptsTable.createdAt)).limit(200);
   } else {
-    rows = await db.select().from(fiscalReceiptsTable).orderBy(desc(fiscalReceiptsTable.createdAt)).limit(50);
+    rows = await db.select().from(fiscalReceiptsTable).where(anno ? eq(fiscalReceiptsTable.anno, Number(anno)) : undefined).orderBy(desc(fiscalReceiptsTable.createdAt)).limit(200);
   }
   res.json(rows);
 });
@@ -75,51 +78,60 @@ router.post("/receipts", async (req, res) => {
 });
 
 // ── Annulla scontrino ───────────────────────────────────────────────────────
-router.post("/receipts/:id/void", async (req, res) => {
+router.post("/receipts/:id/void", requireStaffAdmin, async (req, res): Promise<void> => {
   const id = Number(req.params.id);
-  const { motivo, numeroChiusura, numeroDocumentoRt, dataDocumento } = req.body as {
-    motivo?: string;
-    numeroChiusura?: number | string;
-    numeroDocumentoRt?: number | string;
-    dataDocumento?: string; // YYYY-MM-DD
-  };
-
-  const updateData: Record<string, unknown> = {
-    annullato: true,
-    annullatoAt: new Date(),
-    motivoAnnullo: motivo ?? "Annullo operatore",
-  };
-  if (numeroChiusura)    updateData.numeroChiusura    = Number(numeroChiusura);
-  if (numeroDocumentoRt) updateData.numeroDocumentoRt = Number(numeroDocumentoRt);
-
-  const [receipt] = await db.update(fiscalReceiptsTable)
-    .set(updateData as never)
-    .where(eq(fiscalReceiptsTable.id, id))
-    .returning();
-  if (!receipt) return res.status(404).json({ error: "Scontrino non trovato" });
-
-  const printer = await getFiscalPrinter();
-  let printerResult = null;
-  if (printer) {
-    // Formato data per CGI RT: DDMMYYYY
-    const dataRaw = dataDocumento ?? receipt.data; // YYYY-MM-DD
-    const dataCgi = dataRaw.replace(/(\d{4})-(\d{2})-(\d{2})/, "$3$2$1"); // → DDMMYYYY
-
-    const nChiusura  = numeroChiusura    ?? (receipt as never as { numeroChiusura?: number }).numeroChiusura    ?? 1;
-    const nDocumento = numeroDocumentoRt ?? (receipt as never as { numeroDocumentoRt?: number }).numeroDocumentoRt ?? receipt.numero;
-
-    // Storno RT: "ZZZZ-NNNN-DDMMYYYY"105M (XonXoff)
-    const rtPort = printer.port ?? 1126;
-    const zzzz = String(nChiusura).padStart(4, "0");
-    const nnnn = String(nDocumento).padStart(4, "0");
-    const stornoRef = `${zzzz}-${nnnn}-${dataCgi}`;
-    const stornoCmd = `"${stornoRef}"105M`;
-    printerResult = await sendXonXoffCommand(printer.ip, rtPort, stornoCmd, 8000);
-  } else {
-    printerResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
+  if (!Number.isSafeInteger(id) || id < 1) { res.status(400).json({ error: "ID non valido" }); return; }
+  const [receipt] = await db.select().from(fiscalReceiptsTable).where(eq(fiscalReceiptsTable.id, id));
+  if (!receipt) { res.status(404).json({ error: "Scontrino non trovato" }); return; }
+  if (receipt.annullato || ["pending", "unknown", "confirmed"].includes(receipt.voidStatus ?? "")) {
+    res.status(409).json({ error: receipt.annullato ? "Documento già annullato" : "Annullo già inviato: verifica l’esito sulla RT. Non ripetere la stampa.", receipt }); return;
   }
-
-  return res.json({ receipt, printer: printerResult });
+  let ref;
+  try { ref = rtReference(req.body ?? {}); }
+  catch (error) { res.status(400).json({ error: (error as Error).message }); return; }
+  if ((receipt.numeroChiusura != null && receipt.numeroChiusura !== ref.closure) ||
+      (receipt.numeroDocumentoRt != null && receipt.numeroDocumentoRt !== ref.document) ||
+      (receipt.dataDocumentoRt && receipt.dataDocumentoRt !== ref.date)) {
+    res.status(409).json({ error: "I riferimenti inseriti non corrispondono ai dati RT già acquisiti" }); return;
+  }
+  const printer = await getFiscalPrinter();
+  if (!printer) { res.status(503).json({ error: "Nessuna RT configurata. Nessun annullo registrato." }); return; }
+  const port = printer.port ?? 1126;
+  const before = await getStatusQ(printer.ip, port);
+  const identity = await getStatus2X(printer.ip, port);
+  const serial = identity.status?.matricola?.trim();
+  if (!before.ok || !before.status || before.status.stato !== 0 || !identity.ok || !serial || Number(identity.status?.errCode) !== 0) {
+    res.status(503).json({ error: "RT non pronta o stato non verificabile: nessun comando di annullo inviato" }); return;
+  }
+  if (typeof req.body.printerSerial !== "string" || req.body.printerSerial.trim() !== serial ||
+      (receipt.printerSerial && receipt.printerSerial.trim() !== serial)) {
+    res.status(400).json({ error: "La matricola sul documento deve corrispondere alla RT collegata" }); return;
+  }
+  const claimed = await db.transaction(async tx => {
+    const [current] = await tx.select().from(fiscalReceiptsTable).where(eq(fiscalReceiptsTable.id, id)).for("update");
+    if (current.annullato || ["pending", "unknown", "confirmed"].includes(current.voidStatus ?? "")) return false;
+    await tx.update(fiscalReceiptsTable).set({
+      voidStatus: "pending", voidError: null, numeroChiusura: ref.closure, numeroDocumentoRt: ref.document,
+      dataDocumentoRt: ref.date, printerSerial: serial,
+    }).where(eq(fiscalReceiptsTable.id, id));
+    return true;
+  });
+  if (!claimed) { res.status(409).json({ error: "Annullo già in corso: non ripetere" }); return; }
+  try {
+    const result = await sendXonXoffCommand(printer.ip, port, ref.command, 8000);
+    const after = await getStatusQ(printer.ip, port);
+    const confirmed = result.ok && cancellationConfirmed(before.status, after.status);
+    const error = confirmed ? null : "Esito annullo da verificare sulla RT. Non ripetere automaticamente il comando.";
+    const [updated] = await db.update(fiscalReceiptsTable).set({
+      annullato: confirmed, annullatoAt: confirmed ? new Date() : null,
+      motivoAnnullo: String(req.body.motivo || "Annullo operatore").slice(0, 500),
+      voidStatus: confirmed ? "confirmed" : "unknown", voidError: error,
+    }).where(eq(fiscalReceiptsTable.id, id)).returning();
+    res.status(confirmed ? 200 : 502).json({ receipt: updated, printer: { ...result, ok: confirmed }, error });
+  } catch (error) {
+    await db.update(fiscalReceiptsTable).set({ voidStatus: "unknown", voidError: "Comunicazione interrotta: verifica il documento sulla RT prima di qualsiasi altro tentativo." }).where(eq(fiscalReceiptsTable.id, id));
+    throw error;
+  }
 });
 
 // ── Lotteria degli Scontrini ─────────────────────────────────────────────────
@@ -252,7 +264,11 @@ router.post("/x-report", async (req, res) => {
 });
 
 // ── Report Z — Chiusura fiscale giornaliera (azzera contatori) ─────────────
-router.post("/z-report", async (req, res) => {
+router.get("/reports", requireStaffAdmin, async (_req, res) => {
+  res.json(await db.select().from(fiscalReportsTable).orderBy(desc(fiscalReportsTable.createdAt)).limit(100));
+});
+
+router.post("/z-report", requireStaffAdmin, async (req, res): Promise<void> => {
   const anno = new Date().getFullYear();
   const now = new Date().toISOString().slice(0, 10);
 
@@ -266,15 +282,47 @@ router.post("/z-report", async (req, res) => {
   const row = totals.rows[0] as { count: string; totale: string; totale_iva: string };
 
   const printer = await getFiscalPrinter();
-  let printerResult = null;
-  if (printer) {
-    // Z-report: "1F" = Chiusura Fiscale Giorno (XonXoff)
-    const rtPort = printer.port ?? 1126;
-    printerResult = await sendXonXoffCommand(printer.ip, rtPort, "1F", 12000);
-  } else {
-    printerResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
+  if (!printer) {
+    res.status(503).json({ error: "Nessuna RT configurata: chiusura fiscale non eseguita." }); return;
   }
-
+  const port = printer.port ?? 1126;
+  const before = await getStatusQ(printer.ip, port);
+  const identity = await getStatus2X(printer.ip, port);
+  if (!before.ok || !before.status || before.status.stato !== 0 || !identity.ok || !identity.status ||
+      Number(identity.status.errCode) !== 0 || !identity.status.matricola) {
+    res.status(503).json({ error: "RT non pronta o documento aperto: chiusura Z non inviata." }); return;
+  }
+  const serial = identity.status.matricola;
+  const closure = before.status.chiusura;
+  const attempt = await db.transaction(async tx => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(7315092)`);
+    const [existing] = await tx.select().from(fiscalReportsTable).where(and(
+      eq(fiscalReportsTable.printerSerial, serial), eq(fiscalReportsTable.numeroChiusura, closure),
+      eq(fiscalReportsTable.type, "Z"),
+    ));
+    if (existing) return null;
+    const [saved] = await tx.insert(fiscalReportsTable).values({
+      type: "Z", printerSerial: serial, numeroChiusura: closure, status: "pending", totalDb: row.totale,
+    }).returning();
+    return saved;
+  });
+  if (!attempt) {
+    res.status(409).json({ error: "Chiusura già inviata per questo numero Z. Verifica lo storico e la RT prima di ripetere." }); return;
+  }
+  let printerResult;
+  try {
+    const command = await sendXonXoffCommand(printer.ip, port, "1F", 12000);
+    const after = await getStatusQ(printer.ip, port);
+    const confirmed = command.ok && after.ok && after.status?.stato === 0 && after.status.chiusura === closure + 1;
+    printerResult = { ...command, ok: confirmed, error: confirmed ? undefined : "Esito Z da verificare sulla RT. Non ripetere automaticamente la chiusura." };
+    await db.update(fiscalReportsTable).set({
+      status: confirmed ? "confirmed" : "unknown", error: printerResult.error ?? null,
+      response: `${command.body ?? ""}\n${after.raw}`, completedAt: confirmed ? new Date() : null,
+    }).where(eq(fiscalReportsTable.id, attempt.id));
+  } catch (error) {
+    await db.update(fiscalReportsTable).set({ status: "unknown", error: "Comunicazione interrotta: verificare la chiusura fisica sulla RT." }).where(eq(fiscalReportsTable.id, attempt.id));
+    throw error;
+  }
   res.json({
     tipo: "Z",
     data: now,
@@ -285,7 +333,10 @@ router.post("/z-report", async (req, res) => {
     printer: printerResult,
     printer_name: printer?.name ?? null,
     printer_matricola: printer?.matricola ?? null,
-    simulated: !printer,
+    simulated: false,
+    numeroChiusura: closure,
+    reportId: attempt.id,
+    totalsSource: "gestionale",
   });
 });
 

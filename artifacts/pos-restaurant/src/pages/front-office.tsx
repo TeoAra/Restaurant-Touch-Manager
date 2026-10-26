@@ -66,7 +66,7 @@ function useSettings() {
 type PosTerminalId = "pax" | "mypos";
 const POS_TERMINAL_LABEL: Record<PosTerminalId, string> = {
   pax: "Nexi PAX D230",
-  mypos: "myPOS Go",
+  mypos: "myPOS Go 2",
 };
 function enabledPosTerminals(s: Record<string, string>): PosTerminalId[] {
   const legacy = s["pos_type"] ?? "none";
@@ -523,7 +523,13 @@ function TableMapPanel({ tablesStatus, selectedTableId, onTableClick, onBack }: 
   const [mapDate, setMapDate] = useState(todayStr);
   const { data: reservations = [], refetch: refetchReservations } = useQuery<Reservation[]>({
     queryKey: ["reservations-map", mapDate],
-    queryFn: () => fetch(`${API}/reservations?date=${mapDate}`).then(r => r.json()),
+    queryFn: async () => {
+      const response = await fetch(`${API}/reservations?date=${mapDate}`);
+      if (!response.ok) throw new Error("Accedi con il PIN per visualizzare le prenotazioni");
+      const rows = await response.json();
+      if (!Array.isArray(rows)) throw new Error("Risposta prenotazioni non valida");
+      return rows;
+    },
     refetchInterval: 60000,
   });
 
@@ -1291,12 +1297,19 @@ function SospesoForm({ total, onConfirm, onClose }: {
   );
 }
 
-function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
+function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay: onPayRaw }: {
   open: boolean; onClose: () => void; total: number; orderId?: number;
   orderItems?: Array<{ productName: string; quantity: number; unitPrice: string; subtotal: string }>;
   onPay: (method: string, amountGiven?: number, invoiceCustomerId?: number, ragioneSociale?: string) => void;
 }) {
-  const [method, setMethod] = useState<"cash" | "card" | "ticket" | "other">("cash");
+  // Wrapper centrale: nessun percorso di incasso Satispay senza conferma esplicita.
+  const satispayVerified = useRef(false);
+  const onPay = (m: string, amountGiven?: number, invoiceCustomerId?: number, ragioneSociale?: string) => {
+    if (m === "satispay" && !satispayVerified.current && !window.confirm("Confermi di aver verificato nell’app Satispay Business che il pagamento è stato ricevuto? Non è una verifica automatica.")) return;
+    satispayVerified.current = false;
+    onPayRaw(m, amountGiven, invoiceCustomerId, ragioneSociale);
+  };
+  const [method, setMethod] = useState<"cash" | "card" | "ticket" | "other" | "satispay">("cash");
   const [given, setGiven] = useState("");
   const [emittiFattura, setEmittiFattura] = useState(false);
   const [customerSearch, setCustomerSearch] = useState("");
@@ -1356,6 +1369,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
   const methods = [
     { id: "cash" as const,   label: "Contanti",   icon: Banknote,   color: "text-emerald-600" },
     { id: "card" as const,   label: "Carta/POS",  icon: CreditCard, color: "text-blue-600" },
+    ...(pdSettings.pos_satispay_enabled === "true" ? [{ id: "satispay" as const, label: "Satispay", icon: Wallet, color: "text-red-600" }] : []),
     ...(buoniPastoOn ? [{ id: "ticket" as const, label: "Buoni Pasto", icon: Ticket, color: "text-amber-600" }] : []),
     { id: "other" as const,  label: "Altro",      icon: Wallet,     color: "text-purple-600" },
   ];
@@ -1595,6 +1609,10 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
           <Button variant="outline" onClick={onClose} className="flex-1">Annulla</Button>
           <Button
             onClick={async () => {
+              if (method === "satispay") {
+                if (!window.confirm("Confermi di aver verificato nell’app Satispay Business il pagamento ricevuto? La verifica è manuale.")) return;
+                satispayVerified.current = true;
+              }
               const customerId = emittiFattura && selectedCustomer ? selectedCustomer.id : undefined;
               const ragSoc = emittiFattura ? (selectedCustomer?.ragioneSociale ?? undefined) : undefined;
               if (!confirmAnomalousIfNeeded(totalConMancia)) return;
@@ -1725,11 +1743,11 @@ type RomanaQuota = {
   n: number;               // 1-based
   importo: number;
   stato: "pending" | "paying" | "pos_waiting" | "pos_manual" | "paid" | "error";
-  metodoPagamento?: "cash" | "card";
+  metodoPagamento?: "cash" | "card" | "satispay";
   rtOk?: boolean;
   rtError?: string;
   receiptId?: number;
-  opIds?: { cash?: string; card?: string };   // operationId UUID stabile per quota+metodo
+  opIds?: { cash?: string; card?: string; satispay?: string };   // operationId UUID stabile per quota+metodo
 };
 
 function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, onCancel, payments, lottery, onLotteryUsed, onQuotaDone, initialPlan, onPlanChange }: {
@@ -1811,7 +1829,7 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
   const primaInAttesa = quote.find(q => q.stato === "pending");
 
   // Invia scontrino. La quota è "pagata" SOLO se HTTP ok && data.ok && data.rtOk.
-  async function emettiSconto(n: number, metodo: "cash" | "card", quotaImporto: number) {
+  async function emettiSconto(n: number, metodo: "cash" | "card" | "satispay", quotaImporto: number) {
     if (lottery?.field && !isLotteryFormat(lottery.field)) throw new Error("Codice lotteria incompleto: inserire 8 lettere o numeri, oppure cancellarlo");
     const quota = quote.find(q => q.n === n)!;
     const opId = quota.opIds?.[metodo] ?? crypto.randomUUID();
@@ -1852,13 +1870,14 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
     if (data.orderClosed === true) onOrderClosed?.();
   }
 
-  async function pagaQuota(n: number, metodo: "cash" | "card") {
+  async function pagaQuota(n: number, metodo: "cash" | "card" | "satispay") {
+    if (metodo === "satispay" && !window.confirm("Confermi di aver verificato nell’app Satispay Business che il pagamento di questa quota è stato ricevuto? Non è una verifica automatica.")) return;
     if (busyRef.current || quote.some(q => q.stato === "paying" || q.stato === "pos_waiting")) return;
     busyRef.current = true;
     try { await pagaQuotaInner(n, metodo); } finally { busyRef.current = false; }
   }
 
-  async function pagaQuotaInner(n: number, metodo: "cash" | "card") {
+  async function pagaQuotaInner(n: number, metodo: "cash" | "card" | "satispay") {
     if (!orderId) return;
     const quota = quote.find(q => q.n === n)!;
 
@@ -1945,6 +1964,7 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
         )}>
         <CreditCard className="h-3.5 w-3.5" /> Carta
       </button>
+      {rdSettings.pos_satispay_enabled === "true" && <button disabled={disabled} onClick={() => pagaQuota(quotaN, "satispay")} className="px-2.5 py-2 rounded-xl border-2 border-red-300 text-red-700 text-xs font-bold disabled:opacity-40">Satispay · verifica manuale</button>}
     </div>
   );
 
@@ -2166,7 +2186,7 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
                                 q.metodoPagamento === "cash"
                                   ? "bg-emerald-100 text-emerald-700"
                                   : "bg-blue-100 text-blue-700")}>
-                                {q.metodoPagamento === "cash" ? "Contanti" : "Carta"}
+                                {q.metodoPagamento === "cash" ? "Contanti" : q.metodoPagamento === "satispay" ? "Satispay" : "Carta"}
                               </span>
                             )}
                           </div>
@@ -2407,7 +2427,7 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
 
   // qty[id] = selected quantity for this row (0 = not included)
   const [qty, setQty] = useState<Record<number, number>>({});
-  const [method, setMethod] = useState<"cash" | "card" | "ticket" | "other">("cash");
+  const [method, setMethod] = useState<"cash" | "card" | "ticket" | "other" | "satispay">("cash");
   const { data: sbSettings = {} } = useSettings();
   const sbBuoniPastoOn = sbSettings["feat_buoni_pasto"] === "true";
 
@@ -2419,6 +2439,7 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
   const [sbPosError, setSbPosError] = useState<string | null>(null);
 
   function doIncassaFinale() {
+    if (method === "satispay" && !window.confirm("Confermi di aver verificato nell’app Satispay Business il pagamento ricevuto? La verifica è manuale.")) return;
     const ids = allRows.filter(r => (qty[r.id] ?? 0) > 0 && !r.isCover).map(r => r.id);
     const coversToDeduct = coverRows.filter(r => (qty[r.id] ?? 0) > 0).length;
     setSbPosPhase("idle");
@@ -2546,9 +2567,9 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
             <div>
               <div className="text-xs font-semibold text-slate-500 mb-2">Metodo di pagamento</div>
               <div className={cn("grid gap-1.5", sbBuoniPastoOn ? "grid-cols-4" : "grid-cols-3")}>
-                {((sbBuoniPastoOn ? ["cash", "card", "ticket", "other"] : ["cash", "card", "other"]) as Array<"cash"|"card"|"ticket"|"other">).map(m => {
-                  const icons = { cash: <Banknote className="h-3.5 w-3.5" />, card: <CreditCard className="h-3.5 w-3.5" />, ticket: <Ticket className="h-3.5 w-3.5" />, other: <Wallet className="h-3.5 w-3.5" /> };
-                  const labels = { cash: "Contanti", card: "Carta", ticket: "Buoni", other: "Altro" };
+                {(["cash", "card", ...(sbBuoniPastoOn ? ["ticket"] : []), ...(sbSettings.pos_satispay_enabled === "true" ? ["satispay"] : []), "other"] as Array<"cash"|"card"|"ticket"|"other"|"satispay">).map(m => {
+                  const icons = { cash: <Banknote className="h-3.5 w-3.5" />, card: <CreditCard className="h-3.5 w-3.5" />, ticket: <Ticket className="h-3.5 w-3.5" />, other: <Wallet className="h-3.5 w-3.5" />, satispay: <Wallet className="h-3.5 w-3.5" /> };
+                  const labels = { cash: "Contanti", card: "Carta", ticket: "Buoni", other: "Altro", satispay: "Satispay" };
                   return (
                     <button key={m} onClick={() => setMethod(m)}
                       className={cn("flex items-center justify-center gap-1 py-2 rounded-lg text-[10px] font-semibold border-2 transition-colors",
@@ -2765,13 +2786,14 @@ function InlinePaymentPanel({ total, onPay, disabled, alertAnomalous, orderId, l
   orderId?: number;
 }) {
   const handleConfirmedPay = (method: string, amount?: number) => {
+    if (method === "satispay" && !window.confirm("Confermi di aver verificato nell’app Satispay Business il pagamento ricevuto? La verifica è manuale.")) return;
     if (alertAnomalous && (total < 1 || total > 500)) {
       const reason = total < 1 ? "molto basso" : "molto alto";
       if (!window.confirm(`Totale ${reason}: € ${total.toFixed(2)}\n\nConfermi l'incasso?`)) return;
     }
     onPay(method, amount);
   };
-  const [method, setMethod] = useState<"cash" | "card" | "ticket" | "other">("cash");
+  const [method, setMethod] = useState<"cash" | "card" | "ticket" | "other" | "satispay">("cash");
   const [given, setGiven] = useState("");
   const givenNum = parseFloat(given) || 0;
   const change = method === "cash" && givenNum >= total ? givenNum - total : 0;
@@ -2834,7 +2856,7 @@ function InlinePaymentPanel({ total, onPay, disabled, alertAnomalous, orderId, l
 
       {/* Method selector */}
       <div className="grid grid-cols-3 gap-2 shrink-0">
-        {([["cash","CONTANTI","text-emerald-500"],["card","BANCOMAT","text-blue-500"],["other","ALTRO","text-purple-500"]] as const).map(([id, label, col]) => (
+        {([["cash","CONTANTI","text-emerald-500"],["card","BANCOMAT","text-blue-500"], ...(ipSettings.pos_satispay_enabled === "true" ? [["satispay","SATISPAY","text-red-600"]] : []), ["other","ALTRO","text-purple-500"]]).map(([id, label, col]) => (
           <button key={id} onClick={() => { setMethod(id as typeof method); setIpPosPhase("idle"); setIpPosError(null); }}
             className={cn("py-2.5 rounded-xl font-bold text-sm border-2 transition-all active:scale-95",
               method === id ? "border-primary bg-primary text-white shadow-lg" : "border-slate-200 bg-white text-slate-700 hover:border-primary")}>

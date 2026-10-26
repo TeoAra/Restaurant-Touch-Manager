@@ -26,6 +26,7 @@ import { db, fiscalReceiptsTable } from "@workspace/db";
 import { printersTable } from "@workspace/db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { getSettings } from "./settings";
+import { rtDate } from "./fiscal-identity";
 
 const XON  = 0x11;
 const XOFF = 0x13;
@@ -144,10 +145,12 @@ export async function sendXonXoff(
     let xoffCount = 0;
     let sendDone = false;
     let responseTimer: ReturnType<typeof setTimeout> | null = null;
+    const deadline = setTimeout(() => finish(false, "Timeout assoluto comunicazione RT"), 20000);
 
     const finish = (ok: boolean, error?: string) => {
       if (settled) return;
       settled = true;
+      clearTimeout(deadline);
       if (responseTimer) clearTimeout(responseTimer);
       socket.destroy();
       resolve({ ok, ms: Date.now() - t0, ascii, xoffCount, error });
@@ -173,6 +176,7 @@ export async function sendXonXoff(
     });
 
     socket.on("data", (chunk: Buffer) => {
+      let hasAscii = false;
       for (const byte of chunk) {
         if (byte === XOFF) {
           xoffCount++;
@@ -180,10 +184,11 @@ export async function sendXonXoff(
           // XON = pronto, ignora
         } else if (byte >= 0x20 && byte <= 0x7e) {
           ascii += String.fromCharCode(byte);
+          hasAscii = true;
         }
       }
-      // Riavvia il timer ogni volta che arriva un dato (aspetta quiete)
-      if (sendDone) scheduleFinish();
+      // Gli XON periodici non sono una risposta e non devono prolungare l'attesa.
+      if (sendDone && hasAscii) scheduleFinish();
     });
 
     socket.on("end",     () => finish(xoffCount === 0));
@@ -756,7 +761,7 @@ export async function emettiFiscalReceipt(opts: {
   const imponibile = importoNum / (1 + aliquota / 100);
   const ivaAmount = (importoNum - imponibile).toFixed(2);
 
-  const [receipt] = await db.insert(fiscalReceiptsTable).values({
+  let [receipt] = await db.insert(fiscalReceiptsTable).values({
     numero,
     anno,
     data: new Date().toISOString().slice(0, 10),
@@ -764,6 +769,7 @@ export async function emettiFiscalReceipt(opts: {
     importo,
     iva: ivaAmount,
     metodoPagamento,
+    emissionStatus: "pending",
     printerRef: printer?.name ?? null,
     printerSerial: printer?.matricola ?? null,
   }).returning();
@@ -836,7 +842,7 @@ export async function emettiFiscalReceipt(opts: {
     const raw = await sendXonXoff(printer.ip, rtPort, cmdFull, 6000);
     console.log("[FISCAL] RT raw: ok=%s xoff=%s ascii=%s", raw.ok, raw.xoffCount, raw.ascii.substring(0, 200));
 
-    if (raw.xoffCount > 0) {
+    if (!raw.ok || raw.xoffCount > 0) {
       rt = { ok: false, ms: raw.ms, body: raw.ascii,
         error: `RT errore XOFF (verifica reparto/operatore sul display RT) — cmd: ${cmd.substring(0, 80)}` };
     } else {
@@ -844,7 +850,7 @@ export async function emettiFiscalReceipt(opts: {
       if (statusQ && statusQ.stato === 0) {
         // Scontrino chiuso → successo!
         rt = { ok: true, ms: raw.ms, body: raw.ascii };
-      } else if (statusQ && statusQ.stato === 1) {
+      } else if (statusQ && statusQ.stato !== 0) {
         // Scontrino ancora aperto → pagamento non andato a buon fine
         rt = { ok: false, ms: raw.ms, body: raw.ascii,
           error: "RT: scontrino ancora aperto dopo il pagamento" };
@@ -853,8 +859,27 @@ export async function emettiFiscalReceipt(opts: {
         rt = { ok: raw.xoffCount === 0, ms: raw.ms, body: raw.ascii };
       }
     }
+    const statusAfter = parseStatusQ(raw.ascii);
+    if (rt.ok && preQ && statusAfter?.stato === 0 &&
+        statusAfter.chiusura === preQ.chiusura && statusAfter.docCommerciali === preQ.docCommerciali + 1) {
+      const identity = await getStatus2X(printer.ip, rtPort);
+      const status = identity.status;
+      const date = status ? rtDate(status.data) : null;
+      if (identity.ok && status && Number(status.errCode) === 0 && !status.scontrinoAperto &&
+          Number(status.numChiusura) === preQ.chiusura && Number(status.numScontrino) > 0 && date) {
+        [receipt] = await db.update(fiscalReceiptsTable).set({
+          numeroChiusura: Number(status.numChiusura), numeroDocumentoRt: Number(status.numScontrino),
+          printerSerial: status.matricola, dataDocumentoRt: date, emissionStatus: "confirmed",
+        }).where(eq(fiscalReceiptsTable.id, receipt.id)).returning();
+      }
+    }
   }
 
+  if (receipt.emissionStatus !== "confirmed") {
+    [receipt] = await db.update(fiscalReceiptsTable).set({
+      emissionStatus: rt.ok ? "unverified" : "unknown",
+    }).where(eq(fiscalReceiptsTable.id, receipt.id)).returning();
+  }
   if (!rt.ok) {
     console.error("[FISCAL] RT errore:", rt.error ?? rt.rtCode);
   }

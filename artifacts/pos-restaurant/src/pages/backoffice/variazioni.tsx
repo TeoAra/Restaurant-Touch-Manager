@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2, Check, SlidersHorizontal } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, SlidersHorizontal, Copy, Search, RefreshCw } from "lucide-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,15 +38,25 @@ const TYPE_CONFIG: Record<ModifierType, { label: string; icon: string; bg: strin
 function useModifiers() {
   return useQuery<Modifier[]>({
     queryKey: ["modifiers"],
-    queryFn: () => fetch(`${API}/modifiers`).then(r => r.json()),
+    queryFn: () => apiCall("GET", `${API}/modifiers`),
   });
 }
 
 function useCategories() {
   return useQuery<Category[]>({
     queryKey: ["categories"],
-    queryFn: () => fetch(`${API}/categories`).then(r => r.json()),
+    queryFn: () => apiCall("GET", `${API}/categories`),
   });
+}
+
+async function apiCall(method: string, url: string, body?: unknown) {
+  const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+  if (!r.ok) {
+    let msg = r.statusText;
+    try { msg = (await r.json()).error ?? msg; } catch { /**/ }
+    throw new Error(msg);
+  }
+  return r.json().catch(() => ({}));
 }
 
 const EMPTY: Omit<Modifier, "id"> = { label: "", type: "plus", priceExtra: "0.00", categoryIds: [] };
@@ -54,7 +64,10 @@ const EMPTY: Omit<Modifier, "id"> = { label: "", type: "plus", priceExtra: "0.00
 export default function VarkazioniPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { data: modifiers = [] } = useModifiers();
+  const { data: modifiers = [], isLoading, isError, error, refetch } = useModifiers();
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState<"all" | ModifierType>("all");
+  const [catFilter, setCatFilter] = useState<number | "all">("all");
   const { data: categories = [] } = useCategories();
 
   const [dialog, setDialog] = useState<{ open: boolean; item?: Modifier }>({ open: false });
@@ -64,6 +77,10 @@ export default function VarkazioniPage() {
   function openEdit(m: Modifier) {
     setForm({ label: m.label, type: m.type, priceExtra: m.priceExtra, categoryIds: m.categoryIds });
     setDialog({ open: true, item: m });
+  }
+  function duplicate(m: Modifier) {
+    setForm({ label: `${m.label} (copia)`, type: m.type, priceExtra: m.priceExtra, categoryIds: m.categoryIds });
+    setDialog({ open: true });
   }
   function close() { setDialog({ open: false }); }
 
@@ -76,27 +93,19 @@ export default function VarkazioniPage() {
     }));
   }
 
+  const invalidateAll = () => {
+    qc.invalidateQueries({ predicate: q => typeof q.queryKey[0] === "string" && /^(modifiers?|category-modifiers|category-modifiers-item|categories|menu)/.test(q.queryKey[0] as string) });
+  };
+
   const save = useMutation({
-    mutationFn: async () => {
-      const payload = { ...form };
-      if (dialog.item) {
-        const r = await fetch(`${API}/modifiers/${dialog.item.id}`, {
-          method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (!r.ok) throw new Error((await r.json()).error ?? r.statusText);
-        return r.json();
-      } else {
-        const r = await fetch(`${API}/modifiers`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (!r.ok) throw new Error((await r.json()).error ?? r.statusText);
-        return r.json();
-      }
+    mutationFn: () => {
+      const payload = { ...form, label: form.label.trim(), priceExtra: (parseFloat(String(form.priceExtra).replace(",", ".")) || 0).toFixed(2) };
+      return dialog.item
+        ? apiCall("PATCH", `${API}/modifiers/${dialog.item.id}`, payload)
+        : apiCall("POST", `${API}/modifiers`, payload);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["modifiers"] });
+      invalidateAll();
       toast({ title: dialog.item ? "Variazione aggiornata" : "Variazione creata" });
       close();
     },
@@ -106,12 +115,18 @@ export default function VarkazioniPage() {
   });
 
   const del = useMutation({
-    mutationFn: (id: number) => fetch(`${API}/modifiers/${id}`, { method: "DELETE" }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["modifiers"] }); toast({ title: "Variazione eliminata" }); },
+    mutationFn: (id: number) => apiCall("DELETE", `${API}/modifiers/${id}`),
+    onSuccess: () => { invalidateAll(); toast({ title: "Variazione eliminata" }); },
+    onError: (err: unknown) => toast({ title: "Errore", description: (err as Error).message, variant: "destructive" }),
   });
 
   const grouped: Record<ModifierType, Modifier[]> = { plus: [], minus: [], note: [], both: [] };
-  modifiers.forEach(m => { if (grouped[m.type]) grouped[m.type].push(m); });
+  const q = search.trim().toLowerCase();
+  const visible = modifiers.filter(m =>
+    (typeFilter === "all" || m.type === typeFilter) &&
+    (catFilter === "all" || m.categoryIds.includes(catFilter)) &&
+    (!q || m.label.toLowerCase().includes(q)));
+  visible.forEach(m => { if (grouped[m.type]) grouped[m.type].push(m); });
 
   return (
     <BackofficeShell
@@ -125,10 +140,38 @@ export default function VarkazioniPage() {
     >
       <div className="p-4 md:p-6 max-w-2xl space-y-6">
 
-        {modifiers.length === 0 && (
+        <div className="space-y-2">
+          <div className="relative">
+            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cerca variazione" className="h-11 pl-9" data-testid="input-search-modifier" />
+          </div>
+          <div className="flex gap-1.5 flex-wrap">
+            {(["all", "plus", "minus", "both", "note"] as const).map(t => (
+              <button key={t} onClick={() => setTypeFilter(t)} data-testid={`filter-type-${t}`}
+                className={cn("px-3 py-2 rounded-full text-xs font-semibold", typeFilter === t ? "bg-primary text-white" : "bg-white border border-slate-200 text-slate-600")}>
+                {t === "all" ? "Tutti i tipi" : TYPE_CONFIG[t].label}
+              </button>
+            ))}
+          </div>
+          <select value={catFilter} onChange={e => setCatFilter(e.target.value === "all" ? "all" : Number(e.target.value))}
+            className="h-10 px-3 border border-slate-200 rounded-lg text-sm bg-white" data-testid="select-filter-category">
+            <option value="all">Tutte le categorie</option>
+            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+
+        {isLoading && <div className="space-y-2">{[0, 1, 2].map(i => <div key={i} className="h-16 rounded-xl bg-slate-100 animate-pulse" />)}</div>}
+        {isError && (
+          <div className="p-4 rounded-xl bg-red-50 text-red-700 text-sm flex items-center gap-3">
+            <span className="flex-1">{(error as Error).message}</span>
+            <Button size="sm" variant="outline" onClick={() => refetch()} className="gap-1"><RefreshCw className="h-3.5 w-3.5" /> Riprova</Button>
+          </div>
+        )}
+
+        {!isLoading && !isError && visible.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-slate-400">
             <SlidersHorizontal className="h-10 w-10 mb-3 opacity-30" />
-            <p className="font-semibold">Nessuna variazione</p>
+            <p className="font-semibold">{modifiers.length ? "Nessun risultato" : "Nessuna variazione"}</p>
             <p className="text-sm mt-1">Crea una variazione e associala alle categorie</p>
           </div>
         )}
@@ -185,12 +228,16 @@ export default function VarkazioniPage() {
                       </div>
                     </div>
                     <div className="flex gap-1 shrink-0">
-                      <button onClick={() => openEdit(m)}
-                        className="p-2 rounded-lg text-slate-400 hover:text-primary hover:bg-[#edf5e9] transition-colors">
+                      <button onClick={() => duplicate(m)} aria-label="Duplica" data-testid={`button-duplicate-${m.id}`}
+                        className="p-3 rounded-lg text-slate-400 hover:text-primary hover:bg-[#edf5e9] transition-colors">
+                        <Copy className="h-4 w-4" />
+                      </button>
+                      <button onClick={() => openEdit(m)} aria-label="Modifica" data-testid={`button-edit-${m.id}`}
+                        className="p-3 rounded-lg text-slate-400 hover:text-primary hover:bg-[#edf5e9] transition-colors">
                         <Pencil className="h-4 w-4" />
                       </button>
-                      <button onClick={() => del.mutate(m.id)}
-                        className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors">
+                      <button onClick={() => { if (window.confirm(`Eliminare "${m.label}"?`)) del.mutate(m.id); }} aria-label="Elimina" data-testid={`button-delete-${m.id}`}
+                        className="p-3 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
@@ -276,14 +323,14 @@ export default function VarkazioniPage() {
               <div className="flex items-center gap-2">
                 <span className="text-slate-400 text-sm">€</span>
                 <Input
-                  type="number"
-                  step="0.10"
+                  type="text"
+                  inputMode="decimal"
                   value={form.priceExtra}
                   onChange={e => setForm(f => ({ ...f, priceExtra: e.target.value }))}
                   className="h-9 w-28 font-mono text-right"
                   placeholder="0.00"
                 />
-                <span className="text-xs text-slate-400">(negativo per sconto)</span>
+                <span className="text-xs text-slate-400">0 = nessun extra, negativo = sconto</span>
               </div>
             </div>
 

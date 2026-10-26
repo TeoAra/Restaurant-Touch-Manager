@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import LoginPage from "@/pages/login";
 import OnboardingPage from "@/pages/onboarding";
 import NotFound from "@/pages/not-found";
+import PrenotaPage from "@/pages/prenota";
 import { Layout } from "@/components/Layout";
 import FrontOffice from "@/pages/front-office";
 import OrdersPage from "@/pages/orders";
@@ -70,11 +71,14 @@ function AppRouter() {
       !setupLoading &&
       setupStatus &&
       !onboardingDone &&
-      location !== "/onboarding"
+      location !== "/onboarding" &&
+      location !== "/prenota"
     ) {
       setLocation("/onboarding");
     }
   }, [user, isAdmin, setupLoading, setupStatus, onboardingDone, location, setLocation]);
+
+  if (location === "/prenota") return <PrenotaPage />;
 
   if (!user) return <LoginPage />;
 

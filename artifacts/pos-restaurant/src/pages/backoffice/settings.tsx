@@ -117,6 +117,7 @@ export default function SettingsPage() {
   const [posForm, setPosForm] = useState({
     pos_pax_enabled: "false",
     pos_mypos_enabled: "false",
+    pos_satispay_enabled: "false",
     pos_pax_ip: "192.168.8.163",
     pos_pax_port: "10009",
     pos_mypos_apikey: "",
@@ -129,6 +130,7 @@ export default function SettingsPage() {
       setPosForm(f => ({
         pos_pax_enabled:       settings.pos_pax_enabled       ?? (legacy === "pax" ? "true" : f.pos_pax_enabled),
         pos_mypos_enabled:     settings.pos_mypos_enabled     ?? (legacy === "mypos" ? "true" : f.pos_mypos_enabled),
+        pos_satispay_enabled:  settings.pos_satispay_enabled ?? "false",
         pos_pax_ip:            settings.pos_pax_ip            ?? f.pos_pax_ip,
         pos_pax_port:          settings.pos_pax_port          ?? f.pos_pax_port,
         pos_mypos_apikey:      settings.pos_mypos_apikey      ?? f.pos_mypos_apikey,
@@ -150,14 +152,22 @@ export default function SettingsPage() {
   }
 
   async function saveMultiple(pairs: Record<string, string>) {
-    for (const [key, value] of Object.entries(pairs)) {
-      await fetch(`${API}/settings`, {
+    try {
+      const response = await fetch(`${API}/settings`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key, value }),
+        body: JSON.stringify(pairs),
       });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Impostazioni non salvate");
+      }
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      return true;
+    } catch (error) {
+      toast({ title: "Salvataggio non riuscito", description: (error as Error).message, variant: "destructive" });
+      return false;
     }
-    qc.invalidateQueries({ queryKey: ["settings"] });
   }
 
   const saveCoverPrice = useMutation({
@@ -224,7 +234,7 @@ export default function SettingsPage() {
             </div>
           </div>
           <div className="flex justify-end pt-1">
-            <Button size="sm" onClick={async () => { await saveMultiple(ditaForm); toast({ title: "Dati azienda salvati" }); }}>
+            <Button size="sm" onClick={async () => { if (await saveMultiple(ditaForm)) toast({ title: "Dati azienda salvati" }); }}>
               Salva Dati Azienda
             </Button>
           </div>
@@ -352,7 +362,7 @@ export default function SettingsPage() {
           )}
 
           <div className="flex justify-end pt-1 border-t border-slate-100">
-            <Button size="sm" onClick={async () => { await saveMultiple(ivaForm); toast({ title: "Aliquote IVA salvate" }); }}>
+            <Button size="sm" onClick={async () => { if (await saveMultiple(ivaForm)) toast({ title: "Aliquote IVA salvate" }); }}>
               Salva Aliquote
             </Button>
           </div>
@@ -446,7 +456,7 @@ export default function SettingsPage() {
           {/* Toggle myPOS */}
           <div className="flex items-center justify-between border-t border-slate-100 pt-4">
             <div>
-              <div className="text-sm font-semibold text-slate-700">myPOS Go</div>
+              <div className="text-sm font-semibold text-slate-700">myPOS Go 2</div>
               <div className="text-[11px] text-slate-400 mt-0.5">Funziona anche in 4G — per ora con conferma manuale in cassa</div>
             </div>
             <button
@@ -462,24 +472,30 @@ export default function SettingsPage() {
           {/* Config myPOS */}
           {posForm.pos_mypos_enabled === "true" && (
             <div className="space-y-3 border-t border-slate-100 pt-4">
-              <p className="text-xs text-slate-500 font-semibold">Configurazione myPOS Go</p>
+              <p className="text-xs text-slate-500 font-semibold">myPOS Go 2 — conferma manuale attuale</p>
               <div className="grid grid-cols-1 gap-3">
-                <DField label="myPOS API Key (per la futura integrazione automatica)" val={posForm.pos_mypos_apikey}
-                  setVal={v => setPosForm(f => ({ ...f, pos_mypos_apikey: v }))} placeholder="Lascia vuoto se non ancora richiesta" />
                 <DField label="Serial Number terminale" val={posForm.pos_mypos_terminal_id}
                   setVal={v => setPosForm(f => ({ ...f, pos_mypos_terminal_id: v }))} placeholder="es. M01234567" />
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                Per ora la cassa mostra l'importo da digitare sul terminale e il cassiere conferma manualmente
-                l'avvenuto pagamento; lo scontrino RT viene emesso subito dopo. L'incasso automatico via internet
-                (myPOS Cash Register API, funziona anche in 4G) sarà collegato quando myPOS abiliterà l'account
-                partner: la richiesta si fa dal sito sviluppatori myPOS.
+                Verifica il pagamento sul terminale prima di confermarlo in cassa. Go 2 supporta un profilo
+                ECR in Wi-Fi, ma non l’ePOS API dei terminali Android: il collegamento automatico richiede
+                l’abilitazione e il protocollo corretto del dispositivo. Non viene simulata un’approvazione.
               </p>
+              <a href="https://developers.mypos.com/guides/troubleshooting-guides/terminal-configuration-ecr-erp" target="_blank" rel="noreferrer" className="text-sm underline text-primary">Guida ufficiale myPOS per il profilo ECR Go 2</a>
             </div>
           )}
 
+          <div className="rounded-xl border border-slate-200 p-4 space-y-2">
+            <label className="flex items-center justify-between gap-3 font-semibold text-sm">
+              Satispay Business
+              <input type="checkbox" checked={posForm.pos_satispay_enabled === "true"} onChange={e => setPosForm(f => ({ ...f, pos_satispay_enabled: e.target.checked ? "true" : "false" }))} className="h-6 w-6 accent-primary" />
+            </label>
+            <p className="text-xs text-slate-600">Abilita il metodo in cassa. Per ora il cassiere deve verificare l’incasso nell’app Satispay Business e confermarlo esplicitamente. Il collegamento automatico API non è configurato: non vengono generati QR o approvazioni fittizie.</p>
+          </div>
+
           <div className="flex justify-end pt-1 border-t border-slate-100">
-            <Button size="sm" onClick={async () => { await saveMultiple(posForm); toast({ title: "Configurazione terminale POS salvata" }); }}>
+            <Button size="sm" onClick={async () => { if (await saveMultiple(posForm)) toast({ title: "Configurazione terminale POS salvata" }); }}>
               Salva Terminale POS
             </Button>
           </div>

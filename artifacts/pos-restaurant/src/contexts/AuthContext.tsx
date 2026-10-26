@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 const API = `${BASE}/api`;
@@ -26,6 +26,16 @@ function loadSession(): AppUser | null {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(loadSession);
 
+  useEffect(() => {
+    if (!loadSession()) return;
+    fetch(`${API}/auth/session`).then(async response => {
+      if (response.status === 401) {
+        sessionStorage.removeItem(SESSION_KEY);
+        setUser(null);
+      }
+    }).catch(() => { /* Keep the current screen during a temporary network outage. */ });
+  }, []);
+
   const login = useCallback(async (pin: string) => {
     try {
       const res = await fetch(`${API}/auth/login`, {
@@ -47,6 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    void fetch(`${API}/auth/logout`, { method: "POST" });
     sessionStorage.removeItem(SESSION_KEY);
     setUser(null);
   }, []);

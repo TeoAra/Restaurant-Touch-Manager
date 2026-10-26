@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft, ChevronRight, Plus, Pencil, Trash2, X,
-  Phone, Users, CalendarDays, Clock, List, Map as MapIcon,
+  Phone, Users, CalendarDays, Clock, List, Map as MapIcon, Check, Copy, Globe, MessageCircle, Hourglass,
 } from "lucide-react";
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ type Res = {
   id: number; tableId: number | null; tableIds?: string | null; tableName: string | null;
   date: string; time: string; covers: number;
   guestName: string; phone: string | null; notes: string | null;
-  status: string;
+  status: string; durationMinutes?: number; source?: string;
 };
 type FETable = {
   id: number; name: string; status?: string;
@@ -31,6 +31,8 @@ type Table = { id: number; name: string };
 const MONTHS_IT = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
 const DAYS_IT = ["Lu","Ma","Me","Gi","Ve","Sa","Do"];
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; dot: string }> = {
+  pending:   { label: "Da confermare", bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-500" },
+  completed: { label: "Completata", bg: "bg-slate-100", text: "text-slate-600", dot: "bg-slate-400" },
   confirmed: { label: "Confermata", bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500" },
   arrived:   { label: "Arrivata",   bg: "bg-blue-50",    text: "text-blue-700",    dot: "bg-blue-500"    },
   cancelled: { label: "Annullata",  bg: "bg-red-50",     text: "text-red-700",     dot: "bg-red-400"     },
@@ -38,6 +40,17 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; d
 };
 
 const CELL = 80;
+const SHARE_URL = `${window.location.origin}${BASE}/prenota`;
+
+async function apiCall(method: string, url: string, body?: unknown) {
+  const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+  if (!r.ok) {
+    let msg = r.statusText;
+    try { msg = (await r.json()).error ?? msg; } catch { /**/ }
+    throw new Error(msg);
+  }
+  return r.json().catch(() => ({}));
+}
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function formatDateIT(d: string) {
@@ -63,8 +76,25 @@ function getElemSize(t: FETable) {
 function useReservations(from: string, to: string) {
   return useQuery<Res[]>({
     queryKey: ["reservations", from, to],
-    queryFn: () => fetch(`${API}/reservations?from=${from}&to=${to}`).then(r => r.json()),
+    queryFn: () => apiCall("GET", `${API}/reservations?from=${from}&to=${to}`),
     staleTime: 30000,
+  });
+}
+function usePending() {
+  return useQuery<Res[]>({
+    queryKey: ["reservations", "pending"],
+    queryFn: () => apiCall("GET", `${API}/reservations?status=pending`),
+    refetchInterval: 15000,
+  });
+}
+function useOnlineSetting() {
+  return useQuery<boolean>({
+    queryKey: ["settings", "online_booking_enabled"],
+    queryFn: async () => {
+      const d = await apiCall("GET", `${API}/settings`);
+      if (Array.isArray(d)) return d.find((x: { key: string }) => x.key === "online_booking_enabled")?.value === "true";
+      return (d as Record<string, unknown>)?.online_booking_enabled === "true";
+    },
   });
 }
 function useTables() {
@@ -81,7 +111,7 @@ function useTableLayout() {
   });
 }
 
-const EMPTY_FORM = { tableId: "" as string, date: todayStr(), time: "20:00", covers: 2, guestName: "", phone: "", notes: "" };
+const EMPTY_FORM = { tableIds: [] as number[], durationMinutes: 120, date: todayStr(), time: "20:00", covers: 2, guestName: "", phone: "", notes: "" };
 
 // ── Mini floor map for reservations ──────────────────────────────────────────
 function ResMapView({ tables, dayRes }: { tables: FETable[]; dayRes: Res[] }) {
@@ -230,8 +260,13 @@ export default function PrenotazioniPage() {
   const fromStr = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-01`;
   const toStr = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(lastOfMonth.getDate()).padStart(2, "0")}`;
 
-  const { data: allRes = [] } = useReservations(fromStr, toStr);
+  const resQ = useReservations(fromStr, toStr);
+  const allRes = useMemo(() => (Array.isArray(resQ.data) ? resQ.data : []), [resQ.data]);
   const { data: tables = [] } = useTables();
+  const pendingQ = usePending();
+  const pending = useMemo(() => (Array.isArray(pendingQ.data) ? pendingQ.data : []), [pendingQ.data]);
+  const { data: onlineEnabled = false } = useOnlineSetting();
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const { data: tableLayout = [] } = useTableLayout();
 
   const dayRes = useMemo(() => {
@@ -240,7 +275,8 @@ export default function PrenotazioniPage() {
     return map;
   }, [allRes]);
 
-  const selectedDayRes = selectedDate ? (dayRes[selectedDate] ?? []) : [];
+  const selectedDayAll = selectedDate ? (dayRes[selectedDate] ?? []) : [];
+  const selectedDayRes = statusFilter === "all" ? selectedDayAll : selectedDayAll.filter(r => r.status === statusFilter);
 
   // Calendar grid
   const startDow = (firstOfMonth.getDay() + 6) % 7;
@@ -257,50 +293,57 @@ export default function PrenotazioniPage() {
     setDialog({ open: true });
   }
   function openEdit(r: Res) {
-    setForm({ tableId: r.tableId ? String(r.tableId) : "", date: r.date, time: r.time, covers: r.covers, guestName: r.guestName, phone: r.phone ?? "", notes: r.notes ?? "" });
+    setForm({ tableIds: parseResTableIds(r), durationMinutes: r.durationMinutes ?? 120, date: r.date, time: r.time, covers: r.covers, guestName: r.guestName, phone: r.phone ?? "", notes: r.notes ?? "" });
     setDialog({ open: true, item: r });
   }
   function close() { setDialog({ open: false }); }
 
+  const refresh = () => qc.invalidateQueries({ queryKey: ["reservations"] });
+  const errToast = (e: unknown) => toast({ title: "Errore", description: (e as Error).message, variant: "destructive" });
+
   const save = useMutation({
-    mutationFn: async () => {
+    mutationFn: (confirm?: boolean) => {
       const payload = {
-        tableId: form.tableId ? parseInt(form.tableId) : null,
-        date: form.date, time: form.time, covers: form.covers,
+        ...(confirm ? { status: "confirmed" } : {}),
+        tableId: form.tableIds[0] ?? null, tableIds: form.tableIds,
+        date: form.date, time: form.time, covers: form.covers, durationMinutes: form.durationMinutes,
         guestName: form.guestName.trim(), phone: form.phone.trim() || null, notes: form.notes.trim() || null,
       };
-      if (dialog.item) {
-        const r = await fetch(`${API}/reservations/${dialog.item.id}`, {
-          method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
-        });
-        if (!r.ok) throw new Error((await r.json()).error ?? r.statusText);
-        return r.json();
-      } else {
-        const r = await fetch(`${API}/reservations`, {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
-        });
-        if (!r.ok) throw new Error((await r.json()).error ?? r.statusText);
-        return r.json();
-      }
+      return dialog.item
+        ? apiCall("PATCH", `${API}/reservations/${dialog.item.id}`, payload)
+        : apiCall("POST", `${API}/reservations`, payload);
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["reservations"] });
-      toast({ title: dialog.item ? "Prenotazione aggiornata" : "Prenotazione creata" });
-      close();
-    },
-    onError: (e: unknown) => toast({ title: "Errore", description: (e as Error).message, variant: "destructive" }),
+    onSuccess: () => { refresh(); toast({ title: dialog.item ? "Prenotazione aggiornata" : "Prenotazione creata" }); close(); },
+    onError: errToast,
   });
 
   const del = useMutation({
-    mutationFn: (id: number) => fetch(`${API}/reservations/${id}`, { method: "DELETE" }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["reservations"] }); toast({ title: "Eliminata" }); },
+    mutationFn: (id: number) => apiCall("DELETE", `${API}/reservations/${id}`),
+    onSuccess: () => { refresh(); toast({ title: "Eliminata" }); },
+    onError: errToast,
   });
 
   const changeStatus = useMutation({
-    mutationFn: ({ id, status }: { id: number; status: string }) =>
-      fetch(`${API}/reservations/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["reservations"] }),
+    mutationFn: ({ id, status }: { id: number; status: string }) => apiCall("PATCH", `${API}/reservations/${id}`, { status }),
+    onSuccess: (_d, v) => { refresh(); toast({ title: v.status === "confirmed" ? "Prenotazione confermata" : v.status === "cancelled" ? "Prenotazione annullata" : "Stato aggiornato" }); },
+    onError: errToast,
   });
+
+  const setOnline = useMutation({
+    mutationFn: (on: boolean) => apiCall("PATCH", `${API}/settings`, { key: "online_booking_enabled", value: on ? "true" : "false" }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["settings"] }); toast({ title: "Impostazione salvata" }); },
+    onError: errToast,
+  });
+
+  function jumpTo(r: Res) {
+    setSelectedDate(r.date);
+    const [y, m] = r.date.split("-").map(Number);
+    setViewYear(y); setViewMonth(m - 1);
+  }
+  async function copyLink() {
+    try { await navigator.clipboard.writeText(SHARE_URL); toast({ title: "Link copiato" }); }
+    catch { toast({ title: "Copia non riuscita", description: SHARE_URL, variant: "destructive" }); }
+  }
 
   const prevMonth = () => { if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); } else setViewMonth(m => m - 1); };
   const nextMonth = () => { if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); } else setViewMonth(m => m + 1); };
@@ -430,6 +473,77 @@ export default function PrenotazioniPage() {
             </Button>
           </div>
 
+          {(resQ.isError || pendingQ.isError) && (
+            <div className="mb-4 rounded-xl bg-red-50 text-red-700 text-sm p-3 flex items-center gap-3" data-testid="error-reservations">
+              <span className="flex-1">
+                {resQ.isError ? `Agenda non caricata: ${(resQ.error as Error).message}` : `Richieste non aggiornate: ${(pendingQ.error as Error).message}`}
+              </span>
+              <Button size="sm" variant="outline" onClick={() => { resQ.refetch(); pendingQ.refetch(); }}>Riprova</Button>
+            </div>
+          )}
+          {resQ.isLoading && <div className="mb-4 h-16 rounded-xl bg-slate-200 animate-pulse" data-testid="loading-reservations" />}
+
+          {/* Richieste in attesa */}
+          {pending.length > 0 && (
+            <div className="mb-4 rounded-2xl border-2 border-amber-300 bg-amber-50 p-3" data-testid="panel-pending">
+              <div className="flex items-center gap-2 mb-2 text-amber-800 font-bold text-sm">
+                <Hourglass className="h-4 w-4" /> Richieste da confermare ({pending.length})
+              </div>
+              <div className="space-y-2">
+                {pending.map(r => (
+                  <div key={r.id} className="bg-white rounded-xl p-3 flex flex-wrap items-center gap-3" data-testid={`row-pending-${r.id}`}>
+                    <button onClick={() => jumpTo(r)} className="flex-1 min-w-[160px] text-left">
+                      <div className="font-bold text-slate-800">{r.guestName}</div>
+                      <div className="text-xs text-slate-500">{formatDateIT(r.date)} · {r.time.slice(0, 5)} · {r.covers} cop.{r.phone ? ` · ${r.phone}` : ""}</div>
+                      {r.notes && <div className="text-xs italic text-slate-400 truncate">{r.notes}</div>}
+                    </button>
+                    <Button size="sm" variant="outline" className="h-10" onClick={() => openEdit(r)} data-testid={`button-assign-${r.id}`}>
+                      Tavolo / modifica
+                    </Button>
+                    <Button size="sm" className="gap-1 h-10" disabled={changeStatus.isPending}
+                      onClick={() => changeStatus.mutate({ id: r.id, status: "confirmed" })} data-testid={`button-confirm-${r.id}`}>
+                      <Check className="h-4 w-4" /> Conferma
+                    </Button>
+                    <Button size="sm" variant="outline" className="gap-1 h-10 text-red-600 border-red-200" disabled={changeStatus.isPending}
+                      onClick={() => changeStatus.mutate({ id: r.id, status: "cancelled" })} data-testid={`button-reject-${r.id}`}>
+                      <X className="h-4 w-4" /> Rifiuta
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Prenotazioni online */}
+          <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-3 flex flex-wrap items-center gap-3">
+            <Globe className="h-4 w-4 text-primary shrink-0" />
+            <div className="flex-1 min-w-[200px]">
+              <div className="text-sm font-bold text-slate-800">Prenotazioni online</div>
+              <div className="text-[11px] text-slate-500 break-all">{SHARE_URL}</div>
+              <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
+                <MessageCircle className="h-3 w-3" /> WhatsApp NON configurato — nessun messaggio inviato
+              </div>
+            </div>
+            <Button size="sm" variant="outline" className="gap-1 h-9" onClick={copyLink} data-testid="button-copy-link"><Copy className="h-3.5 w-3.5" /> Copia link</Button>
+            <button role="switch" aria-checked={onlineEnabled} disabled={setOnline.isPending}
+              onClick={() => setOnline.mutate(!onlineEnabled)} data-testid="switch-online-booking"
+              className={cn("h-9 px-4 rounded-full text-xs font-bold border-2 transition-colors",
+                onlineEnabled ? "bg-primary text-white border-primary" : "bg-slate-100 text-slate-500 border-slate-200")}>
+              {onlineEnabled ? "Attive" : "Disattivate"}
+            </button>
+          </div>
+
+          {/* Filtro stato */}
+          <div className="flex gap-1.5 mb-3 flex-wrap">
+            {["all", "pending", "confirmed", "arrived", "completed", "noshow", "cancelled"].map(s => (
+              <button key={s} onClick={() => setStatusFilter(s)} data-testid={`filter-status-${s}`}
+                className={cn("px-3 py-2 rounded-full text-xs font-semibold transition-all",
+                  statusFilter === s ? "bg-primary text-white" : "bg-white border border-slate-200 text-slate-600")}>
+                {s === "all" ? "Tutte" : STATUS_CONFIG[s].label}
+              </button>
+            ))}
+          </div>
+
           {/* View toggle Lista / Mappa */}
           <div className="flex gap-1 bg-white rounded-xl p-1 shadow-sm border border-slate-200 mb-4 w-fit">
             <button onClick={() => setDetailView("list")}
@@ -456,6 +570,7 @@ export default function PrenotazioniPage() {
               <div className="space-y-3">
                 {[...selectedDayRes].sort((a, b) => a.time.localeCompare(b.time)).map(r => {
                   const st = STATUS_CONFIG[r.status] ?? STATUS_CONFIG.confirmed;
+                  const tIds = parseResTableIds(r);
                   return (
                     <div key={r.id} className={cn("bg-white rounded-2xl border-2 border-slate-200 p-4 shadow-sm", r.status === "cancelled" && "opacity-50")}>
                       <div className="flex items-start gap-3">
@@ -475,9 +590,13 @@ export default function PrenotazioniPage() {
                             <span className="flex items-center gap-1 text-xs text-slate-500">
                               <Users className="h-3 w-3" /> {r.covers} cop.
                             </span>
-                            {r.tableName && (
-                              <span className="text-xs text-slate-500 font-medium">Tavolo {r.tableName}</span>
+                            {tIds.length > 0 && (
+                              <span className="text-xs text-slate-500 font-medium">
+                                Tavolo {tIds.map(id => tables.find(t => t.id === id)?.name ?? (id === r.tableId ? r.tableName : null) ?? id).join(" + ")}
+                              </span>
                             )}
+                            <span className="text-xs text-slate-400">{r.durationMinutes ?? 120} min</span>
+                            {r.source === "online" && <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 font-semibold">Online</span>}
                             {r.phone && (
                               <span className="flex items-center gap-1 text-xs text-slate-500">
                                 <Phone className="h-3 w-3" /> {r.phone}
@@ -499,11 +618,11 @@ export default function PrenotazioniPage() {
                       </div>
                       {r.status !== "cancelled" && (
                         <div className="flex gap-1.5 mt-3 pt-3 border-t border-slate-100 flex-wrap">
-                          {(["confirmed", "arrived", "noshow", "cancelled"] as const).filter(s => s !== r.status).map(s => {
+                          {(["confirmed", "arrived", "completed", "noshow", "cancelled"] as const).filter(s => s !== r.status).map(s => {
                             const c = STATUS_CONFIG[s];
                             return (
                               <button key={s} onClick={() => changeStatus.mutate({ id: r.id, status: s })}
-                                className={cn("text-[10px] px-2.5 py-1.5 rounded-lg font-semibold transition-all border", c.bg, c.text, "border-transparent hover:opacity-80")}>
+                                className={cn("text-xs px-3 py-2.5 rounded-lg font-semibold transition-all border", c.bg, c.text, "border-transparent hover:opacity-80")}>
                                 → {c.label}
                               </button>
                             );
@@ -558,15 +677,25 @@ export default function PrenotazioniPage() {
               </div>
             </div>
             <div>
-              <Label className="text-xs text-slate-500 mb-1 block">Tavolo <span className="text-slate-300">(opzionale)</span></Label>
-              <select
-                value={form.tableId}
-                onChange={e => setForm(f => ({ ...f, tableId: e.target.value }))}
-                className="w-full h-9 px-3 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-              >
-                <option value="">— Da assegnare —</option>
-                {tables.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
+              <Label className="text-xs text-slate-500 mb-1 block">Durata (minuti)</Label>
+              <Input type="number" min={15} max={480} step={15} value={form.durationMinutes}
+                onChange={e => setForm(f => ({ ...f, durationMinutes: parseInt(e.target.value) || 120 }))} className="h-9" data-testid="input-duration" />
+            </div>
+            <div>
+              <Label className="text-xs text-slate-500 mb-1 block">Tavoli <span className="text-slate-300">(anche più di uno, opzionale)</span></Label>
+              <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                {tables.map(t => {
+                  const on = form.tableIds.includes(t.id);
+                  return (
+                    <button key={t.id} type="button" data-testid={`chip-table-${t.id}`}
+                      onClick={() => setForm(f => ({ ...f, tableIds: on ? f.tableIds.filter(x => x !== t.id) : [...f.tableIds, t.id] }))}
+                      className={cn("px-3 py-2 rounded-lg text-xs font-semibold border-2",
+                        on ? "bg-primary text-white border-primary" : "bg-white border-slate-200 text-slate-600")}>
+                      {t.name}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             <div>
               <Label className="text-xs text-slate-500 mb-1 block">Note</Label>
@@ -577,7 +706,12 @@ export default function PrenotazioniPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={close}>Annulla</Button>
-            <Button onClick={() => save.mutate()} disabled={!form.guestName.trim() || !form.date || !form.time || save.isPending}>
+            {dialog.item?.status === "pending" && (
+              <Button variant="secondary" onClick={() => save.mutate(true)} disabled={!form.guestName.trim() || save.isPending} data-testid="button-save-confirm">
+                Salva e conferma
+              </Button>
+            )}
+            <Button onClick={() => save.mutate(false)} disabled={!form.guestName.trim() || !form.date || !form.time || save.isPending}>
               {save.isPending ? "Salvataggio…" : "Salva"}
             </Button>
           </DialogFooter>

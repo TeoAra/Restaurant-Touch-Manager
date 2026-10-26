@@ -49,3 +49,11 @@ Per visualizzazione e annullamento fiscali usare i riferimenti assegnati dalla s
 **Why:** l’utente ha richiesto esplicitamente che scontrini e annullamenti corrispondano alla numerazione reale della RT.
 
 **How to apply:** distinguere gli identificativi interni dall’identità fiscale composta da matricola, chiusura, numero documento e data. Un riferimento RT mancante non deve essere ricostruito usando il numero interno o una chiusura predefinita; non rinumerare retroattivamente lo storico.
+
+## Esiti incerti di annulli e chiusure
+
+Una risposta persa dopo l’invio di un annullo o di una chiusura Z non equivale a un rifiuto. Conservare l’esito da verificare senza segnare l’operazione come riuscita e senza rispedirla automaticamente, anche dopo un riavvio.
+
+**Why:** la RT può aver completato un’operazione fisica prima che la cassa ne perda la risposta; riprovare alla cieca può produrre un secondo documento o una seconda chiusura.
+
+**How to apply:** distinguere rifiuto prima dell’invio, tentativo inviato e conferma fiscale. Per una conferma usare lo stato e i contatori reali della RT, non la sola riuscita della connessione TCP.

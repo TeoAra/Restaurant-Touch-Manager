@@ -1,6 +1,6 @@
 export type OrderPayment = { id: number; method: string; amount: string; createdAt?: string; operationId?: string | null; fiscalReceiptId?: number | null };
 
-const METHOD: Record<string, string> = { cash: "Contanti", card: "Carta", ticket: "Buono", other: "Altro" };
+const METHOD: Record<string, string> = { cash: "Contanti", card: "Carta", ticket: "Buono", other: "Altro", satispay: "Satispay" };
 
 export function PaymentSummary({ total, paid, payments, testId = "payment-summary" }: {
   total: number; paid: number; payments?: OrderPayment[]; testId?: string;

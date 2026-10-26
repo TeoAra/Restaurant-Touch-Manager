@@ -5,6 +5,96 @@
  * POS Restaurant API
  * OpenAPI spec version: 0.1.0
  */
+export interface OnlineBookingBody {
+  date: string;
+  /** @pattern ^([01]\d|2[0-3]):[0-5]\d$ */
+  time: string;
+  /**
+   * @minimum 1
+   * @maximum 30
+   */
+  covers: number;
+  /**
+   * @minLength 1
+   * @maxLength 100
+   */
+  guestName: string;
+  /**
+   * @minLength 5
+   * @maxLength 30
+   */
+  phone: string;
+  /** @maxLength 2000 */
+  notes?: string;
+  /** Honeypot; must be empty */
+  website?: string;
+}
+
+export type ReservationBodyStatus =
+  (typeof ReservationBodyStatus)[keyof typeof ReservationBodyStatus];
+
+export const ReservationBodyStatus = {
+  pending: "pending",
+  confirmed: "confirmed",
+  arrived: "arrived",
+  cancelled: "cancelled",
+  noshow: "noshow",
+  completed: "completed",
+} as const;
+
+export interface ReservationBody {
+  date: string;
+  time: string;
+  /**
+   * @minLength 1
+   * @maxLength 100
+   */
+  guestName: string;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  /**
+   * @minimum 1
+   * @maximum 100
+   */
+  covers?: number;
+  /**
+   * @minimum 15
+   * @maximum 720
+   */
+  durationMinutes?: number;
+  /** @nullable */
+  tableId?: number | null;
+  tableIds?: number[];
+  status?: ReservationBodyStatus;
+}
+
+export interface Reservation {
+  id: number;
+  date: string;
+  time: string;
+  guestName: string;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  covers: number;
+  /** @nullable */
+  tableId?: number | null;
+  /**
+   * Legacy serialized JSON array of table IDs
+   * @nullable
+   */
+  tableIds?: string | null;
+  /** @nullable */
+  tableName?: string | null;
+  status: string;
+  source: string;
+  durationMinutes: number;
+  createdAt: string;
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -144,6 +234,7 @@ export const PaymentMethod = {
   card: "card",
   ticket: "ticket",
   other: "other",
+  satispay: "satispay",
 } as const;
 
 export interface Payment {
@@ -267,6 +358,7 @@ export const CreatePaymentBodyMethod = {
   card: "card",
   ticket: "ticket",
   other: "other",
+  satispay: "satispay",
 } as const;
 
 export interface CreatePaymentBody {
@@ -361,4 +453,109 @@ export type GetSalesByDayParams = {
 export type GetTopProductsParams = {
   from?: string;
   to?: string;
+};
+
+export type GetPublicBookingConfig200 = {
+  enabled: boolean;
+  restaurantName: string;
+  maxCovers: number;
+  whatsappConfigured: boolean;
+};
+
+export type RequestOnlineReservation201Status =
+  (typeof RequestOnlineReservation201Status)[keyof typeof RequestOnlineReservation201Status];
+
+export const RequestOnlineReservation201Status = {
+  pending: "pending",
+} as const;
+
+export type RequestOnlineReservation201 = {
+  id: number;
+  status: RequestOnlineReservation201Status;
+  message: string;
+};
+
+export type ListReservationsParams = {
+  date?: string;
+  from?: string;
+  to?: string;
+  status?: string;
+};
+
+export type UpdateReservationBodyStatus =
+  (typeof UpdateReservationBodyStatus)[keyof typeof UpdateReservationBodyStatus];
+
+export const UpdateReservationBodyStatus = {
+  pending: "pending",
+  confirmed: "confirmed",
+  arrived: "arrived",
+  cancelled: "cancelled",
+  noshow: "noshow",
+  completed: "completed",
+} as const;
+
+export type UpdateReservationBody = {
+  date?: string;
+  time?: string;
+  guestName?: string;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  /**
+   * @minimum 1
+   * @maximum 100
+   */
+  covers?: number;
+  /**
+   * @minimum 15
+   * @maximum 720
+   */
+  durationMinutes?: number;
+  /** @nullable */
+  tableId?: number | null;
+  tableIds?: number[];
+  status?: UpdateReservationBodyStatus;
+};
+
+export type VoidFiscalReceiptBody = {
+  /**
+   * @minimum 1
+   * @maximum 9999
+   */
+  numeroChiusura: number;
+  /**
+   * @minimum 1
+   * @maximum 9999
+   */
+  numeroDocumentoRt: number;
+  dataDocumento: string;
+  printerSerial: string;
+  /** @maxLength 500 */
+  motivo?: string;
+};
+
+export type ListFiscalReports200ItemStatus =
+  (typeof ListFiscalReports200ItemStatus)[keyof typeof ListFiscalReports200ItemStatus];
+
+export const ListFiscalReports200ItemStatus = {
+  pending: "pending",
+  confirmed: "confirmed",
+  unknown: "unknown",
+} as const;
+
+export type ListFiscalReports200Item = {
+  id: number;
+  type: string;
+  printerSerial: string;
+  numeroChiusura: number;
+  status: ListFiscalReports200ItemStatus;
+  totalDb: string;
+  /** @nullable */
+  error?: string | null;
+  /** @nullable */
+  response?: string | null;
+  createdAt: string;
+  /** @nullable */
+  completedAt?: string | null;
 };

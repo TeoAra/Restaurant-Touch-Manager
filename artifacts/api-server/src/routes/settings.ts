@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { requireStaffAdmin } from "../lib/staff-session";
 
 const router = Router();
 
@@ -15,7 +16,7 @@ router.get("/", async (_req, res) => {
 });
 
 // PATCH one setting: { key, value }
-router.patch("/", async (req, res) => {
+router.patch("/", requireStaffAdmin, async (req, res) => {
   const body = req.body as Record<string, unknown>;
   // Supporta sia il formato singolo {key, value} sia il batch {key1: value1, key2: value2}
   if (typeof body.key === "string" && body.value !== undefined) {
@@ -30,13 +31,15 @@ router.patch("/", async (req, res) => {
   // Batch: ogni coppia key→value
   const entries = Object.entries(body).filter(([, v]) => v !== undefined);
   if (entries.length === 0) return res.status(400).json({ error: "Nessuna impostazione fornita" });
+  await db.transaction(async tx => {
   for (const [k, v] of entries) {
     const value = String(v);
-    await db.execute(
+    await tx.execute(
       sql`INSERT INTO app_settings (key, value) VALUES (${k}, ${value})
           ON CONFLICT (key) DO UPDATE SET value = ${value}`
     );
   }
+  });
   return res.json({ updated: entries.length });
 });
 

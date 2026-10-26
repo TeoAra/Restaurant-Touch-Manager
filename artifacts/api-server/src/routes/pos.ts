@@ -58,7 +58,7 @@ router.post("/sale", async (req, res) => {
     terminal?: PosTerminalId;
   };
 
-  if (!amountCents || amountCents <= 0) {
+  if (!Number.isSafeInteger(amountCents) || amountCents <= 0 || amountCents > 99999999) {
     return res.status(400).json({ error: "amountCents obbligatorio e > 0" });
   }
 
@@ -66,7 +66,7 @@ router.post("/sale", async (req, res) => {
   const enabled = enabledPosTerminals(settings);
 
   if (enabled.length === 0) {
-    return res.json({ approved: true, responseMessage: "Terminale non configurato — conferma manuale" });
+    return res.json({ approved: false, manualConfirmRequired: true, responseMessage: "Terminale non configurato: verifica l’incasso prima della conferma manuale" });
   }
 
   // Terminale richiesto dal client, oppure l'unico abilitato

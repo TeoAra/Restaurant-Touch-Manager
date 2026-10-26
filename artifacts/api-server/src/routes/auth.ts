@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { startStaffSession, endStaffSession, staffUser, requireStaff, requireStaffAdmin } from "../lib/staff-session";
 
 const router = Router();
 
@@ -15,11 +16,22 @@ router.post("/login", async (req, res) => {
     .where(eq(usersTable.pin, pin));
 
   if (!user) return res.status(401).json({ error: "PIN non valido" });
+  startStaffSession(req, res, user);
   return res.json(user);
 });
 
+router.get("/session", (req, res) => {
+  const user = staffUser(req);
+  if (!user) { res.status(401).json({ error: "Sessione scaduta" }); return; }
+  res.json(user);
+});
+router.post("/logout", (req, res) => {
+  endStaffSession(req, res);
+  res.sendStatus(204);
+});
+
 // GET /api/auth/users — list users (admin only, enforced in frontend)
-router.get("/users", async (_req, res) => {
+router.get("/users", requireStaff, async (_req, res) => {
   const users = await db
     .select({ id: usersTable.id, name: usersTable.name, role: usersTable.role, createdAt: usersTable.createdAt })
     .from(usersTable)
@@ -28,7 +40,7 @@ router.get("/users", async (_req, res) => {
 });
 
 // POST /api/auth/users — create user
-router.post("/users", async (req, res) => {
+router.post("/users", requireStaffAdmin, async (req, res) => {
   const { name, pin, role } = req.body as { name: string; pin: string; role: string };
   const [user] = await db.insert(usersTable).values({ name, pin, role: role || "employee" }).returning({
     id: usersTable.id, name: usersTable.name, role: usersTable.role,
@@ -37,15 +49,15 @@ router.post("/users", async (req, res) => {
 });
 
 // DELETE /api/auth/users/:id — delete user
-router.delete("/users/:id", async (req, res) => {
-  const id = parseInt(req.params.id);
+router.delete("/users/:id", requireStaffAdmin, async (req, res) => {
+  const id = Number(req.params.id);
   await db.delete(usersTable).where(eq(usersTable.id, id));
   res.status(204).end();
 });
 
 // PATCH /api/auth/users/:id — update user pin/role/name
-router.patch("/users/:id", async (req, res) => {
-  const id = parseInt(req.params.id);
+router.patch("/users/:id", requireStaffAdmin, async (req, res) => {
+  const id = Number(req.params.id);
   const { name, pin, role } = req.body as { name?: string; pin?: string; role?: string };
   const [user] = await db.update(usersTable).set({ ...(name && { name }), ...(pin && { pin }), ...(role && { role }) })
     .where(eq(usersTable.id, id)).returning({ id: usersTable.id, name: usersTable.name, role: usersTable.role });

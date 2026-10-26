@@ -637,8 +637,225 @@ paths:
                 items:
                   $ref: "#/components/schemas/TableStatus"
 
+  /reservations/public/config:
+    get:
+      operationId: getPublicBookingConfig
+      responses:
+        "200":
+          description: Public configuration only, no guest data
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enabled, restaurantName, maxCovers, whatsappConfigured]
+                properties:
+                  enabled: { type: boolean }
+                  restaurantName: { type: string }
+                  maxCovers: { type: integer }
+                  whatsappConfigured: { type: boolean }
+  /reservations/public/request:
+    post:
+      operationId: requestOnlineReservation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnlineBookingBody"
+      responses:
+        "201":
+          description: Request saved, not yet confirmed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status, message]
+                properties:
+                  id: { type: integer }
+                  status: { type: string, enum: [pending] }
+                  message: { type: string }
+        "400": { description: Invalid input }
+        "403": { description: Online booking disabled }
+        "429": { description: Rate limited }
+  /reservations:
+    get:
+      operationId: listReservations
+      security: [{ staffCookie: [] }]
+      parameters:
+        - { in: query, name: date, schema: { type: string, format: date } }
+        - { in: query, name: from, schema: { type: string, format: date } }
+        - { in: query, name: to, schema: { type: string, format: date } }
+        - { in: query, name: status, schema: { type: string } }
+      responses:
+        "200":
+          description: Staff agenda
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Reservation" }
+        "401": { description: PIN session required }
+    post:
+      operationId: createReservation
+      security: [{ staffCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReservationBody" }
+      responses:
+        "201":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Reservation" }
+        "400": { description: Invalid input }
+        "401": { description: PIN session required }
+        "409": { description: Table already reserved in this interval }
+  /reservations/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: integer } }
+    patch:
+      operationId: updateReservation
+      security: [{ staffCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                date: { type: string, format: date }
+                time: { type: string }
+                guestName: { type: string }
+                phone: { type: [string, "null"] }
+                notes: { type: [string, "null"] }
+                covers: { type: integer, minimum: 1, maximum: 100 }
+                durationMinutes: { type: integer, minimum: 15, maximum: 720 }
+                tableId: { type: [integer, "null"] }
+                tableIds: { type: array, items: { type: integer } }
+                status: { type: string, enum: [pending, confirmed, arrived, cancelled, noshow, completed] }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Reservation" }
+        "400": { description: Invalid input }
+        "401": { description: PIN session required }
+        "404": { description: Not found }
+        "409": { description: Table already reserved in this interval }
+    delete:
+      operationId: cancelReservation
+      security: [{ staffCookie: [] }]
+      responses:
+        "204": { description: "Cancelled, history retained" }
+        "401": { description: PIN session required }
+  /fiscal/receipts/{id}/void:
+    post:
+      operationId: voidFiscalReceipt
+      security: [{ staffCookie: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [numeroChiusura, numeroDocumentoRt, dataDocumento, printerSerial]
+              properties:
+                numeroChiusura: { type: integer, minimum: 1, maximum: 9999 }
+                numeroDocumentoRt: { type: integer, minimum: 1, maximum: 9999 }
+                dataDocumento: { type: string, format: date }
+                printerSerial: { type: string }
+                motivo: { type: string, maxLength: 500 }
+      responses:
+        "200": { description: RT cancellation counter verified and record cancelled }
+        "400": { description: Missing or mismatched real RT references }
+        "401": { description: PIN session required }
+        "403": { description: Administrator required }
+        "404": { description: Not found }
+        "409": { description: Already submitted or RT identity mismatch; do not retry }
+        "502": { description: Outcome unknown; record not marked cancelled; no automatic replay }
+        "503": { description: RT unavailable or not ready; nothing sent }
+  /fiscal/reports:
+    get:
+      operationId: listFiscalReports
+      security: [{ staffCookie: [] }]
+      responses:
+        "200":
+          description: RT closure attempts and confirmed closures
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [id, type, printerSerial, numeroChiusura, status, totalDb, createdAt]
+                  properties:
+                    id: { type: integer }
+                    type: { type: string }
+                    printerSerial: { type: string }
+                    numeroChiusura: { type: integer }
+                    status: { type: string, enum: [pending, confirmed, unknown] }
+                    totalDb: { type: string }
+                    error: { type: [string, "null"] }
+                    response: { type: [string, "null"] }
+                    createdAt: { type: string, format: date-time }
+                    completedAt: { type: [string, "null"], format: date-time }
+        "401": { description: PIN session required }
+        "403": { description: Administrator required }
 components:
+  securitySchemes:
+    staffCookie:
+      type: apiKey
+      in: cookie
+      name: hellotable_staff
   schemas:
+    OnlineBookingBody:
+      type: object
+      required: [date, time, covers, guestName, phone]
+      properties:
+        date: { type: string, format: date }
+        time: { type: string, pattern: "^([01]\\d|2[0-3]):[0-5]\\d$" }
+        covers: { type: integer, minimum: 1, maximum: 30 }
+        guestName: { type: string, minLength: 1, maxLength: 100 }
+        phone: { type: string, minLength: 5, maxLength: 30 }
+        notes: { type: string, maxLength: 2000 }
+        website: { type: string, description: Honeypot; must be empty }
+    ReservationBody:
+      type: object
+      required: [date, time, guestName]
+      properties:
+        date: { type: string, format: date }
+        time: { type: string }
+        guestName: { type: string, minLength: 1, maxLength: 100 }
+        phone: { type: [string, "null"] }
+        notes: { type: [string, "null"] }
+        covers: { type: integer, minimum: 1, maximum: 100, default: 2 }
+        durationMinutes: { type: integer, minimum: 15, maximum: 720, default: 120 }
+        tableId: { type: [integer, "null"] }
+        tableIds: { type: array, items: { type: integer } }
+        status: { type: string, enum: [pending, confirmed, arrived, cancelled, noshow, completed], default: confirmed }
+    Reservation:
+      type: object
+      required: [id, date, time, covers, guestName, status, source, durationMinutes, createdAt]
+      properties:
+        id: { type: integer }
+        date: { type: string, format: date }
+        time: { type: string }
+        guestName: { type: string }
+        phone: { type: [string, "null"] }
+        notes: { type: [string, "null"] }
+        covers: { type: integer }
+        tableId: { type: [integer, "null"] }
+        tableIds: { type: [string, "null"], description: Legacy serialized JSON array of table IDs }
+        tableName: { type: [string, "null"] }
+        status: { type: string }
+        source: { type: string }
+        durationMinutes: { type: integer }
+        createdAt: { type: string, format: date-time }
     HealthStatus:
       type: object
       properties:
@@ -965,7 +1182,7 @@ components:
           type: integer
         method:
           type: string
-          enum: ["cash", "card", "ticket", "other"]
+          enum: ["cash", "card", "ticket", "other", "satispay"]
         amount:
           type: string
         change:
@@ -986,7 +1203,7 @@ components:
           type: integer
         method:
           type: string
-          enum: ["cash", "card", "ticket", "other"]
+          enum: ["cash", "card", "ticket", "other", "satispay"]
         amount:
           type: string
         change:

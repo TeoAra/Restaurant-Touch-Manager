@@ -21,7 +21,10 @@ type FiscalReceipt = {
   id: number; numero: number; anno: number; data: string; orderId?: number;
   importo: string; iva: string; metodoPagamento: string; annullato: boolean;
   annullatoAt?: string; motivoAnnullo?: string; printerRef?: string; printerSerial?: string;
+  numeroChiusura?: number | null; numeroDocumentoRt?: number | null; dataDocumentoRt?: string | null;
+  emissionStatus?: string; voidStatus?: string | null; voidError?: string | null;
 };
+type FiscalReport = { id: number; type: string; printerSerial: string; numeroChiusura: number; status: string; error?: string; totalDb: string; createdAt: string };
 
 type ReportResult = {
   tipo: "X" | "Z";
@@ -82,6 +85,8 @@ export default function FiscalePage() {
   const [voidChiusura, setVoidChiusura] = useState("");
   const [voidDocumento, setVoidDocumento] = useState("");
   const [voidData, setVoidData] = useState("");
+  const [voidSerial, setVoidSerial] = useState("");
+  const [voidLoading, setVoidLoading] = useState(false);
   const [reportResult, setReportResult] = useState<ReportResult | null>(null);
   const [xLoading, setXLoading] = useState(false);
   const [zLoading, setZLoading] = useState(false);
@@ -99,6 +104,15 @@ export default function FiscalePage() {
   const qc = useQueryClient();
   const { user: currentUser } = useAuth();
   const { data: receipts = [] } = useReceipts(searchParams);
+  const { data: reportHistory = [] } = useQuery<FiscalReport[]>({
+    queryKey: ["fiscal_reports"],
+    queryFn: async () => {
+      const response = await fetch(`${API}/fiscal/reports`);
+      if (!response.ok) throw new Error("Storico chiusure non disponibile");
+      return response.json();
+    },
+    enabled: tab === "zreport",
+  });
   const { data: printerStatus, refetch: refetchPrinter } = usePrinterStatus();
   const { data: lotteriaData, refetch: refetchLotteria } = useLotteria();
   const { data: settings = {} } = useQuery<Record<string, string>>({
@@ -134,8 +148,10 @@ export default function FiscalePage() {
   }
 
   async function handleVoid() {
-    if (!voidDialog.receipt) return;
-    const resp = await fetch(`${API}/fiscal/receipts/${voidDialog.receipt.id}/void`, {
+    if (!voidDialog.receipt || voidLoading) return;
+    setVoidLoading(true);
+    try {
+      const resp = await fetch(`${API}/fiscal/receipts/${voidDialog.receipt.id}/void`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -143,22 +159,25 @@ export default function FiscalePage() {
         numeroChiusura: voidChiusura ? Number(voidChiusura) : undefined,
         numeroDocumentoRt: voidDocumento ? Number(voidDocumento) : undefined,
         dataDocumento: voidData || voidDialog.receipt.data,
+        printerSerial: voidSerial.trim(),
       }),
     });
-    if (!resp.ok) return toast({ title: "Errore annullo", variant: "destructive" });
     const data = await resp.json();
     qc.invalidateQueries({ queryKey: ["fiscal_receipts"] });
+    if (!resp.ok || !data.printer?.ok || !data.receipt?.annullato) {
+      toast({ title: "Annullo non confermato", description: data.error || data.printer?.error || "Verifica la RT prima di riprovare.", variant: "destructive" });
+      if (data.receipt?.voidStatus === "unknown") setVoidDialog({ open: false });
+      return;
+    }
     setVoidDialog({ open: false });
     setMotivo(""); setVoidChiusura(""); setVoidDocumento(""); setVoidData("");
     toast({
       title: "Scontrino annullato",
-      description: data.printer?.ok
-        ? "Storno inviato alla RT (XonXoff)"
-        : data.printer
-          ? "Annullo registrato (RT non raggiunta)"
-          : "Annullo registrato (nessuna RT configurata)",
+      description: "Annullo confermato dai contatori della RT.",
     });
-    return;
+    } catch {
+      toast({ title: "Comunicazione interrotta", description: "Verifica la RT e aggiorna lo storico prima di ripetere un annullo.", variant: "destructive" });
+    } finally { setVoidLoading(false); }
   }
 
   async function handleXReport() {
@@ -177,12 +196,16 @@ export default function FiscalePage() {
     setZLoading(true); setReportResult(null);
     try {
       const resp = await fetch(`${API}/fiscal/z-report`, { method: "POST" });
+      if (!resp.ok) {
+        const error = await resp.json();
+        throw new Error(error.error || "Chiusura fiscale non eseguita");
+      }
       const data: ReportResult = await resp.json();
       setReportResult(data);
-      toast({ title: data.printer?.ok ? "Chiusura Z eseguita sulla RT" : "Chiusura Z (solo DB)" });
-    } catch {
-      toast({ title: "Errore chiusura fiscale", variant: "destructive" });
-    } finally { setZLoading(false); }
+      toast({ title: data.printer?.ok ? "Chiusura Z confermata dalla RT" : "Chiusura Z da verificare sulla RT", variant: data.printer?.ok ? "default" : "destructive" });
+    } catch (error) {
+      toast({ title: "Chiusura non confermata", description: (error as Error).message, variant: "destructive" });
+    } finally { setZLoading(false); qc.invalidateQueries({ queryKey: ["fiscal_reports"] }); }
   }
 
   async function handleCancelOpenReceipt() {
@@ -409,7 +432,7 @@ export default function FiscalePage() {
                     placeholder={String(new Date().getFullYear())} />
                 </div>
                 <div>
-                  <Label className="text-xs text-slate-500 mb-1 block">Numero</Label>
+                  <Label className="text-xs text-slate-500 mb-1 block">Numero documento RT</Label>
                   <Input className="h-9 w-32 text-sm" value={searchNumero}
                     onChange={e => setSearchNumero(e.target.value)} placeholder="es. 42" type="number" />
                 </div>
@@ -434,29 +457,32 @@ export default function FiscalePage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-bold text-slate-800">N° {r.numero}/{r.anno}</span>
+                      <span className="font-bold text-slate-800">{r.numeroDocumentoRt != null ? `Documento RT ${r.numeroChiusura}/${r.numeroDocumentoRt}` : "Riferimenti RT da acquisire"}</span>
                       <Badge variant="outline" className={cn("text-xs",
                         r.annullato ? "bg-red-50 text-red-600 border-red-200" : "bg-green-50 text-green-700 border-green-200")}>
-                        {r.annullato ? "Annullato" : "Emesso"}
+                        {r.annullato ? "Annullato" : r.voidStatus === "unknown" || r.voidStatus === "pending" ? "Annullo da verificare" : r.emissionStatus === "confirmed" ? "Emissione verificata" : "Emissione da verificare"}
                       </Badge>
                       <span className="text-xs text-slate-500">{r.metodoPagamento}</span>
                     </div>
                     <div className="flex gap-x-4 gap-y-0.5 mt-0.5 text-xs text-slate-500 flex-wrap">
-                      <span>{r.data}</span>
+                      <span>{r.dataDocumentoRt || r.data}</span>
+                      <span>ID interno {r.numero}/{r.anno}</span>
                       <span className="font-semibold text-slate-700">€ {r.importo}</span>
                       <span className="text-slate-400">IVA € {parseFloat(r.iva || "0").toFixed(2)}</span>
                       {r.printerRef && <span>RT: {r.printerRef}</span>}
                       {r.printerSerial && <span className="font-mono text-[10px]">Matr. {r.printerSerial}</span>}
                       {r.annullato && r.motivoAnnullo && <span className="text-red-500">Motivo: {r.motivoAnnullo}</span>}
+                      {r.voidError && <span className="text-red-700 font-semibold">{r.voidError}</span>}
                     </div>
                   </div>
-                  {!r.annullato && (
+                  {!r.annullato && !["pending", "unknown", "confirmed"].includes(r.voidStatus || "") && (
                     <button
                       onClick={() => {
                         setVoidDialog({ open: true, receipt: r });
-                        setMotivo(""); setVoidChiusura("");
-                        setVoidDocumento(String(r.numero));
-                        setVoidData(r.data);
+                        setMotivo(""); setVoidChiusura(r.numeroChiusura == null ? "" : String(r.numeroChiusura));
+                        setVoidDocumento(r.numeroDocumentoRt == null ? "" : String(r.numeroDocumentoRt));
+                        setVoidData(r.dataDocumentoRt || r.data);
+                        setVoidSerial(r.printerSerial || "");
                       }}
                       className="shrink-0 px-3 py-1.5 text-xs font-semibold text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors flex items-center gap-1">
                       <AlertTriangle className="h-3.5 w-3.5" /> Annulla
@@ -532,6 +558,21 @@ export default function FiscalePage() {
           </div>
         )}
 
+        {tab === "zreport" && (
+          <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+            <h2 className="font-semibold text-slate-800">Storico chiusure Z</h2>
+            <p className="text-xs text-slate-600">Numeri acquisiti dalla RT. Gli esiti incerti non autorizzano una nuova chiusura automatica.</p>
+            {reportHistory.length === 0 && <p className="text-sm text-slate-500">Nessuna chiusura registrata da questa versione.</p>}
+            {reportHistory.map(report => (
+              <div key={report.id} className="rounded-lg border border-slate-200 p-3 text-sm space-y-1">
+                <div className="font-semibold">Z {report.numeroChiusura} · Matricola {report.printerSerial}</div>
+                <div>{new Date(report.createdAt).toLocaleString("it-IT")} · {report.status === "confirmed" ? "Confermata dalla RT" : report.status === "pending" ? "In corso / da verificare" : "Esito da verificare sulla RT"}</div>
+                <div className="text-xs text-slate-600">Totale gestionale: € {Number(report.totalDb).toFixed(2)}</div>
+                {report.error && <p className="text-amber-800">{report.error}</p>}
+              </div>
+            ))}
+          </section>
+        )}
         {/* ── TAB: LOTTERIA SCONTRINI ─────────────────────────────────────── */}
         {tab === "lotteria" && (
           <div className="space-y-4">
@@ -647,7 +688,7 @@ export default function FiscalePage() {
           <div className="space-y-4 py-2">
             {voidDialog.receipt && (
               <div className="bg-slate-50 rounded-xl p-3 text-sm border border-slate-200">
-                <div className="font-bold text-slate-800">Scontrino N° {voidDialog.receipt.numero}/{voidDialog.receipt.anno}</div>
+                <div className="font-bold text-slate-800">ID interno {voidDialog.receipt.numero}/{voidDialog.receipt.anno} — non è il numero fiscale</div>
                 <div className="text-slate-600 mt-0.5">Data: {voidDialog.receipt.data} — Importo: <span className="font-semibold">€ {voidDialog.receipt.importo}</span></div>
               </div>
             )}
@@ -672,6 +713,10 @@ export default function FiscalePage() {
                 </div>
               </div>
               <div>
+                <Label className="text-xs text-slate-600 mb-1 block">Matricola RT riportata sul documento</Label>
+                <Input value={voidSerial} onChange={e => setVoidSerial(e.target.value)} placeholder="Matricola della stampante" />
+              </div>
+              <div>
                 <Label className="text-xs text-slate-600 mb-1 block">Data documento</Label>
                 <Input type="date" value={voidData}
                   onChange={e => setVoidData(e.target.value)} className="h-9 text-sm" />
@@ -686,7 +731,7 @@ export default function FiscalePage() {
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setVoidDialog({ open: false })}>Annulla</Button>
-            <Button variant="destructive" onClick={handleVoid}>Conferma Annullo</Button>
+            <Button variant="destructive" onClick={handleVoid} disabled={voidLoading || !voidChiusura || !voidDocumento || !voidData || !voidSerial.trim()}>{voidLoading ? "Verifica RT…" : "Conferma annullo fiscale"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -701,7 +746,7 @@ function ReportResultCard({ result }: { result: ReportResult | null }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-3">
       <div className="flex items-center gap-2 font-semibold text-slate-800">
-        <CheckCircle2 className="h-5 w-5 text-green-600" />
+        {rtOk ? <CheckCircle2 className="h-5 w-5 text-green-600" /> : <AlertTriangle className="h-5 w-5 text-amber-600" />}
         Report {result.tipo} — {result.data}
         {result.printer_name && (
           <span className="text-xs font-normal text-slate-400 ml-1">
@@ -709,6 +754,7 @@ function ReportResultCard({ result }: { result: ReportResult | null }) {
           </span>
         )}
       </div>
+      <p className="text-xs text-slate-600">I totali mostrati provengono dal gestionale e non sostituiscono il rapporto fiscale stampato dalla RT.</p>
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-slate-50 rounded-lg p-3 text-center border border-slate-200">
           <div className="text-2xl font-bold text-slate-800">{result.scontrini}</div>
