@@ -94,7 +94,7 @@ export default function DepartmentsPage() {
             const typeLabel = prodTypes.find(t => t.value === d.productionType)?.label ?? d.productionType;
             return (
               <div key={d.id} className="flex items-center gap-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
-                <div className="h-10 w-10 rounded-xl bg-orange-50 flex items-center justify-center shrink-0">
+                <div className="h-10 w-10 rounded-xl bg-[#edf5e9] flex items-center justify-center shrink-0">
                   <ChefHat className="h-5 w-5 text-primary" />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -112,7 +112,7 @@ export default function DepartmentsPage() {
                 </div>
                 <div className="flex gap-1 shrink-0">
                   <button onClick={() => openEdit(d)}
-                    className="p-2 rounded-lg text-slate-500 hover:text-primary hover:bg-orange-50 transition-colors">
+                    className="p-2 rounded-lg text-slate-500 hover:text-primary hover:bg-[#edf5e9] transition-colors">
                     <Pencil className="h-4 w-4" />
                   </button>
                   <button onClick={() => deleteDept.mutate(d.id)}
@@ -148,7 +148,7 @@ export default function DepartmentsPage() {
                   <button key={t.value} onClick={() => setForm(f => ({ ...f, productionType: t.value }))}
                     className={cn("py-2 rounded-lg text-sm font-medium border-2 transition-colors",
                       form.productionType === t.value
-                        ? "border-primary bg-orange-50 text-primary"
+                        ? "border-primary bg-[#edf5e9] text-primary"
                         : "border-border text-muted-foreground")}>
                     {t.label}
                   </button>

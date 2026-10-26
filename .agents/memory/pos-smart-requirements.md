@@ -13,6 +13,10 @@ La schermata reale deve corrispondere al design presentato, con accesso effettiv
 
 Al posto di “Listino” l’utente vuole vedere le fasi F1–F4.
 
+La grafica deve essere omogenea in tutto il front office e nel back office, con gli stessi colori ben visibili.
+
+Asporto e Delivery devono essere visibili solo se abilitati con la relativa spunta nel back office.
+
 **Why:** l’utente ha esplicitamente richiesto questi vincoli per il rinnovo, non una versione ridotta della cassa.
 
 **How to apply:** prima dell’integrazione confrontare le funzioni con la cassa esistente; non sostituire i flussi reali con quelli simulati del prototipo. Controllare anche finestre basse e scheda intera, non solo il frame desktop del canvas.

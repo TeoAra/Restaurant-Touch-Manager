@@ -2,7 +2,7 @@
 // including login, is intercepted with fixtures: no live orders or prints.
 // Run with: node artifacts/pos-restaurant/scripts/smart-cashier-smoke.mjs
 import { spawn } from "node:child_process";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 
 const origin = process.env.POS_TEST_URL || `https://${process.env.REPLIT_DEV_DOMAIN}`;
@@ -30,6 +30,7 @@ try {
   const pending = new Map();
   const errors = [];
   const writes = [];
+  const settings = { cover_price: "1.50", feat_table_ops: "true", pos_type: "none" };
   const send = (method, params = {}) => new Promise((resolve, reject) => {
     const id = ++seq;
     pending.set(id, { resolve, reject });
@@ -58,10 +59,18 @@ try {
       if (request.method !== "GET") writes.push(`${request.method} ${path}`);
       if (path === "/api/auth/login") body = { id: 9999, name: "Operatore test", role: "admin" };
       else if (path === "/api/setup-status") body = { completed: true, reason: "flag" };
-      else if (path === "/api/settings") body = { cover_price: "1.50", feat_table_ops: "true", pos_type: "none" };
+      else if (path === "/api/settings") {
+        if (request.method === "PATCH") {
+          const { key, value } = JSON.parse(request.postData);
+          settings[key] = value;
+        }
+        body = settings;
+      }
       else if (path === "/api/dashboard/tables-status") body = tables;
       else if (path === "/api/categories") body = categories;
       else if (path === "/api/products") body = products;
+      else if (path === "/api/dashboard/summary") body = { todayRevenue: "126.00", todayOrders: 6, openOrders: 1, occupiedTables: 1, totalTables: 14, avgOrderValue: "21.00", yesterdayRevenue: "120.00", yesterdayOrders: 6, lastWeekRevenue: "118.00", lastWeekOrders: 5 };
+      else if (path === "/api/dashboard/sales-by-day") body = [{ date: "2026-10-15", revenue: "120.00", orders: 6 }, { date: "2026-10-16", revenue: "126.00", orders: 6 }];
       else if (path === "/api/orders/101") {
         order.total = order.items.reduce((total, item) => total + Number(item.subtotal), 0).toFixed(2);
         body = order;
@@ -106,6 +115,29 @@ try {
   // Exercise the actual login screen; the test API accepts this fixture PIN.
   for (let i = 0; i < 4; i++) await button("1", "body");
   await wait(`document.querySelectorAll(".pos-table-card").length === 14`);
+  const checkModes = async (asporto, delivery) => {
+    const modes = await evaluate(`[...document.querySelectorAll(".pos-sale-modes button")].map(b => b.textContent.trim())`);
+    assert.equal(modes.includes("Asporto"), asporto, "Asporto must follow its backoffice switch");
+    assert.equal(modes.includes("Delivery"), delivery, "Delivery must follow its backoffice switch");
+    assert(modes.includes("Sala") && modes.includes("Banco"), "Core sales modes must stay visible");
+  };
+  await checkModes(false, false); // Missing settings must never enable a mode.
+  for (const [asporto, delivery] of [[true, false], [true, true], [false, true], [false, false]]) {
+    await send("Page.navigate", { url: new URL("/backoffice/settings", origin).href });
+    await wait(`!!document.querySelector('[role="switch"][aria-label="Asporto"]')`);
+    for (const [label, enabled] of [["Asporto", asporto], ["Delivery / Consegna a domicilio", delivery]]) {
+      const selector = `[role="switch"][aria-label="${label}"]`;
+      const current = await evaluate(`document.querySelector(${JSON.stringify(selector)}).getAttribute("aria-checked") === "true"`);
+      if (current !== enabled) {
+        await click(selector);
+        await wait(`document.querySelector(${JSON.stringify(selector)}).getAttribute("aria-checked") === ${JSON.stringify(String(enabled))}`);
+      }
+    }
+    await send("Page.navigate", { url: origin });
+    await wait(`document.querySelectorAll(".pos-table-card").length === 14`);
+    await checkModes(asporto, delivery);
+  }
+  console.log("PASS Asporto/Delivery: missing settings and all four combinations saved through real backoffice controls (mocked API)");
   await click(".pos-table-card");
   await wait(`document.querySelectorAll(".pos-item-time").length === 2`);
   await wait(`document.querySelectorAll(".pos-product-grid > button").length === 2`);
@@ -166,6 +198,56 @@ try {
     await writeFile(`generated-artifacts/pos-smart/map-${width}x${height}.jpg`, Buffer.from(mapShot.data, "base64"));
     await button("Menu", ".pos-work-tabs");
     console.log(`PASS layout ${width}×${height}`);
+  }
+  if (process.env.POS_THEME_CHECK === "1") {
+    const primaryColor = await evaluate(`(() => { const b = document.querySelector(".pos-phase-selector .is-active"); return getComputedStyle(b).backgroundColor; })()`);
+    const checkContrast = ({ color, background }, label) => {
+      const luminance = value => {
+        const rgb = value.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+        assert(rgb?.length === 3, `${label}: unsupported color ${value}`);
+        const [r, g, b] = rgb.map(c => { c /= 255; return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; });
+        return .2126 * r + .7152 * g + .0722 * b;
+      };
+      const a = luminance(color), b = luminance(background);
+      const ratio = (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+      assert(ratio >= 4.5, `${label}: insufficient contrast (${ratio.toFixed(2)})`);
+    };
+    const colorsOf = selector => evaluate(`(() => { const s = getComputedStyle(document.querySelector(${JSON.stringify(selector)})); return {color:s.color, background:s.backgroundColor}; })()`);
+    checkContrast(await colorsOf(".pos-phase-selector .is-active"), "Cashier selected phase");
+    const app = await readFile("artifacts/pos-restaurant/src/App.tsx", "utf8");
+    const routes = [...app.matchAll(/<Route path="(\/backoffice[^"]*)"/g)].map(m => m[1]);
+    for (const [width, height] of [[1024, 768], [390, 844]]) {
+      await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+      for (const route of routes) {
+        await send("Page.navigate", { url: new URL(route, origin).href });
+        await wait(`!!document.querySelector("header h1")`);
+        await new Promise(r => setTimeout(r, 200));
+        const theme = await evaluate(`(() => { const p = document.createElement("i"); p.style.color = "hsl(var(--primary))"; document.body.append(p); const primary = getComputedStyle(p).color; p.remove(); return {primary, width:document.documentElement.scrollWidth}; })()`);
+        assert.equal(theme.primary, primaryColor, `${route}: different primary than cashier`);
+        assert(theme.width <= width, `${route}: page overflow at ${width}`);
+        if (route === "/backoffice/settings" && width === 390) {
+          const saveVisible = await evaluate(`(() => { const label = [...document.querySelectorAll("div")].find(e => e.textContent.trim() === "Prezzo Coperto"); const card = label?.closest(".bg-white"); const save = [...(card?.querySelectorAll("button") ?? [])].find(b => b.textContent.trim() === "Salva"); if (!save) return false; save.scrollIntoView({block:"end"}); const r = save.getBoundingClientRect(); return r.width > 40 && r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; })()`);
+          assert(saveVisible, "Cover price Save button clipped on phone");
+        }
+        if (["/backoffice", "/backoffice/menu", "/backoffice/settings", "/backoffice/clienti", "/backoffice/fatture"].includes(route)) {
+          const { data } = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
+          await writeFile(`generated-artifacts/pos-smart/theme-${route.split("/").pop()}-${width}.jpg`, Buffer.from(data, "base64"));
+        }
+      }
+      console.log(`PASS shared theme and layout: ${routes.length} backoffice routes at ${width}×${height}`);
+    }
+    // Portaled dialogs must inherit the same theme as the cashier, not orange.
+    await send("Page.navigate", { url: new URL("/backoffice/clienti", origin).href });
+    await wait(`!!document.querySelector("header h1")`);
+    await button("Nuovo", "header");
+    await wait(`!!document.querySelector('[role="dialog"]')`);
+    const dialogPrimary = await evaluate(`(() => { const d = document.querySelector('[role="dialog"]'); const b = d.querySelector('button.bg-primary'); return b ? {background:getComputedStyle(b).backgroundColor, color:getComputedStyle(b).color} : null; })()`);
+    assert(dialogPrimary, "Dialog primary action missing");
+    assert.equal(dialogPrimary.background, primaryColor, "Portaled dialog primary differs from cashier");
+    checkContrast(dialogPrimary, "Dialog primary action");
+    const { data } = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
+    await writeFile("generated-artifacts/pos-smart/theme-customer-dialog.jpg", Buffer.from(data, "base64"));
+    console.log("PASS primary action contrast and shared color in portaled customer dialog");
   }
   assert.deepEqual(errors, [], "Browser errors");
   assert(!writes.some(w => /payments|fiscal|invoices|comanda/.test(w)), "No fiscal writes expected");

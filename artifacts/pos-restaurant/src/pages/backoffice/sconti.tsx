@@ -49,7 +49,7 @@ function DiscountForm({ initial, onSave, onCancel }: {
         <div className="mt-1 grid grid-cols-2 gap-2">
           {DISCOUNT_TYPES.map(t => (
             <button key={t.value} onClick={() => setType(t.value)}
-              className={`flex items-center gap-2 p-3 rounded-xl border-2 text-sm font-semibold transition-all ${type === t.value ? "border-primary bg-orange-50 text-primary" : "border-slate-200 text-slate-600 hover:border-primary/40"}`}>
+              className={`flex items-center gap-2 p-3 rounded-xl border-2 text-sm font-semibold transition-all ${type === t.value ? "border-primary bg-[#edf5e9] text-primary" : "border-slate-200 text-slate-600 hover:border-primary/40"}`}>
               <t.icon className="h-4 w-4" /> {t.label}
             </button>
           ))}
@@ -116,7 +116,7 @@ export default function Sconti() {
     <BackofficeShell title="Sconti" subtitle="Tipi di sconto configurabili">
       <div className="p-4 max-w-xl mx-auto space-y-4">
         <button onClick={() => setShowForm(true)}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-primary text-primary font-semibold hover:bg-orange-50 transition-all">
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-primary text-primary font-semibold hover:bg-[#edf5e9] transition-all">
           <Plus className="h-4 w-4" /> Nuovo Sconto
         </button>
 

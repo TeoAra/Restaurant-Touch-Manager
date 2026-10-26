@@ -263,7 +263,7 @@ export default function ReportsPage() {
                     labelStyle={{ color: "hsl(210 40% 98%)" }}
                     formatter={(v: number) => [`€ ${v.toFixed(2)}`, "Incasso"]}
                   />
-                  <Bar dataKey="revenue" fill="hsl(38 92% 50%)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="revenue" fill="hsl(158 46% 29%)" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

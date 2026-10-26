@@ -61,7 +61,7 @@ function SortableRoomRow({ room, onEdit, onDelete }: { room: Room; onEdit: () =>
       </div>
       <div className="flex items-center gap-1.5">
         <button onClick={onEdit}
-          className="p-2 rounded-lg text-slate-500 hover:text-primary hover:bg-orange-50 transition-colors">
+          className="p-2 rounded-lg text-slate-500 hover:text-primary hover:bg-[#edf5e9] transition-colors">
           <Pencil className="h-4 w-4" />
         </button>
         <button onClick={onDelete}

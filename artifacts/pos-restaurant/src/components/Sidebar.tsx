@@ -150,7 +150,7 @@ export function Sidebar() {
         <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
           <UtensilsCrossed className="h-4 w-4 text-white" />
         </div>
-        <span className="font-bold text-white text-base tracking-tight">Hello<span className="text-orange-200">Table</span></span>
+        <span className="font-bold text-white text-base tracking-tight">Hello<span className="text-[#d9eea4]">Table</span></span>
       </div>
 
       {/* Nav */}
@@ -180,7 +180,7 @@ export function Sidebar() {
                     className={cn(
                       "w-full flex items-center justify-between px-3 rounded-lg min-h-[40px] text-xs font-semibold uppercase tracking-wider transition-colors",
                       hasActive && !isOpen
-                        ? "text-orange-300"
+                        ? "text-[#d9eea4]"
                         : "text-sidebar-foreground/50 hover:text-white hover:bg-sidebar-accent/50"
                     )}
                   >

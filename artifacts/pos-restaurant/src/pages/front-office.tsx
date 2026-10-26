@@ -52,6 +52,8 @@ function useSettings() {
     queryKey: ["settings"],
     queryFn: () => fetch(`${API}/settings`).then(r => r.json()),
     staleTime: 30000,
+    refetchOnMount: "always",
+    refetchInterval: 30000,
   });
 }
 
@@ -87,7 +89,7 @@ function PosTerminalPicker({ terminals, value, onChange, compact }: {
             className={cn(
               "flex items-center justify-center gap-1.5 rounded-lg border-2 font-semibold transition-all active:scale-95",
               compact ? "py-2 text-[11px]" : "py-2.5 text-xs",
-              value === t ? "border-primary bg-orange-50 text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300"
+              value === t ? "border-primary bg-[#edf5e9] text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300"
             )}>
             <CreditCard className="h-3.5 w-3.5" /> {POS_TERMINAL_LABEL[t]}
           </button>
@@ -363,7 +365,7 @@ function TableActionsDialog({ open, onClose, order, items, tablesStatus, onDone 
         {mode === "menu" && (
           <div className="space-y-2 py-2">
             <button onClick={() => setMode("move")}
-              className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border-2 border-slate-200 hover:border-primary hover:bg-orange-50 transition-all text-left">
+              className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border-2 border-slate-200 hover:border-primary hover:bg-[#edf5e9] transition-all text-left">
               <ArrowRightFromLine className="h-6 w-6 text-primary shrink-0" />
               <div>
                 <div className="font-bold text-sm text-slate-800">Sposta tavolo</div>
@@ -371,7 +373,7 @@ function TableActionsDialog({ open, onClose, order, items, tablesStatus, onDone 
               </div>
             </button>
             <button onClick={() => setMode("merge")} disabled={occupiedTables.length === 0}
-              className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border-2 border-slate-200 hover:border-primary hover:bg-orange-50 transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed">
+              className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border-2 border-slate-200 hover:border-primary hover:bg-[#edf5e9] transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed">
               <GitMerge className="h-6 w-6 text-primary shrink-0" />
               <div>
                 <div className="font-bold text-sm text-slate-800">Unisci con altro tavolo</div>
@@ -379,7 +381,7 @@ function TableActionsDialog({ open, onClose, order, items, tablesStatus, onDone 
               </div>
             </button>
             <button onClick={() => setMode("moveItems")} disabled={items.length === 0 || occupiedTables.length === 0}
-              className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border-2 border-slate-200 hover:border-primary hover:bg-orange-50 transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed">
+              className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border-2 border-slate-200 hover:border-primary hover:bg-[#edf5e9] transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed">
               <ArrowLeftRight className="h-6 w-6 text-primary shrink-0" />
               <div>
                 <div className="font-bold text-sm text-slate-800">Sposta articoli</div>
@@ -399,7 +401,7 @@ function TableActionsDialog({ open, onClose, order, items, tablesStatus, onDone 
                 ) : freeTables.map(t => (
                   <button key={t.id} onClick={() => setTargetTableId(t.id)}
                     className={cn("p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1",
-                      targetTableId === t.id ? "border-primary bg-orange-50 ring-2 ring-primary/30" : "border-slate-200 hover:border-slate-400")}>
+                      targetTableId === t.id ? "border-primary bg-[#edf5e9] ring-2 ring-primary/30" : "border-slate-200 hover:border-slate-400")}>
                     <span className="font-bold text-base text-slate-800">{t.name}</span>
                     <span className="text-[10px] text-slate-500 flex items-center gap-1"><Users className="h-2.5 w-2.5" />{t.seats}</span>
                     {t.roomName && <span className="text-[9px] text-slate-400 truncate w-full text-center">{t.roomName}</span>}
@@ -426,9 +428,9 @@ function TableActionsDialog({ open, onClose, order, items, tablesStatus, onDone 
                 ) : occupiedTables.map(t => (
                   <button key={t.id} onClick={() => setTargetOrderId(t.activeOrderId ?? null)}
                     className={cn("w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all",
-                      targetOrderId === t.activeOrderId ? "border-primary bg-orange-50 ring-2 ring-primary/30" : "border-slate-200 hover:border-slate-400")}>
+                      targetOrderId === t.activeOrderId ? "border-primary bg-[#edf5e9] ring-2 ring-primary/30" : "border-slate-200 hover:border-slate-400")}>
                     <div className="flex items-center gap-2">
-                      <div className="h-9 w-9 rounded-lg bg-orange-100 flex items-center justify-center font-bold text-sm text-primary">{t.name}</div>
+                      <div className="h-9 w-9 rounded-lg bg-[#e3eed9] flex items-center justify-center font-bold text-sm text-primary">{t.name}</div>
                       <div className="text-left">
                         <div className="text-xs font-semibold text-slate-700">{t.roomName ?? "Sala"}</div>
                         <div className="text-[10px] text-slate-400">Ordine #{t.activeOrderId}</div>
@@ -460,7 +462,7 @@ function TableActionsDialog({ open, onClose, order, items, tablesStatus, onDone 
                       <button key={it.id}
                         onClick={() => setSelectedItems(prev => prev.includes(it.id) ? prev.filter(x => x !== it.id) : [...prev, it.id])}
                         className={cn("w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm transition-colors",
-                          checked ? "bg-orange-50 text-primary font-semibold" : "hover:bg-slate-50")}>
+                          checked ? "bg-[#edf5e9] text-primary font-semibold" : "hover:bg-slate-50")}>
                         <div className={cn("h-4 w-4 rounded border-2 flex items-center justify-center shrink-0",
                           checked ? "bg-primary border-primary" : "border-slate-300")}>
                           {checked && <CheckCircle2 className="h-3 w-3 text-white" />}
@@ -480,7 +482,7 @@ function TableActionsDialog({ open, onClose, order, items, tablesStatus, onDone 
                   {occupiedTables.map(t => (
                     <button key={t.id} onClick={() => setTargetOrderId(t.activeOrderId ?? null)}
                       className={cn("w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm transition-colors",
-                        targetOrderId === t.activeOrderId ? "bg-orange-50 text-primary font-semibold" : "hover:bg-slate-50")}>
+                        targetOrderId === t.activeOrderId ? "bg-[#edf5e9] text-primary font-semibold" : "hover:bg-slate-50")}>
                       <span className="h-7 w-7 rounded bg-orange-100 flex items-center justify-center text-xs font-bold">{t.name}</span>
                       <span className="flex-1">{t.roomName ?? "—"}</span>
                       {t.activeOrderTotal && <span className="text-xs text-slate-500">€ {t.activeOrderTotal}</span>}
@@ -1389,7 +1391,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
             {methods.map(m => (
               <button key={m.id} onClick={() => setMethod(m.id)}
                 className={cn("flex flex-col items-center gap-1 py-2 rounded-lg border-2 transition-all",
-                  method === m.id ? "border-primary bg-orange-50" : "border-slate-200 hover:border-slate-300")}>
+                  method === m.id ? "border-primary bg-[#edf5e9]" : "border-slate-200 hover:border-slate-300")}>
                 <m.icon className={cn("h-4 w-4", m.color)} />
                 <span className="text-[9px] font-medium text-slate-700 text-center leading-tight">{m.label}</span>
               </button>
@@ -1431,7 +1433,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay }: {
           {/* Invoice toggle */}
           <div className={cn(
             "rounded-xl border-2 transition-all",
-            emittiFattura ? "border-primary bg-orange-50" : "border-slate-200"
+            emittiFattura ? "border-primary bg-[#edf5e9]" : "border-slate-200"
           )}>
             <div
               role="button" tabIndex={0}
@@ -1994,7 +1996,7 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
                   {(hasPagatiPrecedenti ? [1,2,3,4,5] : [2,3,4,5,6,8]).map(n => (
                     <button key={n} onClick={() => setNumSplits(n)}
                       className={cn("h-9 w-9 rounded-lg border-2 text-sm font-bold transition-all",
-                        numSplits === n ? "border-primary bg-orange-50 text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300")}>
+                        numSplits === n ? "border-primary bg-[#edf5e9] text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300")}>
                       {n}
                     </button>
                   ))}
@@ -2076,7 +2078,7 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
                       : isError   ? "border-red-300 bg-red-50"
                       : isPosWait ? "border-blue-300 bg-blue-50"
                       : isPosManual ? "border-amber-300 bg-amber-50"
-                      : isNext    ? "border-primary bg-orange-50"
+                      : isNext    ? "border-primary bg-[#edf5e9]"
                       : "border-slate-200 bg-white opacity-60"
                     )}>
                       <div className="flex items-center gap-3">
@@ -2424,7 +2426,7 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
               return (
                 <div key={row.id} className={cn(
                   "flex items-center gap-2 p-2.5 rounded-lg border-2 transition-all",
-                  isActive ? "border-primary bg-orange-50" : "border-slate-200 bg-white"
+                  isActive ? "border-primary bg-[#edf5e9]" : "border-slate-200 bg-white"
                 )}>
                   {/* Name + price */}
                   <div className="flex-1 min-w-0">
@@ -2494,7 +2496,7 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
                   return (
                     <button key={m} onClick={() => setMethod(m)}
                       className={cn("flex items-center justify-center gap-1 py-2 rounded-lg text-[10px] font-semibold border-2 transition-colors",
-                        method === m ? "border-primary bg-orange-50 text-primary" : "border-slate-200 text-slate-600")}>
+                        method === m ? "border-primary bg-[#edf5e9] text-primary" : "border-slate-200 text-slate-600")}>
                       {icons[m]} {labels[m]}
                     </button>
                   );
@@ -2942,6 +2944,8 @@ export default function FrontOffice() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const { data: settings = {} } = useSettings();
+  const asportoEnabled = settings["enable_asporto"] === "true";
+  const deliveryEnabled = settings["enable_delivery"] === "true";
   const { user: foUser } = useAuth();
   const foIsAdmin = foUser?.role === "admin";
   const priceLocked = settings["feat_price_lock"] === "true" && !foIsAdmin;
@@ -3328,6 +3332,10 @@ export default function FrontOffice() {
   }
 
   async function handleQuickMode(mode: "rapida" | "asporto" | "delivery") {
+    if ((mode === "asporto" && !asportoEnabled) || (mode === "delivery" && !deliveryEnabled)) {
+      toast({ title: "Modalità non abilitata nelle impostazioni", variant: "destructive" });
+      return;
+    }
     setSelectedTableId(null);
     const notes = mode === "rapida" ? "Scontrino Rapido" : mode === "asporto" ? "Asporto" : "Delivery";
     const res = await fetch(`${API}/orders`, {
@@ -3900,8 +3908,8 @@ export default function FrontOffice() {
             else { setRightTab("tavl"); setMobilePanel("right"); }
           }}><Users size={15} /> Sala</button>
           <button className={isQuickMode === "rapida" ? "is-active" : ""} onClick={() => handleQuickMode("rapida")}><Zap size={15} /> Banco</button>
-          <button className={isQuickMode === "asporto" ? "is-active" : ""} onClick={() => handleQuickMode("asporto")}><ShoppingBag size={15} /> Asporto</button>
-          <button className={isQuickMode === "delivery" ? "is-active" : ""} onClick={() => handleQuickMode("delivery")}><Truck size={15} /> Delivery</button>
+          {asportoEnabled && <button className={isQuickMode === "asporto" ? "is-active" : ""} onClick={() => handleQuickMode("asporto")}><ShoppingBag size={15} /> Asporto</button>}
+          {deliveryEnabled && <button className={isQuickMode === "delivery" ? "is-active" : ""} onClick={() => handleQuickMode("delivery")}><Truck size={15} /> Delivery</button>}
         </div>
         <span className="pos-smart-operator">{foUser?.name}</span>
       </header>

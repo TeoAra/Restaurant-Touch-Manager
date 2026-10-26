@@ -3,15 +3,13 @@
 /* Scoped to the real cashier. Dialogs, back office and fiscal workflows keep
    their existing components; this stylesheet changes presentation only. */
 .pos-smart-live {
-  --primary: 158 46% 29%;
-  --ring: 158 46% 29%;
-  --pos-ink: #202a28;
-  --pos-muted: #6c7a75;
-  --pos-line: #dce4dd;
-  --pos-paper: #f2f5ed;
-  --pos-card: #fffefa;
+  --pos-ink: hsl(var(--foreground));
+  --pos-muted: hsl(var(--muted-foreground));
+  --pos-line: hsl(var(--border));
+  --pos-paper: hsl(var(--background));
+  --pos-card: hsl(var(--card));
   --pos-forest: #174f43;
-  --pos-green: #286b58;
+  --pos-green: hsl(var(--primary));
   display: grid;
   grid-template-columns: clamp(170px, 18vw, 240px) minmax(0, 1fr) clamp(300px, 30vw, 390px);
   grid-template-rows: 58px minmax(0, 1fr);

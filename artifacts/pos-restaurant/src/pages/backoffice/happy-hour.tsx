@@ -136,7 +136,7 @@ export default function HappyHourPage() {
     <BackofficeShell title="Happy Hour" subtitle="Fasce orarie con prezzi speciali">
       <div className="p-4 max-w-xl mx-auto space-y-4">
         <button onClick={() => setShowForm(true)}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-primary text-primary font-semibold hover:bg-orange-50 transition-all">
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-primary text-primary font-semibold hover:bg-[#edf5e9] transition-all">
           <Plus className="h-4 w-4" /> Nuova Regola Happy Hour
         </button>
 

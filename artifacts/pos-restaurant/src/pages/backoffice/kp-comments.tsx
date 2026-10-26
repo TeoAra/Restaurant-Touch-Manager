@@ -51,7 +51,7 @@ export default function KpCommentsPage() {
     <BackofficeShell title="Commenti Cucina" subtitle="Note rapide predefinite per la cucina (KP)">
       <div className="p-4 max-w-xl mx-auto space-y-4">
         <button onClick={() => setShowForm(true)}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-primary text-primary font-semibold hover:bg-orange-50 transition-all">
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-primary text-primary font-semibold hover:bg-[#edf5e9] transition-all">
           <Plus className="h-4 w-4" /> Nuovo Commento
         </button>
 
@@ -86,7 +86,7 @@ export default function KpCommentsPage() {
           <div className="flex flex-wrap gap-2">
             {PRESETS.filter(p => !existingTexts.has(p.toLowerCase())).map(p => (
               <button key={p} onClick={() => create.mutate({ text: p, sortOrder: comments.length })}
-                className="px-3 py-1.5 rounded-full border border-slate-200 text-xs font-semibold text-slate-600 hover:border-primary hover:text-primary hover:bg-orange-50 transition-all">
+                className="px-3 py-1.5 rounded-full border border-slate-200 text-xs font-semibold text-slate-600 hover:border-primary hover:text-primary hover:bg-[#edf5e9] transition-all">
                 + {p}
               </button>
             ))}

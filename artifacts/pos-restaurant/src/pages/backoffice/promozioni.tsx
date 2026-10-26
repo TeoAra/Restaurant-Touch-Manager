@@ -68,7 +68,7 @@ function PromoForm({ initial, onSave, onCancel }: {
         <div className="mt-1 grid grid-cols-2 gap-1.5">
           {PROMO_TYPES.map(t => (
             <button key={t.value} onClick={() => setType(t.value)}
-              className={`p-2 rounded-lg border-2 text-xs font-semibold transition-all ${type === t.value ? "border-primary bg-orange-50 text-primary" : "border-slate-200 text-slate-600"}`}>
+              className={`p-2 rounded-lg border-2 text-xs font-semibold transition-all ${type === t.value ? "border-primary bg-[#edf5e9] text-primary" : "border-slate-200 text-slate-600"}`}>
               {t.label}
             </button>
           ))}
@@ -170,7 +170,7 @@ export default function Promozioni() {
     <BackofficeShell title="Promozioni" subtitle="Offerte e sconti automatici">
       <div className="p-4 max-w-xl mx-auto space-y-4">
         <button onClick={() => setShowForm(true)}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-primary text-primary font-semibold hover:bg-orange-50 transition-all">
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-primary text-primary font-semibold hover:bg-[#edf5e9] transition-all">
           <Plus className="h-4 w-4" /> Nuova Promozione
         </button>
 

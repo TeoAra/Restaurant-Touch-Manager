@@ -186,7 +186,7 @@ export default function VarkazioniPage() {
                     </div>
                     <div className="flex gap-1 shrink-0">
                       <button onClick={() => openEdit(m)}
-                        className="p-2 rounded-lg text-slate-400 hover:text-primary hover:bg-orange-50 transition-colors">
+                        className="p-2 rounded-lg text-slate-400 hover:text-primary hover:bg-[#edf5e9] transition-colors">
                         <Pencil className="h-4 w-4" />
                       </button>
                       <button onClick={() => del.mutate(m.id)}
@@ -304,7 +304,7 @@ export default function VarkazioniPage() {
                         className={cn(
                           "flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-sm font-medium transition-all text-left",
                           checked
-                            ? "border-primary bg-orange-50 text-primary"
+                            ? "border-primary bg-[#edf5e9] text-primary"
                             : "border-slate-200 text-slate-600 hover:border-slate-300"
                         )}>
                         <div className={cn(

@@ -122,7 +122,7 @@ export default function UsersPage() {
               </div>
               <div className="flex gap-1">
                 <button onClick={() => openEdit(u)}
-                  className="p-2 rounded-lg text-slate-500 hover:text-primary hover:bg-orange-50 transition-colors">
+                  className="p-2 rounded-lg text-slate-500 hover:text-primary hover:bg-[#edf5e9] transition-colors">
                   <Pencil className="h-4 w-4" />
                 </button>
                 <button onClick={() => deleteUser.mutate(u.id)}
@@ -155,7 +155,7 @@ export default function UsersPage() {
                 {(["admin", "employee"] as const).map(r => (
                   <button key={r} onClick={() => setRole(r)}
                     className={cn("py-2.5 rounded-lg text-sm font-medium border-2 transition-colors",
-                      role === r ? "border-primary bg-orange-50 text-primary" : "border-border text-muted-foreground")}>
+                      role === r ? "border-primary bg-[#edf5e9] text-primary" : "border-border text-muted-foreground")}>
                     {r === "admin" ? "Amministratore" : "Dipendente"}
                   </button>
                 ))}

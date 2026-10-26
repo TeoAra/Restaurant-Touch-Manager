@@ -186,7 +186,7 @@ export default function ClientiPage() {
                 </div>
               </div>
               <div className="flex gap-1 shrink-0">
-                <button onClick={() => openEdit(c)} className="p-2 rounded-lg text-slate-400 hover:text-primary hover:bg-orange-50 transition-colors">
+                <button onClick={() => openEdit(c)} className="p-2 rounded-lg text-slate-400 hover:text-primary hover:bg-[#edf5e9] transition-colors">
                   <Pencil className="h-4 w-4" />
                 </button>
                 <button onClick={() => handleDelete(c.id)} className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors">
@@ -211,7 +211,7 @@ export default function ClientiPage() {
                 {[{ v: "azienda", l: "Azienda / Ente" }, { v: "privato", l: "Privato" }].map(({ v, l }) => (
                   <button key={v} onClick={() => set("tipo")(v)}
                     className={cn("flex-1 py-2 rounded-lg border-2 text-sm font-medium transition-colors",
-                      form.tipo === v ? "border-primary bg-orange-50 text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300")}>
+                      form.tipo === v ? "border-primary bg-[#edf5e9] text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300")}>
                     {l}
                   </button>
                 ))}

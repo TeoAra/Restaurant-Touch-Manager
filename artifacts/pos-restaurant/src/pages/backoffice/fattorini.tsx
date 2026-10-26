@@ -50,7 +50,7 @@ function CourierForm({ initial, onSave, onCancel }: {
         <div className="mt-1 grid grid-cols-2 gap-2">
           {VEHICLES.map(v => (
             <button key={v.value} onClick={() => setVehicle(v.value)}
-              className={`p-2.5 rounded-xl border-2 text-sm font-semibold transition-all ${vehicle === v.value ? "border-primary bg-orange-50 text-primary" : "border-slate-200 text-slate-600 hover:border-primary/40"}`}>
+              className={`p-2.5 rounded-xl border-2 text-sm font-semibold transition-all ${vehicle === v.value ? "border-primary bg-[#edf5e9] text-primary" : "border-slate-200 text-slate-600 hover:border-primary/40"}`}>
               {v.label}
             </button>
           ))}
@@ -112,7 +112,7 @@ export default function Fattorini() {
     <BackofficeShell title="Fattorini" subtitle="Gestione rider per consegne a domicilio">
       <div className="p-4 max-w-xl mx-auto space-y-4">
         <button onClick={() => setShowForm(true)}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-primary text-primary font-semibold hover:bg-orange-50 transition-all">
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-primary text-primary font-semibold hover:bg-[#edf5e9] transition-all">
           <Plus className="h-4 w-4" /> Nuovo Fattorino
         </button>
 

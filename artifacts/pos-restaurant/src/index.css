@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
@@ -51,55 +52,56 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
-  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-sans: "DM Sans", system-ui, sans-serif;
+  --font-display: "Manrope", "DM Sans", sans-serif;
 }
 
 :root {
   --radius: 0.75rem;
 
-  /* Light theme - white cards, light gray bg, orange accent */
-  --background: 220 14% 96%;
-  --foreground: 220 20% 12%;
+  /* Light theme - warm cards and paper background, forest green accent */
+  --background: 85 24% 94%;
+  --foreground: 170 17% 19%;
 
-  --card: 0 0% 100%;
-  --card-foreground: 220 20% 12%;
+  --card: 48 100% 99%;
+  --card-foreground: 170 17% 19%;
 
-  --popover: 0 0% 100%;
-  --popover-foreground: 220 20% 12%;
+  --popover: 48 100% 99%;
+  --popover-foreground: 170 17% 19%;
 
-  /* Orange primary */
-  --primary: 27 96% 51%;
-  --primary-foreground: 0 0% 100%;
+  /* Forest green primary */
+  --primary: 158 46% 29%;
+  --primary-foreground: 48 100% 99%;
 
-  --secondary: 220 14% 91%;
-  --secondary-foreground: 220 20% 25%;
+  --secondary: 90 22% 90%;
+  --secondary-foreground: 165 25% 22%;
 
-  --muted: 220 14% 92%;
-  --muted-foreground: 220 10% 50%;
+  --muted: 85 24% 92%;
+  --muted-foreground: 160 8% 38%;
 
-  --accent: 220 14% 90%;
-  --accent-foreground: 220 20% 20%;
+  --accent: 90 30% 89%;
+  --accent-foreground: 165 30% 18%;
 
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
 
-  --border: 220 14% 88%;
-  --input: 220 14% 88%;
-  --ring: 27 96% 51%;
+  --border: 105 16% 85%;
+  --input: 105 16% 82%;
+  --ring: 158 46% 29%;
 
-  --chart-1: 27 96% 51%;
+  --chart-1: 158 46% 29%;
   --chart-2: 160 60% 45%;
   --chart-3: 220 70% 55%;
   --chart-4: 280 65% 60%;
   --chart-5: 340 75% 55%;
 
   /* Sidebar — slightly darker than background */
-  --sidebar: 220 18% 14%;
-  --sidebar-foreground: 220 10% 85%;
-  --sidebar-border: 220 18% 20%;
-  --sidebar-primary: 27 96% 51%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 220 18% 20%;
+  --sidebar: 168 52% 20%;
+  --sidebar-foreground: 140 25% 90%;
+  --sidebar-border: 168 40% 26%;
+  --sidebar-primary: 75 65% 80%;
+  --sidebar-primary-foreground: 168 52% 20%;
+  --sidebar-accent: 168 40% 26%;
   --sidebar-accent-foreground: 0 0% 100%;
 }
 
@@ -138,3 +140,18 @@
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 4px; }
+
+h1, h2, h3 { font-family: var(--font-display); }
+:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+button:disabled, [disabled] { cursor: not-allowed; }
+
+/* Legacy dark-slate utilities mapped to the shared warm/green palette,
+   global so portaled dialogs match front and back office. */
+:is([class*="bg-[#151827]"], [class*="bg-[#171b27]"], [class*="bg-[#151922]"], [class*="bg-[#1c2030]"], [class*="bg-[#0f1117]"], [class*="bg-[#f8fafc]"]) { background-color: hsl(var(--card)); }
+:is([class*="bg-[#22263a]"], [class*="bg-[#252840]"], [class*="bg-[#2a3143]"], [class*="bg-[#1a1d2a]"], [class*="bg-[#1e2235]"], [class*="bg-[#2d3044]"], [class*="bg-[#3a3f58]"], [class*="bg-[#0a0c12]"], [class*="bg-[#12151e]"], [class*="bg-[#2d3349]"], [class*="bg-[#242b3b]"], [class*="bg-[#444a6a]"]) { background-color: #f0f4eb; }
+[class*="bg-[#f4f6fa]"] { background-color: hsl(var(--background)); }
+:is([class*="border-[#37415c]"], [class*="border-[#2d3044]"], [class*="border-[#3a3f58]"], [class*="border-[#49546f]"], [class*="border-[#3d4157]"], [class*="border-[#4a4f6a]"], [class*="border-[#1a1d2a]"]) { border-color: hsl(var(--border)); }
+:is(.text-slate-100, .text-slate-200, .text-slate-300) { color: hsl(var(--foreground)); }
+:is(.text-slate-400, .text-slate-500) { color: hsl(var(--muted-foreground)); }
+.border-slate-200 { border-color: hsl(var(--border)); }
+.bg-primary .text-white, .bg-primary.text-white { color: hsl(var(--primary-foreground)); }

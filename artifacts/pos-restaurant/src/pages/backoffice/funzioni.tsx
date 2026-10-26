@@ -133,15 +133,15 @@ export default function FunzioniPage() {
           </div>
         </div>
 
-        <div className="bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 rounded-xl p-4 flex items-center justify-between gap-3">
+        <div className="bg-[#edf5e9] border border-[#cfdcc9] rounded-xl p-4 flex items-center justify-between gap-3">
           <div className="flex items-start gap-3 flex-1 min-w-0">
-            <Wand2 className="h-5 w-5 text-orange-600 shrink-0 mt-0.5" />
+            <Wand2 className="h-5 w-5 text-primary shrink-0 mt-0.5" />
             <div className="text-sm">
-              <div className="font-semibold text-orange-900">Configurazione guidata</div>
-              <div className="text-xs text-orange-700 mt-0.5">Ripeti il wizard di configurazione iniziale (dati attività, sale, menu, personale).</div>
+              <div className="font-semibold text-[#174f43]">Configurazione guidata</div>
+              <div className="text-xs text-[#315846] mt-0.5">Ripeti il wizard di configurazione iniziale (dati attività, sale, menu, personale).</div>
             </div>
           </div>
-          <Button size="sm" onClick={reopenWizard} className="bg-orange-500 hover:bg-orange-600 shrink-0">Riapri wizard</Button>
+          <Button size="sm" onClick={reopenWizard} className="bg-primary text-primary-foreground hover:bg-primary/90 shrink-0">Riapri wizard</Button>
         </div>
 
         <div className="space-y-2">

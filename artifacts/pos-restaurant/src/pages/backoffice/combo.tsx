@@ -93,7 +93,7 @@ function ComboDetail({ combo }: { combo: Combo }) {
     <div className="mt-3 pl-4 border-l-2 border-orange-100 space-y-2">
       {items.map(item => (
         <div key={item.id} className="flex items-center gap-2 text-sm">
-          <span className="bg-orange-100 text-primary font-bold text-xs px-1.5 py-0.5 rounded">{item.quantity}×</span>
+          <span className="bg-[#e3eed9] text-primary font-bold text-xs px-1.5 py-0.5 rounded">{item.quantity}×</span>
           <span className="flex-1 text-slate-700">{item.productName}</span>
           <button onClick={() => removeItem.mutate(item.id)} className="h-6 w-6 flex items-center justify-center text-slate-300 hover:text-red-400 transition-colors">
             <Trash2 className="h-3 w-3" />
@@ -161,7 +161,7 @@ export default function ComboPage() {
     <BackofficeShell title="Combo / Menu" subtitle="Prodotti composti e menu fissi">
       <div className="p-4 max-w-xl mx-auto space-y-4">
         <button onClick={() => setShowForm(true)}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-primary text-primary font-semibold hover:bg-orange-50 transition-all">
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-primary text-primary font-semibold hover:bg-[#edf5e9] transition-all">
           <Plus className="h-4 w-4" /> Nuova Combo / Menu
         </button>
 
@@ -176,7 +176,7 @@ export default function ComboPage() {
           <div key={c.id} className="bg-white rounded-xl border border-slate-200 shadow-sm">
             <div className="p-4 flex items-center gap-3">
               <button onClick={() => setExpanded(expanded === c.id ? null : c.id)}
-                className="h-10 w-10 rounded-xl bg-orange-50 flex items-center justify-center shrink-0 text-primary">
+                className="h-10 w-10 rounded-xl bg-[#edf5e9] flex items-center justify-center shrink-0 text-primary">
                 {expanded === c.id ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
               </button>
               <div className="flex-1 min-w-0">

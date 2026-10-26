@@ -13,7 +13,7 @@ function calcDelta(cur?: string, prev?: string): number | null {
 }
 
 function DeltaBadge({ pct, label }: { pct: number | null; label: string }) {
-  if (pct == null) return <div className="text-[10px] text-slate-400 mt-0.5">{label}: n.d.</div>;
+  if (pct == null) return <div className="text-[10px] text-slate-500 mt-0.5">{label}: n.d.</div>;
   const up = pct >= 0;
   const Icon = up ? TrendingUp : TrendingDown;
   return (
@@ -26,41 +26,41 @@ function DeltaBadge({ pct, label }: { pct: number | null; label: string }) {
 
 const sections = [
   // Database prodotti
-  { href: "/backoffice/menu", icon: BookOpen, label: "Menu", description: "Categorie e prodotti", color: "bg-amber-50 text-amber-600 border-amber-200" },
+  { href: "/backoffice/menu", icon: BookOpen, label: "Menu", description: "Categorie e prodotti", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
   { href: "/backoffice/variazioni", icon: SlidersHorizontal, label: "Variazioni", description: "Modificatori per categoria", color: "bg-lime-50 text-lime-700 border-lime-200" },
-  { href: "/backoffice/combo", icon: Package, label: "Combo", description: "Menu e prodotti composti", color: "bg-orange-50 text-orange-600 border-orange-200" },
-  { href: "/backoffice/aliquote-iva", icon: BadgePercent, label: "Aliquote IVA", description: "Reparti fiscali", color: "bg-red-50 text-red-600 border-red-200" },
+  { href: "/backoffice/combo", icon: Package, label: "Combo", description: "Menu e prodotti composti", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
+  { href: "/backoffice/aliquote-iva", icon: BadgePercent, label: "Aliquote IVA", description: "Reparti fiscali", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
 
   // Sconti e promozioni
-  { href: "/backoffice/sconti", icon: Tag, label: "Sconti", description: "Tipi di sconto", color: "bg-pink-50 text-pink-600 border-pink-200" },
-  { href: "/backoffice/promozioni", icon: Zap, label: "Promozioni", description: "Offerte automatiche", color: "bg-purple-50 text-purple-600 border-purple-200" },
-  { href: "/backoffice/happy-hour", icon: Sun, label: "Happy Hour", description: "Fasce orarie speciali", color: "bg-yellow-50 text-yellow-600 border-yellow-200" },
+  { href: "/backoffice/sconti", icon: Tag, label: "Sconti", description: "Tipi di sconto", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
+  { href: "/backoffice/promozioni", icon: Zap, label: "Promozioni", description: "Offerte automatiche", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
+  { href: "/backoffice/happy-hour", icon: Sun, label: "Happy Hour", description: "Fasce orarie speciali", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
 
   // Sala e tavoli
-  { href: "/backoffice/prenotazioni", icon: CalendarDays, label: "Prenotazioni", description: "Calendario tavoli", color: "bg-blue-50 text-blue-600 border-blue-200" },
-  { href: "/backoffice/tables", icon: LayoutGrid, label: "Tavoli", description: "Planimetria e sale", color: "bg-indigo-50 text-indigo-600 border-indigo-200" },
-  { href: "/backoffice/rooms", icon: Layers, label: "Sale", description: "Gestione ambienti", color: "bg-violet-50 text-violet-600 border-violet-200" },
+  { href: "/backoffice/prenotazioni", icon: CalendarDays, label: "Prenotazioni", description: "Calendario tavoli", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
+  { href: "/backoffice/tables", icon: LayoutGrid, label: "Tavoli", description: "Planimetria e sale", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
+  { href: "/backoffice/rooms", icon: Layers, label: "Sale", description: "Gestione ambienti", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
 
   // Cucina e stampa
-  { href: "/backoffice/printers", icon: Printer, label: "Stampanti", description: "Configurazione", color: "bg-slate-50 text-slate-600 border-slate-200" },
+  { href: "/backoffice/printers", icon: Printer, label: "Stampanti", description: "Configurazione", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
 
   // Delivery
-  { href: "/backoffice/fattorini", icon: Bike, label: "Fattorini", description: "Rider consegne", color: "bg-cyan-50 text-cyan-600 border-cyan-200" },
+  { href: "/backoffice/fattorini", icon: Bike, label: "Fattorini", description: "Rider consegne", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
 
   // Report e cassa
-  { href: "/backoffice/reports", icon: BarChart3, label: "Report", description: "Statistiche e vendite", color: "bg-green-50 text-green-600 border-green-200" },
-  { href: "/backoffice/payments", icon: CreditCard, label: "Pagamenti", description: "Storico transazioni", color: "bg-purple-50 text-purple-600 border-purple-200" },
-  { href: "/backoffice/fiscale", icon: Receipt, label: "Fiscale", description: "Scontrini e Z-Report", color: "bg-red-50 text-red-600 border-red-200" },
+  { href: "/backoffice/reports", icon: BarChart3, label: "Report", description: "Statistiche e vendite", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
+  { href: "/backoffice/payments", icon: CreditCard, label: "Pagamenti", description: "Storico transazioni", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
+  { href: "/backoffice/fiscale", icon: Receipt, label: "Fiscale", description: "Scontrini e Z-Report", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
 
   // Clienti e fatture
-  { href: "/backoffice/clienti", icon: User, label: "Clienti", description: "Anagrafica fatturazione", color: "bg-cyan-50 text-cyan-600 border-cyan-200" },
-  { href: "/backoffice/fatture", icon: FileText, label: "Fatture", description: "FatturaPA elettronica", color: "bg-violet-50 text-violet-600 border-violet-200" },
+  { href: "/backoffice/clienti", icon: User, label: "Clienti", description: "Anagrafica fatturazione", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
+  { href: "/backoffice/fatture", icon: FileText, label: "Fatture", description: "FatturaPA elettronica", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
 
   // Gestione
-  { href: "/backoffice/users", icon: Users, label: "Utenti", description: "Accessi e PIN", color: "bg-teal-50 text-teal-600 border-teal-200" },
-  { href: "/backoffice/settings", icon: Settings, label: "Impostazioni", description: "Configurazione app", color: "bg-orange-50 text-orange-600 border-orange-200" },
-  { href: "/backoffice/audit", icon: ShieldCheck, label: "Audit Log", description: "Storico azioni sensibili", color: "bg-rose-50 text-rose-600 border-rose-200" },
-  { href: "/backoffice/funzioni", icon: Sparkles, label: "Funzioni", description: "Attiva funzionalità opzionali", color: "bg-fuchsia-50 text-fuchsia-600 border-fuchsia-200" },
+  { href: "/backoffice/users", icon: Users, label: "Utenti", description: "Accessi e PIN", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
+  { href: "/backoffice/settings", icon: Settings, label: "Impostazioni", description: "Configurazione app", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
+  { href: "/backoffice/audit", icon: ShieldCheck, label: "Audit Log", description: "Storico azioni sensibili", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
+  { href: "/backoffice/funzioni", icon: Sparkles, label: "Funzioni", description: "Attiva funzionalità opzionali", color: "bg-[#f3f7ee] text-[#286b58] border-[#cfdcc9]" },
 ];
 
 const GROUPS = [
@@ -114,7 +114,7 @@ export default function BackOfficeIndex() {
                 <div key={k.label} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
                   <div className="text-[11px] text-slate-400 mb-1">{k.label}</div>
                   <div className="text-xl font-bold text-slate-800">{k.value}</div>
-                  {k.sub && <div className="text-[10px] text-slate-400 mt-0.5">{k.sub}</div>}
+                  {k.sub && <div className="text-[10px] text-slate-500 mt-0.5">{k.sub}</div>}
                 </div>
               ))}
             </div>
@@ -134,7 +134,7 @@ export default function BackOfficeIndex() {
                     contentStyle={{ borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 12 }}
                     formatter={(v: number) => [`€ ${v.toFixed(2)}`, "Incasso"]}
                   />
-                  <Bar dataKey="revenue" fill="hsl(27 96% 51%)" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="revenue" fill="hsl(158 46% 29%)" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

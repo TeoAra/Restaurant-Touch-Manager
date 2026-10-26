@@ -75,7 +75,7 @@ function SortableRow({ table, rooms, onEdit, onDelete }: {
         </div>
       </div>
       <div className="flex gap-1 shrink-0">
-        <button onClick={onEdit} className="p-2 rounded-lg text-slate-500 hover:text-primary hover:bg-orange-50 transition-colors">
+        <button onClick={onEdit} className="p-2 rounded-lg text-slate-500 hover:text-primary hover:bg-[#edf5e9] transition-colors">
           <Pencil className="h-4 w-4" />
         </button>
         <button onClick={onDelete} className="p-2 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors">
@@ -172,7 +172,7 @@ function TableShape({ t, status, isSelected, isDragging, onMouseDown, onTouchSta
         {onResize && (
           <button onClick={e => { e.stopPropagation(); onResize(t.id, -1); }}
             onMouseDown={e => e.stopPropagation()}
-            className="h-5 w-5 rounded bg-white shadow border border-slate-200 flex items-center justify-center text-slate-500 hover:text-orange-500 hover:border-orange-300 transition-colors"
+            className="h-5 w-5 rounded bg-white shadow border border-slate-200 flex items-center justify-center text-slate-500 hover:text-primary hover:border-primary transition-colors"
             title="Rimpicciolisci">
             <ZoomOut className="h-2.5 w-2.5" />
           </button>
@@ -397,7 +397,7 @@ function TableForm({ initial, rooms, onSave, onClose, isDecorElement, defaultRoo
             {shapes.map(s => (
               <button key={s.id} onClick={() => setShape(s.id)}
                 className={cn("py-2.5 rounded-lg text-sm font-medium border-2 transition-colors flex flex-col items-center gap-1",
-                  shape === s.id ? "border-primary bg-orange-50 text-primary" : "border-border bg-card text-muted-foreground")}>
+                  shape === s.id ? "border-primary bg-[#edf5e9] text-primary" : "border-border bg-card text-muted-foreground")}>
                 <span className="text-lg">{s.icon}</span>
                 <span className="text-xs">{s.label}</span>
               </button>
@@ -420,7 +420,7 @@ function TableForm({ initial, rooms, onSave, onClose, isDecorElement, defaultRoo
             {["free", "occupied", "reserved"].map(s => (
               <button key={s} onClick={() => setStatus(s)}
                 className={cn("py-2 rounded-lg text-sm font-medium border-2 transition-colors",
-                  status === s ? "border-primary bg-orange-50 text-primary" : "border-border bg-card text-muted-foreground")}>
+                  status === s ? "border-primary bg-[#edf5e9] text-primary" : "border-border bg-card text-muted-foreground")}>
                 {s === "free" ? "Libero" : s === "occupied" ? "Occupato" : "Riservato"}
               </button>
             ))}

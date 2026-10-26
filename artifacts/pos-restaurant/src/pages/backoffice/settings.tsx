@@ -37,7 +37,7 @@ function SettingRow({ title, description, icon: Icon, settingKey, value, onToggl
   return (
     <div className="flex items-center justify-between p-5 bg-white rounded-xl border border-slate-200 shadow-sm">
       <div className="flex items-center gap-4">
-        <div className="h-11 w-11 rounded-xl bg-orange-50 flex items-center justify-center">
+        <div className="h-11 w-11 rounded-xl bg-[#edf5e9] flex items-center justify-center">
           <Icon className="h-5 w-5 text-primary" />
         </div>
         <div>
@@ -46,6 +46,10 @@ function SettingRow({ title, description, icon: Icon, settingKey, value, onToggl
         </div>
       </div>
       <button
+        type="button"
+        role="switch"
+        aria-label={title}
+        aria-checked={value}
         onClick={() => onToggle(settingKey, !value)}
         className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${value ? "bg-primary" : "bg-slate-200"}`}
       >
@@ -231,8 +235,8 @@ export default function SettingsPage() {
       <div className="space-y-3">
         <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 px-1">Prezzi</h2>
         <div className="p-5 bg-white rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4 min-w-0">
               <div className="h-11 w-11 rounded-xl bg-blue-50 flex items-center justify-center">
                 <Users className="h-5 w-5 text-blue-600" />
               </div>
@@ -241,7 +245,7 @@ export default function SettingsPage() {
                 <div className="text-sm text-slate-400 mt-0.5">Addebito per coperto aggiunto automaticamente al conto (0 = disabilitato)</div>
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
               <span className="text-slate-500 text-sm font-medium">€</span>
               <Input type="number" min="0" step="0.50" value={coverPrice}
                 onChange={e => setCoverPrice(e.target.value)}
