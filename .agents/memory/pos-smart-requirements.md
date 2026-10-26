@@ -21,6 +21,10 @@ Asporto e Delivery devono essere visibili solo se abilitati con la relativa spun
 
 Il prezzo del coperto deve essere preso automaticamente dal back office; non deve essere necessario reinserirlo nella cassa per ogni tavolo.
 
+Le prenotazioni online devono essere confermate manualmente dall’operatore nell’agenda, non confermate automaticamente. L’utente ha scelto WhatsApp per ricevere gli avvisi oltre alla cassa.
+
+I terminali indicati dall’utente sono Nexi PAX D230 e myPOS Go 2. Non è stato ancora indicato il modello esatto della stampante fiscale.
+
 **Why:** l’utente ha esplicitamente richiesto questi vincoli per il rinnovo, non una versione ridotta della cassa.
 
 **How to apply:** prima dell’integrazione confrontare le funzioni con la cassa esistente; non sostituire i flussi reali con quelli simulati del prototipo. Controllare anche finestre basse e scheda intera, non solo il frame desktop del canvas.
