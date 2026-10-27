@@ -16,3 +16,9 @@ La specifica PAX ECR/PC v1.62 fornita dall’utente su https://it.scribd.com/doc
 **Why:** un manuale generico PAX non identifica l’applicazione dell’acquirer installata sul terminale; confondere questi comandi o protocolli rende inattendibile il collegamento di pagamento.
 
 **How to apply:** prima di implementare o dichiarare verificato l’adattatore Nexi, identificare versione dell’applicazione, modalità ECR abilitata e specifica effettiva tramite impostazioni del terminale o documentazione Nexi. Non dedurre la compatibilità dal solo nome PAX o dalla porta TCP aperta.
+
+La documentazione ufficiale Nexi Traditional POS LAN Integration descrive pagamenti `P`/`X`, non i comandi del manuale generico PAX; Nexi configura abilitazione ECR, IP e porta. Fonte: https://developer.nexigroup.com/traditionalpos/en-EU/docs/integration-options-this-section-provides-an-overview-of-lan-integration-and-other-basic-integration-options/
+
+**Why:** l’applicazione dell’acquirer determina il protocollo effettivo. Inoltre Nexi avverte che il recupero ultimo esito con `G` non fornisce un identificatore univoco che lo correli alla richiesta rimasta in sospeso.
+
+**How to apply:** non sostituire alla cieca un comando PAX con un altro. Confermare la modalità ECR del terminale prima di collegarlo; non considerare un ultimo esito positivo prova sufficiente del pagamento corrente e non reinviare automaticamente una vendita dopo timeout.
