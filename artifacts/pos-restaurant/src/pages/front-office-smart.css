@@ -560,3 +560,19 @@
 .pos-split-product-list > [data-testid^="split-row-"] > div:first-child { flex-basis: calc(100% - 80px); }
 .pos-split-product-list > [data-testid^="split-row-"] > span:last-child { font-size: 15px; color: var(--pos-ink, #252b36); }
 .pos-split-product-list > [data-testid^="split-row-"] > div:first-child + div { margin-left: auto; }
+
+/* Inline split payments fill the workspace; one scroll surface, not nested boxes. */
+.pos-payment-flow-scroll { overscroll-behavior-y: contain; scrollbar-gutter: stable; }
+.pos-payment-flow-card {
+  display: flex; flex-direction: column; gap: 16px; min-height: 100%; min-width: 0;
+}
+.pos-split-flow > div:first-child { flex: 1 0 auto; }
+.pos-payment-flow-card > div:last-child {
+  position: sticky; bottom: -12px; z-index: 1; margin-top: auto;
+  padding: 12px 0; background: var(--pos-card); border-top: 1px solid var(--pos-line);
+}
+.pos-payment-flow-card button { min-height: 48px; white-space: normal; }
+.pos-payment-flow-card > div:last-child { flex-wrap: wrap; gap: 8px; }
+.pos-payment-flow-card > div:last-child button { flex: 1 1 120px; }
+.pos-payment-flow-card .pos-romana-quotas { max-height: none; overflow: visible; }
+.pos-payment-flow-card .pos-split-product-list { overflow: visible; }

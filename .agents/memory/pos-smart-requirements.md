@@ -39,6 +39,8 @@ Le due colonne della comanda e del tastierino/comandi devono avere pari larghezz
 
 Nella colonna destra il tastierino deve essere più ampio in verticale e in basso, non in alto. La colonna centrale della comanda non deve ripetere il marchio HelloTable.
 
+In Pagamento, Separato e Romana devono sfruttare tutta l’altezza disponibile e scorrere comodamente, senza raccogliere la divisione in un riquadro stretto e compresso.
+
 **Why:** l’utente ha richiesto esplicitamente proporzioni uniformi.
 
 Su desktop il tastierino rimane visibile in tutte le viste, senza menu “Altro”. Su telefono, dove le colonne diventano viste separate, appartiene alla vista Conto: mappa e pagamento non devono essere compressi da un dock separato.

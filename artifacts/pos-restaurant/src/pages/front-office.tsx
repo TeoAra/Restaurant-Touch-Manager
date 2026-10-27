@@ -2143,7 +2143,7 @@ function RomanaBody({ total, paidRomana = 0, orderId, tableName, onOrderClosed, 
 
         {phase === "pagamento" && (
           <>
-            <div className="space-y-3 py-1 max-h-[70vh] overflow-y-auto">
+            <div className="pos-romana-quotas space-y-3 py-1 max-h-[70vh] overflow-y-auto">
               {/* Residuo sessione corrente */}
               <div className={cn(
                 "rounded-xl px-4 py-2.5 text-center transition-all",
@@ -5145,7 +5145,7 @@ export default function FrontOffice() {
 
         {/* ── TOT: payment hub (Totale | Separato | Romana) ─────────────────── */}
         {rightTab === "tot" && (
-          <div id="pos-payment-hub" className="flex-1 flex flex-col overflow-hidden">
+          <div id="pos-payment-hub" className="flex-1 min-h-0 flex flex-col overflow-hidden">
             {/* Invoice customer indicator */}
             {invoiceCustomer && (
               <div className="mx-3 mt-2 px-2.5 py-1.5 bg-[#fffefa] border-2 border-[#2b3440] rounded-xl flex items-center gap-2 shrink-0 text-slate-900" data-testid="banner-invoice-tot">
@@ -5196,7 +5196,7 @@ export default function FrontOffice() {
 
             {/* Modalità: conto separato inline */}
             {paymentMode === "split" && (
-              <div className="flex-1 overflow-y-auto p-3 bg-[#f4f6fa]">
+              <div className="pos-payment-flow-scroll flex-1 min-h-0 overflow-y-auto p-3 bg-[#f4f6fa]" data-testid="payment-split-scroll">
                 {items.length === 0 && coverCount === 0 ? (
                   <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center text-slate-500 text-sm">
                     Nessun articolo o coperto da selezionare.
@@ -5205,7 +5205,7 @@ export default function FrontOffice() {
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-white rounded-2xl border border-slate-200 p-3">
+                  <div className="pos-payment-flow-card pos-split-flow bg-white rounded-2xl border border-slate-200 p-3">
                     <SplitBillBody
                       key={`split-${activeOrderId}`}
                       selectionTarget={splitSelectionTarget}
@@ -5226,13 +5226,13 @@ export default function FrontOffice() {
 
             {/* Modalità: romana inline */}
             {paymentMode === "romana" && (
-              <div className="flex-1 overflow-y-auto p-3 bg-[#f4f6fa]">
+              <div className="pos-payment-flow-scroll flex-1 min-h-0 overflow-y-auto p-3 bg-[#f4f6fa]" data-testid="payment-romana-scroll">
                 {items.length === 0 ? (
                   <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center text-slate-500 text-sm">
                     Nessun ordine attivo.
                   </div>
                 ) : (
-                  <div className="bg-white rounded-2xl border border-slate-200 p-3">
+                  <div className="pos-payment-flow-card pos-romana-flow bg-white rounded-2xl border border-slate-200 p-3">
                     <RomanaBody
                       key={`romana-${activeOrderId}`}
                       total={total}

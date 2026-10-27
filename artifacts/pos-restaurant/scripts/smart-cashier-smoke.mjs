@@ -463,6 +463,23 @@ try {
     const categoryShot = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
     await writeFile(`generated-artifacts/pos-smart/categories-${width}x${height}.jpg`, Buffer.from(categoryShot.data, "base64"));
     await showProducts();
+    await click('[data-testid="tab-tot"]');
+    for (const [label, mode] of [["Separato", "split"], ["Romana", "romana"]]) {
+      await button(label, "#pos-payment-hub");
+      assert(await evaluate(`(() => {
+        const scroll=document.querySelector('[data-testid="payment-${mode}-scroll"]');
+        const r=scroll.getBoundingClientRect(), menu=document.querySelector(".pos-menu-panel").getBoundingClientRect();
+        const card=scroll.querySelector(".pos-payment-flow-card");
+        return r.width>0 && r.height>150 && Math.abs(r.bottom-menu.bottom)<=2 &&
+          getComputedStyle(scroll).overflowY==="auto" &&
+          card.getBoundingClientRect().height>=scroll.clientHeight-25 &&
+          [...card.querySelectorAll("button")].every(b=>b.getBoundingClientRect().height>=48);
+      })()`), `${label} must fill the vertical workspace with large controls at ${width}×${height}`);
+      const flowShot=await send("Page.captureScreenshot", {format:"jpeg",quality:80});
+      await writeFile(`generated-artifacts/pos-smart/${mode}-full-height-${width}x${height}.jpg`,Buffer.from(flowShot.data,"base64"));
+    }
+    await button("Totale", "#pos-payment-hub");
+    await showProducts();
     console.log(`PASS layout ${width}×${height}`);
   }
   if (process.env.POS_BILLING_CHECK === "1") {
