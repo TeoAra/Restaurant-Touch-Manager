@@ -1,4 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useGetTablesStatus,
@@ -2443,11 +2445,33 @@ ${covers > 0 ? `<p>${covers} coperti${coverPrice > 0 ? ` × €${coverPrice.toFi
 type SelectedBillItem = { itemId: number; quantity: number };
 type SplitPayHandler = (method: string, amount: number, itemIds: number[], coversToDeduct: number, selectedItems: SelectedBillItem[], operationId: string) => unknown;
 
-function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId, busy = false }: {
+// Move only the selection surface, not its owning payment component/state.
+// Narrow screens and the separate dialog keep the same controls inline.
+function SplitSelectionSurface({ target, disabled, children }: {
+  target?: HTMLDivElement | null; disabled: boolean; children: ReactNode;
+}) {
+  const [wide, setWide] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 1024px)");
+    const update = () => setWide(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  const surface = (
+    <fieldset disabled={disabled} className="pos-split-products" data-testid="split-products">
+      {children}
+    </fieldset>
+  );
+  return wide && target ? createPortal(surface, target) : surface;
+}
+
+function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId, busy = false, selectionTarget }: {
   items: Array<{ id: number; productName: string; quantity: number; unitPrice: string; subtotal: string }>;
   onPay: SplitPayHandler;
   onCancel: () => void;
   coverPrice: number; coverCount: number; orderId?: number; busy?: boolean;
+  selectionTarget?: HTMLDivElement | null;
 }) {
   const coverRows = coverPrice > 0 && coverCount > 0
     ? Array.from({ length: coverCount }, (_, i) => ({
@@ -2573,14 +2597,15 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
     <>
       <div className="space-y-3 py-1">
       <fieldset disabled={busy || !!approvedSplitPosRef.current || sbPosPhase === "waiting" || sbPosPhase === "manual_confirm"} className="contents" data-testid="split-selection">
-        <div className="flex justify-between items-center text-xs text-slate-500">
+        <SplitSelectionSurface target={selectionTarget} disabled={busy || !!approvedSplitPosRef.current || sbPosPhase === "waiting" || sbPosPhase === "manual_confirm"}>
+        <div className="pos-split-selection-heading flex justify-between items-center text-sm text-slate-600">
           <span>Seleziona le voci da pagare</span>
           <div className="flex gap-2">
             <button onClick={selectAll} className="text-primary hover:underline">Tutte</button>
             <button onClick={selectNone} className="text-slate-400 hover:underline">Nessuna</button>
           </div>
         </div>
-          <div className="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
+          <div className="pos-split-product-list space-y-2 overflow-y-auto pr-0.5">
             {allRows.map(row => {
               const selected = qty[row.id] ?? 0;
               const unitPrice = parseFloat(row.unitPrice);
@@ -2593,11 +2618,11 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
                 )}>
                   {/* Name + price */}
                   <div className="flex-1 min-w-0">
-                    <div className={cn("text-xs font-semibold truncate", row.isCover ? "text-slate-500 italic" : "text-slate-800")}>
+                    <div className={cn("text-sm font-bold break-words", row.isCover ? "text-slate-500 italic" : "text-slate-800")}>
                       {row.isCover && <Users className="inline h-3 w-3 mr-1" />}
                       {row.productName}
                     </div>
-                    <div className="text-[10px] text-slate-400">
+                    <div className="text-xs text-slate-500 tabular-nums">
                       €{unitPrice.toFixed(2)} cad. · max {row.quantity}
                     </div>
                   </div>
@@ -2608,7 +2633,7 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
                     <button
                       aria-label={`Seleziona ${row.productName}`}
                       onClick={() => setRowQty(row.id, selected === 0 ? 1 : 0, 1)}
-                      className={cn("h-7 w-7 rounded-lg border-2 flex items-center justify-center transition-all",
+                      className={cn("h-11 w-11 shrink-0 rounded-lg border-2 flex items-center justify-center transition-all",
                         isActive ? "border-primary bg-primary text-white" : "border-slate-300 hover:border-primary")}
                     >
                       {isActive ? <span className="text-[11px] font-bold">✓</span> : <span className="text-xs text-slate-400">·</span>}
@@ -2617,7 +2642,7 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
                     /* Stepper for qty>1 */
                     <div className="flex items-center gap-1 shrink-0">
                       <button aria-label={`Rimuovi un pezzo di ${row.productName}`} onClick={() => setRowQty(row.id, selected - 1, row.quantity)}
-                        className="h-7 w-7 rounded-lg border-2 border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-all text-slate-600">
+                        className="h-11 w-11 rounded-lg border-2 border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-all text-slate-600">
                         <Minus className="h-3 w-3" />
                       </button>
                       <span className={cn("w-8 text-center text-sm font-bold tabular-nums",
@@ -2625,7 +2650,7 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
                         {selected}/{row.quantity}
                       </span>
                       <button aria-label={`Aggiungi un pezzo di ${row.productName}`} onClick={() => setRowQty(row.id, selected + 1, row.quantity)}
-                        className="h-7 w-7 rounded-lg border-2 border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-all text-slate-600">
+                        className="h-11 w-11 rounded-lg border-2 border-slate-200 flex items-center justify-center hover:border-primary hover:text-primary transition-all text-slate-600">
                         <Plus className="h-3 w-3" />
                       </button>
                     </div>
@@ -2640,6 +2665,7 @@ function SplitBillBody({ items, onPay, onCancel, coverPrice, coverCount, orderId
               );
             })}
           </div>
+        </SplitSelectionSurface>
 
           {hasSelection && (
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs">
@@ -3116,6 +3142,7 @@ export default function FrontOffice() {
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [mobilePanel, setMobilePanel] = useState<"left" | "right">("right");
   const viewportRef = useRef<HTMLDivElement>(null);
+  const [splitSelectionTarget, setSplitSelectionTarget] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
     // Keep the current workspace action visible even on a narrow phone.
     viewportRef.current?.querySelector<HTMLElement>('.pos-work-tab[aria-pressed="true"]')
@@ -4259,7 +4286,8 @@ export default function FrontOffice() {
         )}
 
         {/* Lista articoli ordine */}
-        <ScrollArea className="flex-1 min-h-0" onClick={() => setSelectedItemId(null)}>
+        <div ref={setSplitSelectionTarget} className="pos-central-split" data-testid="central-split-selection" />
+        <ScrollArea className="pos-order-lines flex-1 min-h-0" onClick={() => setSelectedItemId(null)}>
           <div className="px-2.5 pb-1 space-y-0.5 pt-0.5">
             {items.length === 0 ? (
               <div className="text-center py-8 text-slate-600">
@@ -4316,17 +4344,17 @@ export default function FrontOffice() {
                     )}>
                     <div className="flex items-center gap-1.5">
                       <span className={cn(
-                        "flex-1 text-[12px] font-semibold truncate",
+                        "flex-1 text-[15px] leading-tight font-bold truncate pos-item-name",
                         isSelected ? "text-primary" : isDraft ? "text-amber-200" : "text-slate-200"
                       )}>{item.productName}</span>
                       {!isDraft && <span className="text-[10px] text-emerald-500 shrink-0 font-bold">✓</span>}
                       <span className={cn(
-                        "text-xs font-bold shrink-0 tabular-nums",
+                        "text-base font-extrabold shrink-0 tabular-nums pos-item-subtotal",
                         isSelected ? "text-primary" : "text-slate-100"
                       )}>€{parseFloat(item.subtotal).toFixed(2)}</span>
                     </div>
                     <div className="flex items-center gap-1 mt-0.5">
-                      <span className="text-[10px] flex-1" style={{ color: isSelected ? 'rgb(148,163,184)' : 'rgb(100,116,139)' }}>
+                      <span className="text-[13px] font-semibold flex-1 tabular-nums pos-item-unit" style={{ color: isSelected ? 'rgb(148,163,184)' : 'rgb(100,116,139)' }}>
                         €{parseFloat(item.unitPrice).toFixed(2)} × {item.quantity}
                         {isSelected && <span className="ml-1.5 text-[9px] text-primary/70 font-semibold">Tocca ancora per le variazioni</span>}
                       </span>
@@ -4335,19 +4363,19 @@ export default function FrontOffice() {
                         aria-label={`Modifica quantità e prezzo di ${item.productName}`}
                         onClick={e => { e.stopPropagation(); setEditingItem({ id: item.id, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, notes: itemNotes, status: itemStatus }); }}
                         className={cn(
-                        "h-9 w-9 rounded-md flex items-center justify-center transition-colors shrink-0",
+                        "h-11 w-11 rounded-lg border border-[#d5d9df] flex items-center justify-center transition-colors shrink-0",
                           isSelected ? "hover:bg-primary/30 active:bg-primary/40" : "hover:bg-[#3a3f58] active:bg-[#444a6a]"
                         )}>
                         <Pencil className={cn("h-4 w-4", isSelected ? "text-primary" : "text-slate-400")} />
                       </button>
                       <div className="flex items-center gap-1 shrink-0">
                         <button onClick={e => { e.stopPropagation(); handleQty(item.id, item.quantity - 1); }}
-                          className="h-9 w-9 rounded-md flex items-center justify-center hover:bg-red-900/40 active:bg-red-900/60 transition-colors">
+                          data-testid={`qty-minus-${item.id}`} aria-label={`Diminuisci ${item.productName}`} className="h-11 w-11 rounded-lg border border-[#d5d9df] flex items-center justify-center hover:bg-red-900/40 active:bg-red-900/60 transition-colors">
                           <Minus className="h-4 w-4 text-red-400" />
                         </button>
-                        <span className="w-6 text-center text-sm font-bold text-slate-200 tabular-nums">{item.quantity}</span>
+                        <span className="w-9 text-center text-lg font-extrabold text-slate-200 tabular-nums" data-testid={`text-qty-${item.id}`}>{item.quantity}</span>
                         <button onClick={e => { e.stopPropagation(); handleQty(item.id, item.quantity + 1); }}
-                          className="h-9 w-9 rounded-md flex items-center justify-center hover:bg-emerald-900/40 active:bg-emerald-900/60 transition-colors">
+                          data-testid={`qty-plus-${item.id}`} aria-label={`Aumenta ${item.productName}`} className="h-11 w-11 rounded-lg border border-[#d5d9df] flex items-center justify-center hover:bg-emerald-900/40 active:bg-emerald-900/60 transition-colors">
                           <Plus className="h-4 w-4 text-emerald-400" />
                         </button>
                       </div>
@@ -4358,7 +4386,7 @@ export default function FrontOffice() {
                       </time>
                     )}
                     {itemNotes && (
-                      <div className="mt-0.5 text-[9px] text-amber-500 italic truncate">{itemNotes}</div>
+                      <div className="mt-0.5 text-[12px] text-amber-500 italic truncate">{itemNotes}</div>
                     )}
                     {(() => {
                       try {
@@ -4368,7 +4396,7 @@ export default function FrontOffice() {
                           <div className="flex flex-wrap gap-1 mt-1">
                             {mods.map((m, idx) => (
                               <span key={idx} className={cn(
-                                "text-[9px] px-1.5 py-0.5 rounded font-medium",
+                                "text-[11px] px-1.5 py-0.5 rounded font-medium",
                                 m.type === "plus" ? "bg-emerald-900/60 text-emerald-400" :
                                 m.type === "minus" ? "bg-red-900/60 text-red-400" :
                                 "bg-[#2d3044] text-slate-400"
@@ -4423,7 +4451,10 @@ export default function FrontOffice() {
           </div>
         )}
 
-      {/* == TASTIERINO PERSISTENTE: sempre visibile, condiviso da tutte le viste == */}
+      </div>
+
+      {/* == COLONNA COMANDI: tastierino, operazioni, Invia e Incassa == */}
+      <aside className={cn("pos-control-panel", mobilePanel === "left" ? "flex" : "hidden sm:flex")} data-testid="pos-control-panel" aria-label="Comandi del conto">
       <section id="pos-more-operations" className="pos-keypad-dock" data-testid="persistent-keypad" aria-label="Tastierino e operazioni del conto">
         <div className="pos-dock-pad">
           <div className="pos-dock-readout" data-testid="persistent-buffer" aria-live="polite">
@@ -4575,7 +4606,7 @@ export default function FrontOffice() {
             Incassa · €{total.toFixed(2)}
           </button>
         </div>
-      </div>
+      </aside>
 
       {/* ══ RIGHT PANEL ═══════════════════════════════════════════════════════ */}
       <div id="pos-menu-panel" className={cn(
@@ -5175,6 +5206,7 @@ export default function FrontOffice() {
                   <div className="bg-white rounded-2xl border border-slate-200 p-3">
                     <SplitBillBody
                       key={`split-${activeOrderId}`}
+                      selectionTarget={splitSelectionTarget}
                       items={items as never}
                       coverPrice={coverPrice}
                       coverCount={coverCount}

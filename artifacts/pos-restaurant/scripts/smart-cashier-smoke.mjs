@@ -320,7 +320,7 @@ try {
   console.log("PASS cash: manual entry and decimal touch keypad, no preset denominations, no payment on amount entry");
   await showProducts();
   await mkdir("generated-artifacts/pos-smart", { recursive: true });
-  for (const [width, height] of [[1440, 900], [1024, 768], [1024, 640], [800, 600], [390, 844]]) {
+  for (const [width, height] of [[1440, 900], [1366, 768], [1024, 768], [1024, 640], [800, 600], [390, 844]]) {
     await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
     await new Promise(r => setTimeout(r, 250));
     await click('[data-testid="button-user-menu"]');
@@ -376,10 +376,30 @@ try {
       assert(layout.menu.width > 200 && layout.order.right <= width, `Panels clipped at ${width}`);
       assert(await evaluate(`(() => {
         const order=document.querySelector(".pos-order-panel"), dock=document.querySelector('[data-testid="persistent-keypad"]');
+        const controls=document.querySelector(".pos-control-panel"), c=controls.getBoundingClientRect();
         const k=dock.getBoundingClientRect(), r=order.getBoundingClientRect(), m=document.querySelector(".pos-menu-panel").getBoundingClientRect();
-        return order.contains(dock) && k.left>=r.left && k.right<=r.right+1 && k.left>=m.right-1 && m.bottom>=r.bottom-1 &&
-          [...dock.querySelectorAll(".pos-dock-ops button")].every(b=>b.getBoundingClientRect().left>=r.left);
-      })()`), `Keypad/actions must stay on the right and the workspace must use the full height at ${width}×${height}`);
+        const separated=innerWidth>=1024
+          ? r.width>=320 && r.bottom>=m.bottom-1 && c.left>=r.right-1 && Math.abs(c.top-r.top)<=1
+          : c.left>=r.left-1 && c.top>=r.bottom-1;
+        return !order.contains(dock) && controls.contains(dock) && separated &&
+          k.left>=c.left && k.right<=c.right+1 && m.bottom>=r.bottom-1 &&
+          document.querySelectorAll('[data-testid="persistent-keypad"]').length===1 &&
+          [...order.querySelectorAll('[data-testid^="qty-minus-"],[data-testid^="qty-plus-"],[data-testid^="edit-order-item-"]')].every(b=>{
+            const t=b.getBoundingClientRect();return t.width>=44 && t.height>=44 && t.left>=r.left && t.right<=r.right;
+          });
+      })()`), `Bill and touch controls must have independent usable space at ${width}×${height}`);
+      if (width >= 1024) {
+        assert(await evaluate(`Math.abs(document.querySelector(".pos-order-panel").getBoundingClientRect().width-document.querySelector(".pos-control-panel").getBoundingClientRect().width)<=1`),
+          `Bill and keypad columns must have equal widths at ${width}`);
+        for (const tab of ["tavl", "grp", "clnt", "tot"]) {
+          await click(`[data-testid="tab-${tab}"]`);
+          assert(await evaluate(`(() => {
+            const r=document.querySelector(".pos-menu-panel").getBoundingClientRect();
+            return Math.abs(r.width-${layout.menu.width})<=1 && Math.abs(r.height-${layout.menu.height})<=1 &&
+              Math.abs(r.x-${layout.menu.x})<=1 && Math.abs(r.y-${layout.menu.y})<=1;
+          })()`), `Map/categories/customer/payment must retain identical workspace dimensions for ${tab} at ${width}`);
+        }
+      }
     } else {
       await showMap();
       assert(await evaluate(`document.querySelector('[data-testid="map-viewport"]').getBoundingClientRect().width > 0`), "Mobile Tavoli must open the unified map");
@@ -404,6 +424,7 @@ try {
     await wait(`document.querySelector(".pos-menu-panel").textContent.includes("Mappa Tavoli")`);
     assert(await evaluate(`(() => {
       const toolbar=document.querySelector(".pos-map-toolbar").getBoundingClientRect();
+      if(toolbar.height>58) throw Error("Oversized map toolbar: "+JSON.stringify(toolbar.toJSON()));
       const selectors=['[data-testid="button-map-back"]','[data-testid="room-selector"]','[data-testid="button-map-book"]'];
       return toolbar.height<=58 && selectors.every(s=>{
         const r=document.querySelector(s).getBoundingClientRect();
@@ -421,7 +442,8 @@ try {
     await wait(`!!document.querySelector('[data-testid="category-1"]')`);
     assert(await evaluate(`(() => {
       const buttons=[...document.querySelectorAll(".pos-work-tabs > button")];
-      return buttons.length===4 && buttons.every(button => {
+      const widths=buttons.map(button=>button.getBoundingClientRect().width);
+      return buttons.length===4 && Math.max(...widths)-Math.min(...widths)<=1 && buttons.every(button => {
         const r=button.getBoundingClientRect();
         return r.height>=48 && r.width>=44 && r.left>=0 && r.right<=innerWidth && r.top>=0 && r.bottom<=innerHeight;
       });
@@ -740,7 +762,7 @@ try {
       await click('[data-testid="room-button-1"]');
       await wait(`!!document.querySelector('[data-testid="map-table-1"]')`);
       assert(await evaluate(`document.querySelector('[data-testid="button-header-log"]').closest('header') !== null && document.querySelector('[data-testid="button-header-map"]').closest('header') !== null`), "Service controls must be in the headbar");
-      assert(await evaluate(`document.querySelector(".pos-order-panel").getBoundingClientRect().width >= 340`), "1024px screens need a wider order panel");
+      assert(await evaluate(`document.querySelector(".pos-order-panel").getBoundingClientRect().width >= 320`), "1024px screens need a readable dedicated order panel");
       await selectFirstTable();
       await wait(`document.querySelectorAll(".pos-order-item").length === 1`);
     };
@@ -751,8 +773,26 @@ try {
     };
     await loadThree();
     await openSeparated();
+    assert(await evaluate(`(() => {
+      const bill=document.querySelector(".pos-order-panel"), surface=document.querySelector('[data-testid="split-products"]');
+      const rows=[...surface.querySelectorAll('[data-testid^="split-row-"]')];
+      return bill.contains(surface) && rows.length>0 && rows.every(row=>{
+        const r=row.getBoundingClientRect();
+        return r.height>=80 && [...row.querySelectorAll("button")].every(button=>{
+          const b=button.getBoundingClientRect();return b.width>=44 && b.height>=44 && b.left>=r.left && b.right<=r.right;
+        });
+      });
+    })()`), "Split selection must occupy the central bill with large touch targets");
     await click('[aria-label="Aggiungi un pezzo di Birra da separare"]');
     await wait(`document.querySelector('[data-testid="button-pay-split"]').textContent.includes("6.50")`);
+    await send("Emulation.setDeviceMetricsOverride", { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
+    await wait(`document.querySelector(".pos-menu-panel").contains(document.querySelector('[data-testid="split-products"]'))`);
+    assert(await evaluate(`document.querySelector('[data-testid="button-pay-split"]').textContent.includes("6.50")`), "Resizing must retain the selected unit and amount");
+    await send("Emulation.setDeviceMetricsOverride", { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false });
+    await wait(`document.querySelector(".pos-order-panel").contains(document.querySelector('[data-testid="split-products"]'))`);
+    assert(await evaluate(`document.querySelector('[data-testid="button-pay-split"]').textContent.includes("6.50")`), "Returning to three columns must not reset split state");
+    const splitShot = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
+    await writeFile("generated-artifacts/pos-smart/split-central-1024x768.jpg", Buffer.from(splitShot.data, "base64"));
     failSplit = true;
     await click('[data-testid="button-pay-split"]');
     await wait(`document.body.textContent.includes("RT di prova non confermata")`);

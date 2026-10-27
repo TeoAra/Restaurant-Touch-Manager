@@ -33,7 +33,11 @@ Il prezzo del coperto deve essere preso automaticamente dal back office; non dev
 
 Un tocco su un prodotto deve aggiungere subito una singola unità, come nella versione precedente, senza obbligare a scegliere la quantità. Quantità e prezzo restano modificabili dalla riga della comanda.
 
-Il tastierino non deve stare sotto la mappa: deve essere in basso nella colonna destra, sotto la comanda. Sconto, Lotteria, Separato e le altre azioni devono stare a destra o nella scheda Pagamento, mai in una fascia che schiaccia l’area sinistra. Mappa e Pagamento devono usare tutta l’altezza disponibile.
+L’utente vuole restringere mappa e categorie e inserire una colonna con tutti i prodotti del tavolo tra l’area sinistra e tastierino/comandi a destra. La comanda non deve essere schiacciata dal tastierino: quantità, prezzi e selezione del conto separato devono essere grandi e leggibili. Questa richiesta sostituisce il tastierino sotto la comanda sugli schermi che consentono tre colonne.
+
+Le due colonne della comanda e del tastierino/comandi devono avere pari larghezza. Mappa, Categorie, Cliente e Pagamento devono mantenere le stesse dimensioni passando da una vista all’altra.
+
+**Why:** l’utente ha richiesto esplicitamente proporzioni uniformi.
 
 Su desktop il tastierino rimane visibile in tutte le viste, senza menu “Altro”. Su telefono, dove le colonne diventano viste separate, appartiene alla vista Conto: mappa e pagamento non devono essere compressi da un dock separato.
 
@@ -43,7 +47,9 @@ Eccezione alla conservazione dei comandi: l’utente ha chiesto di togliere Sosp
 
 **How to apply:** non reintrodurre questi pulsanti nella cassa quando si aggiornano i controlli; mantenere il resto automatico.
 
-**Why:** l’utente ha corretto esplicitamente la disposizione sotto la mappa mostrando la cassa reale troppo compressa; la priorità è liberare l’area sinistra mantenendo i controlli nella comanda.
+**Why:** l’utente trova troppo piccoli i prodotti quando modifica prezzo/quantità o separa il conto e chiede una colonna centrale dedicata, senza rimuovere le funzioni della cassa.
+
+**How to apply:** dare spazio indipendente a comanda e comandi sui touch POS/laptop; durante il conto separato la selezione dei prodotti appartiene alla colonna centrale. Sugli schermi stretti adattare la disposizione senza perdere selezioni, importi o stato di recupero del pagamento.
 
 I prodotti devono restare separati anche se selezionati più volte: ogni tocco aggiunge una nuova riga, senza aumentare automaticamente la quantità di una riga già presente.
 
@@ -55,7 +61,7 @@ I terminali indicati dall’utente sono Nexi PAX D230 e myPOS Go 2. Per il model
 
 **Why:** l’utente ha esplicitamente richiesto questi vincoli per il rinnovo, non una versione ridotta della cassa.
 
-Le sale nella mappa devono avere pulsanti grandi e seguire l’ordine impostato nel backoffice. La dimensione della mappa deve essere uguale e ampia per tutte le sale. La comanda a destra deve essere più larga e leggibile; log e pulsanti di servizio devono stare nella barra superiore.
+Le sale nella mappa devono avere pulsanti grandi e seguire l’ordine impostato nel backoffice. La dimensione della mappa deve essere uguale per tutte le sale, adattata allo spazio disponibile. La comanda deve essere larga e leggibile; log e pulsanti di servizio devono stare nella barra superiore.
 
 Il comando Indietro della mappa deve stare nella stessa riga dei pulsanti delle sale e degli altri controlli, senza una barra separata.
 

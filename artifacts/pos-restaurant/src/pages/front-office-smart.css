@@ -374,12 +374,11 @@
   .pos-room-selector > button { min-width: 96px; min-height: 48px; font-size: 15px; }
 }
 
-/* Keypad dock lives INSIDE the comanda column (bottom-right), above Incassa.
-   Left workspace (map/categorie/cliente/pagamento) takes full height. */
+/* Base control sizing; responsive placement is defined below. */
 .pos-smart-live { grid-template-rows: 58px minmax(0, 1fr); grid-template-areas: "header header" "menu order"; }
 @media (max-height: 650px) and (min-width: 761px) { .pos-smart-live { grid-template-rows: 48px minmax(0, 1fr); } }
 .pos-order-panel { flex-direction: column; }
-.pos-order-panel > .pos-keypad-dock {
+.pos-control-panel > .pos-keypad-dock {
   flex: 0 0 auto; flex-direction: column; gap: 6px; max-height: none;
   padding: 7px 10px 0; border-top: 1px solid var(--pos-line); box-shadow: none;
 }
@@ -387,46 +386,46 @@
    whole interface. The total/input repeated above the rows already appear in
    Incassa and the keypad readout. */
 @media (max-height: 760px) and (min-width: 761px) {
-  .pos-order-panel .pos-order-actions { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); }
-  .pos-order-panel .pos-order-actions > button { min-height: 44px; padding: 8px 5px; font-size: 12px; }
+  .pos-control-panel .pos-order-actions { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); }
+  .pos-control-panel .pos-order-actions > button { min-height: 44px; padding: 8px 5px; font-size: 12px; }
 }
 @media (max-height: 650px) and (min-width: 761px) {
   .pos-order-panel > .pos-order-summary { display: none; }
-  .pos-order-panel > .pos-keypad-dock .pos-dock-ops { max-height: 60px; }
+  .pos-control-panel > .pos-keypad-dock .pos-dock-ops { max-height: 60px; }
 }
-.pos-order-panel .pos-dock-pad {
+.pos-control-panel .pos-dock-pad {
   width: 100%; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
   grid-template-areas: "readout keys" "modes keys"; grid-template-rows: auto 1fr;
 }
-.pos-order-panel .pos-dock-keys { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 38px; }
-.pos-order-panel .pos-dock-modes { grid-template-columns: 1fr; grid-auto-rows: minmax(38px, 1fr); }
-.pos-order-panel .pos-dock-ops {
+.pos-control-panel .pos-dock-keys { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 38px; }
+.pos-control-panel .pos-dock-modes { grid-template-columns: 1fr; grid-auto-rows: minmax(38px, 1fr); }
+.pos-control-panel .pos-dock-ops {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
   padding: 0 0 2px; border-left: 0; max-height: 124px; overflow-y: auto; overflow-x: hidden;
 }
-.pos-smart-live .pos-order-panel .pos-dock-ops button { height: 56px; min-width: 0; font-size: 12px; }
+.pos-smart-live .pos-control-panel .pos-dock-ops button { height: 56px; min-width: 0; font-size: 12px; }
 @media (max-height: 760px) and (min-width: 761px) {
-  .pos-order-panel .pos-dock-keys { grid-auto-rows: 34px; }
-  .pos-order-panel .pos-dock-modes { grid-auto-rows: minmax(34px, 1fr); }
-  .pos-order-panel .pos-dock-ops { max-height: 114px; }
-  .pos-smart-live .pos-order-panel .pos-dock-ops button { height: 52px; }
+  .pos-control-panel .pos-dock-keys { grid-auto-rows: 34px; }
+  .pos-control-panel .pos-dock-modes { grid-auto-rows: minmax(34px, 1fr); }
+  .pos-control-panel .pos-dock-ops { max-height: 114px; }
+  .pos-smart-live .pos-control-panel .pos-dock-ops button { height: 52px; }
 }
 @media (max-height: 620px) and (min-width: 761px) {
-  .pos-order-panel .pos-dock-keys { grid-auto-rows: 32px; gap: 4px; }
-  .pos-order-panel .pos-dock-pad { grid-template-columns: minmax(0, .8fr) minmax(0, 1.4fr); }
-  .pos-order-panel .pos-dock-readout strong { font-size: 17px; }
-  .pos-order-panel .pos-dock-ops { max-height: 60px; }
+  .pos-control-panel .pos-dock-keys { grid-auto-rows: 32px; gap: 4px; }
+  .pos-control-panel .pos-dock-pad { grid-template-columns: minmax(0, .8fr) minmax(0, 1.4fr); }
+  .pos-control-panel .pos-dock-readout strong { font-size: 17px; }
+  .pos-control-panel .pos-dock-ops { max-height: 60px; }
 }
 @media (max-width: 760px) {
   .pos-smart-live {
     grid-template-rows: 92px minmax(0, 1fr) calc(64px + env(safe-area-inset-bottom));
     grid-template-areas: "header" "main" "nav";
   }
-  .pos-order-panel .pos-dock-pad { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "readout modes" "keys keys"; grid-template-rows: auto auto; }
-  .pos-order-panel .pos-dock-modes { grid-template-columns: repeat(2, 76px); grid-auto-rows: 40px; }
-  .pos-order-panel .pos-dock-keys { grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-rows: 42px; }
-  .pos-order-panel .pos-dock-ops { display: flex; flex: 0 0 auto; min-height: 60px; overflow-x: auto; overflow-y: hidden; max-height: none; scroll-snap-type: none; }
-  .pos-smart-live .pos-order-panel .pos-dock-ops button { flex: 0 0 auto; min-width: 96px; height: 56px; }
+  .pos-control-panel .pos-dock-pad { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "readout modes" "keys keys"; grid-template-rows: auto auto; }
+  .pos-control-panel .pos-dock-modes { grid-template-columns: repeat(2, 76px); grid-auto-rows: 40px; }
+  .pos-control-panel .pos-dock-keys { grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-rows: 42px; }
+  .pos-control-panel .pos-dock-ops { display: flex; flex: 0 0 auto; min-height: 60px; overflow-x: auto; overflow-y: hidden; max-height: none; scroll-snap-type: none; }
+  .pos-smart-live .pos-control-panel .pos-dock-ops button { flex: 0 0 auto; min-width: 96px; height: 56px; }
 }
 .pos-cash-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
 .pos-cash-entry > button { min-height: 56px; }
@@ -434,7 +433,11 @@
 /* A single compact map toolbar, without a separate back/title row. */
 .pos-map-toolbar { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .pos-map-back { flex: 0 0 44px; width: 44px; height: 48px; }
-.pos-map-toolbar > .pos-room-selector { flex: 1 1 0; min-width: 0; margin-top: 0; padding-bottom: 0; }
+.pos-map-toolbar > .pos-room-selector {
+  flex: 1 1 0; min-width: 0; height: 56px; align-items: center;
+  margin-top: 0; padding-bottom: 0; overflow-y: hidden; scrollbar-width: none;
+}
+.pos-map-toolbar > .pos-room-selector::-webkit-scrollbar { display: none; }
 .pos-map-tools { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
 .pos-map-book { min-height: 48px; }
 @media (max-width: 600px) {
@@ -445,3 +448,99 @@
   .pos-map-book { width: 44px; padding: 0; justify-content: center; }
   .pos-map-book > span { display: none; }
 }
+
+/* Three columns on desktop: workspace (map/categorie/pagamento) LEFT,
+   full-height table bill CENTER, keypad/operations/Incassa RIGHT. */
+.pos-smart-live {
+  grid-template-columns: minmax(0, 1fr) repeat(2, clamp(320px, 28vw, 460px));
+  grid-template-areas: "header header header" "menu order control";
+}
+.pos-control-panel {
+  grid-area: control; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  background: var(--pos-card); border-left: 1px solid var(--pos-line); overflow: hidden;
+}
+.pos-control-panel > .pos-keypad-dock {
+  flex: 1 1 auto; min-height: 0; flex-direction: column; gap: 8px; max-height: none;
+  padding: 10px 10px 0; border-top: 0; box-shadow: none;
+}
+.pos-control-panel .pos-dock-pad { flex: 0 0 auto; }
+.pos-control-panel .pos-dock-ops { flex: 1 1 auto; min-height: 0; max-height: none !important; align-content: start; }
+.pos-control-panel .pos-order-actions { grid-template-columns: 1fr; padding: 8px 10px 10px; }
+.pos-control-panel .pos-order-actions > button { min-height: 50px; }
+.pos-control-panel [data-testid="button-open-checkout"] { min-height: 60px; font-size: 17px; }
+/* Readable bill rows */
+.pos-order-panel .pos-order-item { padding: 10px 12px 8px; }
+.pos-order-panel .pos-item-time { font-size: 11px; }
+.pos-order-panel .pos-order-item [data-testid^="edit-order-item-"] { background: var(--pos-card); }
+@media (min-width: 761px) and (max-width: 1050px) {
+  .pos-smart-live .pos-work-tab { padding-inline: 4px; letter-spacing: 0; }
+  .pos-control-panel .pos-dock-pad { grid-template-columns: minmax(0, 1fr); grid-template-areas: "readout" "modes" "keys"; grid-template-rows: auto auto auto; }
+  .pos-control-panel .pos-dock-modes { grid-template-columns: 1fr 1fr; }
+  .pos-order-panel .pos-item-name { font-size: 14px; }
+}
+@media (max-height: 800px) and (min-width: 761px) {
+  .pos-control-panel .pos-dock-pad { grid-template-columns: minmax(0, 1fr); grid-template-areas: "readout" "modes" "keys"; grid-template-rows: auto auto auto; }
+  .pos-control-panel .pos-dock-modes { grid-template-columns: 1fr 1fr; grid-auto-rows: 40px; }
+  .pos-control-panel .pos-dock-keys { grid-auto-rows: 42px; }
+  .pos-smart-live .pos-control-panel .pos-dock-ops button { height: 46px; }
+  .pos-control-panel .pos-order-actions { grid-template-columns: 1fr 1.3fr; }
+  .pos-control-panel .pos-order-actions > button { min-height: 52px; font-size: 13px; }
+  .pos-control-panel [data-testid="button-open-checkout"] { font-size: 15px; }
+}
+@media (max-height: 650px) and (min-width: 761px) {
+  .pos-control-panel .pos-dock-keys { grid-auto-rows: 36px; }
+  .pos-control-panel .pos-dock-modes { grid-auto-rows: 36px; }
+}
+@media (max-width: 760px) {
+  .pos-smart-live {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 92px minmax(0, 1fr) auto calc(64px + env(safe-area-inset-bottom));
+    grid-template-areas: "header" "main" "control" "nav";
+  }
+  .pos-view-menu .pos-control-panel { display: none !important; }
+  .pos-view-menu.pos-smart-live { grid-template-rows: 92px minmax(0, 1fr) 0 calc(64px + env(safe-area-inset-bottom)); }
+  .pos-control-panel { border-left: 0; border-top: 1px solid var(--pos-line); max-height: 46dvh; }
+  .pos-control-panel > .pos-keypad-dock { padding: 6px 8px 0; gap: 6px; overflow-y: auto; }
+  .pos-control-panel .pos-order-actions { grid-template-columns: 1fr; padding: 6px 8px; }
+  .pos-control-panel .pos-order-actions [data-testid="button-open-checkout"] { display: none; }
+  .pos-control-panel .pos-dock-ops { flex: 0 0 auto; }
+}
+
+/* 761-1023: two columns, controls stacked under the bill in the right column. */
+@media (min-width: 761px) and (max-width: 1023px) {
+  .pos-smart-live {
+    grid-template-columns: minmax(0, 1fr) clamp(300px, 40vw, 380px);
+    grid-template-rows: 58px minmax(0, 1fr) auto;
+    grid-template-areas: "header header" "menu order" "menu control";
+  }
+  .pos-control-panel { border-top: 1px solid var(--pos-line); max-height: 52dvh; }
+  .pos-control-panel > .pos-keypad-dock { overflow-y: auto; }
+  .pos-control-panel .pos-dock-pad { grid-template-columns: minmax(0, .9fr) minmax(0, 1.3fr); grid-template-areas: "readout keys" "modes keys"; grid-template-rows: auto 1fr; }
+  .pos-control-panel .pos-dock-modes { grid-template-columns: 1fr; }
+  .pos-control-panel .pos-dock-keys { grid-auto-rows: 36px; }
+  .pos-control-panel .pos-dock-ops { max-height: 104px !important; }
+  .pos-smart-live .pos-control-panel .pos-dock-ops button { height: 44px; }
+  .pos-control-panel .pos-order-actions { grid-template-columns: 1fr 1.3fr; }
+}
+@media (min-width: 761px) and (max-width: 1023px) and (max-height: 650px) {
+  .pos-smart-live { grid-template-rows: 48px minmax(0, 1fr) auto; }
+  .pos-control-panel .pos-dock-ops { max-height: 50px !important; }
+  .pos-control-panel .pos-dock-keys, .pos-control-panel .pos-dock-modes { grid-auto-rows: 32px; }
+}
+
+/* The same split selection moves to the central bill on desktop.
+   Its owning component keeps quantities, method and recovery state unchanged. */
+.pos-central-split:empty { display: none; }
+.pos-central-split:not(:empty) { display: flex; flex: 1 1 0; min-height: 0; padding: 6px 10px 10px; }
+.pos-order-panel:has(.pos-central-split:not(:empty)) > .pos-order-lines { display: none; }
+.pos-order-panel .pos-item-name { white-space: normal; overflow-wrap: anywhere; }
+.pos-split-products { min-width: 0; border: 0; padding: 0; margin: 0; }
+.pos-split-selection-heading { gap: 8px; margin-bottom: 8px; font-weight: 700; }
+.pos-split-selection-heading > div { gap: 4px; flex-shrink: 0; }
+.pos-split-selection-heading button { min-height: 44px; padding: 0 8px; }
+.pos-central-split > .pos-split-products { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.pos-central-split .pos-split-product-list { flex: 1 1 0; min-height: 0; }
+.pos-split-product-list > [data-testid^="split-row-"] { min-height: 80px; flex-wrap: wrap; }
+.pos-split-product-list > [data-testid^="split-row-"] > div:first-child { flex-basis: calc(100% - 80px); }
+.pos-split-product-list > [data-testid^="split-row-"] > span:last-child { font-size: 15px; color: var(--pos-ink, #252b36); }
+.pos-split-product-list > [data-testid^="split-row-"] > div:first-child + div { margin-left: auto; }
