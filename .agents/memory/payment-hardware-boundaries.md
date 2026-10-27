@@ -11,6 +11,12 @@ Non equiparare myPOS Go 2 ai terminali Android myPOS: il supporto del profilo EC
 
 ## PAX generico e Nexi D230
 
+Il PAX D230 dell’utente è stato fornito direttamente da Nexi, non dal rivenditore DTR.
+
+**Why:** l’utente lo ha confermato esplicitamente.
+
+**How to apply:** per abilitazione e configurazione ECR fare riferimento a Nexi; la presenza del modello nel catalogo DTR non identifica il software installato sul terminale dell’utente.
+
 La specifica PAX ECR/PC v1.62 fornita dall’utente su https://it.scribd.com/document/1026626781/Pax descrive `T00/T01` per Do Credit, `A30/A31` per Input Account e frame STX + comando + ETX + LRC senza due byte di lunghezza. La porta 10009 è un default di quella specifica, non una configurazione accertata del Nexi D230 dell’utente.
 
 **Why:** un manuale generico PAX non identifica l’applicazione dell’acquirer installata sul terminale; confondere questi comandi o protocolli rende inattendibile il collegamento di pagamento.
