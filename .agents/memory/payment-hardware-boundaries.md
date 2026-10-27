@@ -8,3 +8,11 @@ Non equiparare myPOS Go 2 ai terminali Android myPOS: il supporto del profilo EC
 **Why:** la verifica della documentazione del produttore ha confermato che promettere un collegamento automatico generico tramite API per Go 2 sarebbe inesatto. Abilitazione, firmware e protocollo effettivo devono essere verificati per il dispositivo e il mercato interessati.
 
 **How to apply:** partire dalla guida ufficiale https://developers.mypos.com/guides/troubleshooting-guides/terminal-configuration-ecr-erp e dalla specifica del modello. Finché l’adattatore corretto non è disponibile e verificato, dichiarare la conferma manuale, non un’approvazione automatica. Lo stesso confine vale per Satispay Business senza un collegamento API attivo: la verifica nell’app dell’esercente non è una verifica del gestionale.
+
+## PAX generico e Nexi D230
+
+La specifica PAX ECR/PC v1.62 fornita dall’utente su https://it.scribd.com/document/1026626781/Pax descrive `T00/T01` per Do Credit, `A30/A31` per Input Account e frame STX + comando + ETX + LRC senza due byte di lunghezza. La porta 10009 è un default di quella specifica, non una configurazione accertata del Nexi D230 dell’utente.
+
+**Why:** un manuale generico PAX non identifica l’applicazione dell’acquirer installata sul terminale; confondere questi comandi o protocolli rende inattendibile il collegamento di pagamento.
+
+**How to apply:** prima di implementare o dichiarare verificato l’adattatore Nexi, identificare versione dell’applicazione, modalità ECR abilitata e specifica effettiva tramite impostazioni del terminale o documentazione Nexi. Non dedurre la compatibilità dal solo nome PAX o dalla porta TCP aperta.
