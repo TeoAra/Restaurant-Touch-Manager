@@ -116,7 +116,7 @@ export interface StatusQ {
 // ── Stato ECR da risposta "2X" ───────────────────────────────────────────────
 export interface Status2X {
   tipoEcr: string;        // A
-  matricola: string;      // B
+  matricola: string;      // B: 10 caratteri nella spec, 11 sulle RT di nuova generazione
   scontrinoAperto: boolean; // C: 0=chiuso 1=aperto
   nonFiscaleAperto: boolean; // D
   tastieraBloccata: boolean; // E
@@ -224,8 +224,10 @@ export function parseStatusQ(ascii: string): StatusQ | null {
 // ── Parsa risposta "2X" ──────────────────────────────────────────────────────
 // Formato: 2X (echo, se echo abilitato) + AHBHCHDHEHFHGHhhmmHGGMMAAHNNNNHZZZZH2X
 export function parseStatus2X(ascii: string): Status2X | null {
-  // Il record di stato 2X termina con "H2X"
-  const match = ascii.match(/(.)H(.{10})H(\d)H(\d)H(\d)H(\d+)H(\d)H(\d{4})H(\d{6})H(\d+)H(\d+)H2X/);
+  // Il record termina con H2X. Il campo matricola è 10 nella spec DTR
+  // storica, ma le RT attuali restituiscono anche seriali alfanumerici di 11.
+  // Non troncare il seriale né allargare gli altri campi per compensarlo.
+  const match = ascii.match(/(.)H([A-Za-z0-9 ]{10,11})H(\d)H(\d)H(\d)H(\d+)H(\d)H(\d{4})H(\d{6})H(\d+)H(\d+)H2X/);
   if (!match) return null;
   return {
     tipoEcr:            match[1],

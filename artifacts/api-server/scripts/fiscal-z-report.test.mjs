@@ -103,6 +103,39 @@ registerHooks({
 });
 const transport = await import("../src/lib/fiscal-printer.ts");
 await import("../src/routes/fiscal.ts");
+// Same observed frame layout as the user's RT, with an anonymized serial.
+const elevenCharacterFrame = "2X3H4TEST000123H0H0H0H000H0H1840H271026H0022H0892H2X";
+test("observed 11-character RT serial parses without losing machine status or fiscal counters", () => {
+  const status = transport.parseStatus2X(elevenCharacterFrame);
+  assert(status, "A complete healthy 2X frame must not be rejected for its 11-character serial");
+  assert.equal(status.matricola, "4TEST000123");
+  assert.equal(status.tipoEcr, "3");
+  assert.equal(status.errCode, "000");
+  assert.equal(status.scontrinoAperto, false);
+  assert.equal(status.nonFiscaleAperto, false);
+  assert.equal(status.carta, false);
+  assert.equal(status.numScontrino, "0022");
+  assert.equal(status.numChiusura, "0892");
+  assert.equal(status.ora, "1840");
+  assert.equal(status.data, "271026");
+  const q = transport.parseStatusQ("?892H22H2H0H0H0H0.00H0.00H100.00H500.00H?");
+  assert.equal(zReadiness(ok(q), ok(status)).ready, true);
+});
+test("serial compatibility preserves legacy 10-character format and does not accept malformed records", () => {
+  const legacy = elevenCharacterFrame.replace("4TEST000123", "DC2B000001");
+  assert.equal(transport.parseStatus2X(legacy).matricola, "DC2B000001");
+  assert.equal(transport.parseStatus2X(legacy.slice(2)).matricola, "DC2B000001");
+  for (const frame of [
+    elevenCharacterFrame.replace("4TEST000123", "4TEST0001234"),
+    elevenCharacterFrame.replace("4TEST000123", "TEST00123"),
+    elevenCharacterFrame.replace("4TEST000123", "4TEST!00123"),
+    elevenCharacterFrame.replace("H1840H", "H184H"),
+    elevenCharacterFrame.slice(0, -2),
+  ]) assert.equal(transport.parseStatus2X(frame), null);
+  const error = transport.parseStatus2X(elevenCharacterFrame.replace("H000H", "H016H"));
+  assert.equal(error.errCode, "016");
+  assert.equal(zReadiness(missing, ok(error)).ready, false);
+});
 const requestZ = async () => {
   let status = 200, body;
   await handlers.get("/z-report")({ log: { warn() {} } }, {
@@ -111,6 +144,17 @@ const requestZ = async () => {
   return { status, body };
 };
 const reset = (q, x) => { h.reports = []; h.sent = []; h.q = q; h.x = x; h.command = { ok: true, body: "", ms: 1 }; };
+test("11-character serial reaches the real Z route and is retained intact in the report", async () => {
+  const before = transport.parseStatus2X(elevenCharacterFrame);
+  const after = transport.parseStatus2X(elevenCharacterFrame.replace("0892H2X", "0893H2X"));
+  reset([ok({ ...Q, chiusura: 892 }), ok({ ...Q, chiusura: 893 })], [ok(before), ok(after)]);
+  const result = await requestZ();
+  assert.equal(result.status, 200);
+  assert.equal(result.body.printer.ok, true);
+  assert.deepEqual(h.sent, ["1F"]);
+  assert.equal(h.reports[0].printerSerial, "4TEST000123");
+  assert.equal(h.reports[0].status, "confirmed");
+});
 test("real Z route sends 1F exactly once with 2X fallback and saves verified outcome", async () => {
   reset([missing, missing], [ok(ECR), ok({ ...ECR, numChiusura: "0042" })]);
   const result = await requestZ();
@@ -180,4 +224,7 @@ test("status readers accept valid frames after a recovered flow pause", async ()
   const x = await emulator([0x13, 0x11, ...Buffer.from(record)], port => transport.getStatus2X("127.0.0.1", port));
   assert.equal(x.ok, true);
   assert.equal(x.status.matricola, ECR.matricola);
+  const modern = await emulator([0x11, ...Buffer.from(elevenCharacterFrame)], port => transport.getStatus2X("127.0.0.1", port));
+  assert.equal(modern.ok, true);
+  assert.equal(modern.status.matricola, "4TEST000123");
 });

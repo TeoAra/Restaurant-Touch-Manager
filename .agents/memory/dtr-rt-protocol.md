@@ -3,6 +3,14 @@ name: Protocollo DTR RT XonXoff — documenti gestionali
 description: Regole del protocollo XON/XOFF per la stampante fiscale DTR, in particolare documenti non fiscali (preconto, gestionali)
 ---
 
+# Modello installato e protocollo
+
+La macchina indicata dall’utente è una DTR DRTFRONT con Wi-Fi. L’utente ricorda che XON/XOFF era già stato integrato anche in vista delle future integrazioni: non trattarlo come un protocollo da introdurre da zero.
+
+**Why:** modello e contesto confermati esplicitamente dall’utente.
+
+**How to apply:** mantenere l’integrazione XON/XOFF esistente e verificare compatibilità e risposte rispetto a questo modello; distinguere trasporto Wi-Fi e interpretazione dei record del protocollo.
+
 # Documenti gestionali (non fiscali) su RT DTR
 
 **Regola**: un documento gestionale DEVE essere aperto con `j` e chiuso con `J`. Le righe di testo si stampano con `"testo"@` (max 32 char ASCII). Un `@` nudo senza stringa tra virgolette è input malformato → ERRORE 16 "Input Errato".
@@ -59,6 +67,12 @@ Una risposta persa dopo l’invio di un annullo o di una chiusura Z non equivale
 **How to apply:** distinguere rifiuto prima dell’invio, tentativo inviato e conferma fiscale. Per una conferma usare lo stato e i contatori reali della RT, non la sola riuscita della connessione TCP.
 
 ## Compatibilità delle verifiche prima della Z
+
+Le RT collegate dall’utente restituiscono anche matricole alfanumeriche di 11 caratteri nel campo B della risposta `2X`, benché la specifica DTR storica indichi 10. Non troncare il valore e non modificare l’allineamento degli altri campi.
+
+**Why:** il diagnostico reale fornito dall’utente il 2026-10-27 mostrava una risposta ECR completa e senza errori, scartata esclusivamente dalla lunghezza fissa della matricola.
+
+**How to apply:** mantenere compatibilità con entrambi i formati e usare matricole sintetiche nei test, non il seriale reale del dispositivo.
 
 Non imporre la disponibilità simultanea delle due interrogazioni quando una risposta ECR completa verifica identità, assenza di errori e documento chiuso. Se si usa una fonte alternativa per il contatore Z, la conferma deve confrontare prima e dopo della stessa fonte, senza equiparare i due contatori.
 

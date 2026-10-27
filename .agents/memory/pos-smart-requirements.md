@@ -51,7 +51,7 @@ Il pulsante Incassa in basso a destra deve mostrare il prezzo complessivo del ta
 
 Le prenotazioni online devono essere confermate manualmente dall’operatore nell’agenda, non confermate automaticamente. L’utente ha scelto WhatsApp per ricevere gli avvisi oltre alla cassa.
 
-I terminali indicati dall’utente sono Nexi PAX D230 e myPOS Go 2. Non è stato ancora indicato il modello esatto della stampante fiscale.
+I terminali indicati dall’utente sono Nexi PAX D230 e myPOS Go 2. Per il modello della stampante fiscale e il protocollo confermati dall’utente, vedere [Protocollo DTR RT](dtr-rt-protocol.md).
 
 **Why:** l’utente ha esplicitamente richiesto questi vincoli per il rinnovo, non una versione ridotta della cassa.
 
