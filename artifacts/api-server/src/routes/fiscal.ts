@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, fiscalReceiptsTable, fiscalReportsTable, ordersTable, paymentsTable } from "@workspace/db";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, or, inArray, sql } from "drizzle-orm";
 import { logAudit } from "../lib/audit";
 import {
   getFiscalPrinter,
@@ -18,6 +18,7 @@ import { cents, money, normalizeLottery, orderDue, validateRomana } from "../lib
 import { randomUUID } from "node:crypto";
 import { requireStaffAdmin } from "../lib/staff-session";
 import { rtReference, cancellationConfirmed } from "../lib/fiscal-identity";
+import { zReadiness, zConfirmed } from "../lib/fiscal-z-state";
 
 const router = Router();
 
@@ -288,21 +289,23 @@ router.post("/z-report", requireStaffAdmin, async (req, res): Promise<void> => {
   const port = printer.port ?? 1126;
   const before = await getStatusQ(printer.ip, port);
   const identity = await getStatus2X(printer.ip, port);
-  if (!before.ok || !before.status || before.status.stato !== 0 || !identity.ok || !identity.status ||
-      Number(identity.status.errCode) !== 0 || !identity.status.matricola) {
-    res.status(503).json({ error: "RT non pronta o documento aperto: chiusura Z non inviata." }); return;
+  const readiness = zReadiness(before, identity);
+  if (!readiness.ready) {
+    req.log.warn({ q: before, identity, reason: readiness.error }, "Chiusura Z bloccata prima dell'invio");
+    res.status(503).json({ error: readiness.error }); return;
   }
-  const serial = identity.status.matricola;
-  const closure = before.status.chiusura;
+  const { serial, closure } = readiness.baseline;
   const attempt = await db.transaction(async tx => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(7315092)`);
     const [existing] = await tx.select().from(fiscalReportsTable).where(and(
-      eq(fiscalReportsTable.printerSerial, serial), eq(fiscalReportsTable.numeroChiusura, closure),
+      eq(fiscalReportsTable.printerSerial, serial),
+      or(eq(fiscalReportsTable.numeroChiusura, closure), inArray(fiscalReportsTable.status, ["pending", "unknown"])),
       eq(fiscalReportsTable.type, "Z"),
     ));
     if (existing) return null;
     const [saved] = await tx.insert(fiscalReportsTable).values({
       type: "Z", printerSerial: serial, numeroChiusura: closure, status: "pending", totalDb: row.totale,
+      response: JSON.stringify({ baseline: readiness.baseline, before, identity }),
     }).returning();
     return saved;
   });
@@ -313,11 +316,12 @@ router.post("/z-report", requireStaffAdmin, async (req, res): Promise<void> => {
   try {
     const command = await sendXonXoffCommand(printer.ip, port, "1F", 12000);
     const after = await getStatusQ(printer.ip, port);
-    const confirmed = command.ok && after.ok && after.status?.stato === 0 && after.status.chiusura === closure + 1;
+    const afterIdentity = await getStatus2X(printer.ip, port);
+    const confirmed = command.ok && zConfirmed(readiness.baseline, after, afterIdentity);
     printerResult = { ...command, ok: confirmed, error: confirmed ? undefined : "Esito Z da verificare sulla RT. Non ripetere automaticamente la chiusura." };
     await db.update(fiscalReportsTable).set({
       status: confirmed ? "confirmed" : "unknown", error: printerResult.error ?? null,
-      response: `${command.body ?? ""}\n${after.raw}`, completedAt: confirmed ? new Date() : null,
+      response: JSON.stringify({ baseline: readiness.baseline, command, after, afterIdentity }), completedAt: confirmed ? new Date() : null,
     }).where(eq(fiscalReportsTable.id, attempt.id));
   } catch (error) {
     await db.update(fiscalReportsTable).set({ status: "unknown", error: "Comunicazione interrotta: verificare la chiusura fisica sulla RT." }).where(eq(fiscalReportsTable.id, attempt.id));

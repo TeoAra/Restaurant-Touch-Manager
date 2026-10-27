@@ -94,7 +94,7 @@ export interface XonXoffResult {
   ok: boolean;
   ms: number;
   ascii: string;          // testo ASCII ricevuto (echo + eventuali risposte)
-  xoffCount: number;      // quanti byte XOFF (0x13) ricevuti → contano errori
+  xoffCount: number;      // byte XOFF ricevuti; una pausa seguita da XON non è un errore
   error?: string;
 }
 
@@ -143,6 +143,7 @@ export async function sendXonXoff(
     let settled = false;
     let ascii = "";
     let xoffCount = 0;
+    let xoffPaused = false;
     let sendDone = false;
     let responseTimer: ReturnType<typeof setTimeout> | null = null;
     const deadline = setTimeout(() => finish(false, "Timeout assoluto comunicazione RT"), 20000);
@@ -158,7 +159,7 @@ export async function sendXonXoff(
 
     const scheduleFinish = () => {
       if (responseTimer) clearTimeout(responseTimer);
-      responseTimer = setTimeout(() => finish(xoffCount === 0), waitForResponseMs);
+      responseTimer = setTimeout(() => finish(!xoffPaused, xoffPaused ? "RT rimasta in XOFF" : undefined), waitForResponseMs);
     };
 
     const socket = new net.Socket();
@@ -180,8 +181,9 @@ export async function sendXonXoff(
       for (const byte of chunk) {
         if (byte === XOFF) {
           xoffCount++;
+          xoffPaused = true;
         } else if (byte === XON) {
-          // XON = pronto, ignora
+          xoffPaused = false;
         } else if (byte >= 0x20 && byte <= 0x7e) {
           ascii += String.fromCharCode(byte);
           hasAscii = true;
@@ -191,8 +193,8 @@ export async function sendXonXoff(
       if (sendDone && hasAscii) scheduleFinish();
     });
 
-    socket.on("end",     () => finish(xoffCount === 0));
-    socket.on("timeout", () => finish(xoffCount === 0));
+    socket.on("end",     () => finish(sendDone && !xoffPaused, !sendDone ? "Connessione RT chiusa prima dell'invio" : xoffPaused ? "RT rimasta in XOFF" : undefined));
+    socket.on("timeout", () => finish(false, "Timeout comunicazione RT"));
     socket.on("error",   (err: Error) => finish(false, err.message));
   });
 }
@@ -245,14 +247,14 @@ export function parseStatus2X(ascii: string): Status2X | null {
 export async function getStatusQ(ip: string, port: number): Promise<{ ok: boolean; status: StatusQ | null; raw: string }> {
   const res = await sendXonXoff(ip, port, "?", 2500);
   const status = parseStatusQ(res.ascii);
-  return { ok: res.xoffCount === 0 && status !== null, status, raw: res.ascii };
+  return { ok: res.ok && status !== null, status, raw: res.ascii };
 }
 
 // ── Richiesta stato ECR ───────────────────────────────────────────────────
 export async function getStatus2X(ip: string, port: number): Promise<{ ok: boolean; status: Status2X | null; raw: string }> {
   const res = await sendXonXoff(ip, port, "2X", 2500);
   const status = parseStatus2X(res.ascii);
-  return { ok: res.xoffCount === 0 && status !== null, status, raw: res.ascii };
+  return { ok: res.ok && status !== null, status, raw: res.ascii };
 }
 
 // ── Costruisce il comando XonXoff per un documento commerciale ───────────────
@@ -451,7 +453,7 @@ export async function sendXonXoffCommand(
     ms: res.ms,
     body: res.ascii,
     error: res.error,
-    rtCode: res.xoffCount > 0 ? `XOFF_${res.xoffCount}` : undefined,
+    rtCode: !res.ok && res.xoffCount > 0 ? `XOFF_${res.xoffCount}` : undefined,
   };
 }
 

@@ -57,3 +57,11 @@ Una risposta persa dopo l’invio di un annullo o di una chiusura Z non equivale
 **Why:** la RT può aver completato un’operazione fisica prima che la cassa ne perda la risposta; riprovare alla cieca può produrre un secondo documento o una seconda chiusura.
 
 **How to apply:** distinguere rifiuto prima dell’invio, tentativo inviato e conferma fiscale. Per una conferma usare lo stato e i contatori reali della RT, non la sola riuscita della connessione TCP.
+
+## Compatibilità delle verifiche prima della Z
+
+Non imporre la disponibilità simultanea delle due interrogazioni quando una risposta ECR completa verifica identità, assenza di errori e documento chiuso. Se si usa una fonte alternativa per il contatore Z, la conferma deve confrontare prima e dopo della stessa fonte, senza equiparare i due contatori.
+
+**Why:** dopo l’introduzione di verifiche più restrittive l’utente ha segnalato la RT connessa ma la chiusura bloccata prima dell’invio; la compatibilità non va risolta eliminando tutte le verifiche di sicurezza.
+
+**How to apply:** conservare il blocco dei documenti aperti e degli esiti incerti, e riportare il motivo specifico quando lo stato non è verificabile. Un XOFF transitorio seguito da XON non dimostra un guasto.

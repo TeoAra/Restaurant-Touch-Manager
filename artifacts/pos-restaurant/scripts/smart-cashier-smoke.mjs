@@ -74,6 +74,16 @@ try {
       let responseCode = 200;
       if (path === "/api/auth/login") body = { id: 9999, name: "Operatore test", role: "admin" };
       else if (path === "/api/auth/session") body = { id: 9999, name: "Operatore test", role: "admin" };
+      else if (process.env.POS_Z_CHECK === "1" && path === "/api/fiscal/printer-status") body = {
+        found: true, printer: { name: "RT simulata", ip: "192.0.2.1", port: 1126 },
+        stato2X: { ok: true, status: { errCode: "000", scontrinoAperto: false, carta: false } },
+        statoQ: { ok: false, status: null },
+      };
+      else if (process.env.POS_Z_CHECK === "1" && path === "/api/fiscal/lotteria") body = { codice: null };
+      else if (process.env.POS_Z_CHECK === "1" && path === "/api/fiscal/z-report") {
+        responseCode = 503;
+        body = { error: "Scontrino fiscale aperto o in pagamento: completarlo o annullarlo dalla funzione dedicata. Chiusura Z non inviata." };
+      }
       else if (path === "/api/reservations/public/config") body = { enabled: bookingEnabled, restaurantName: "Locale test", maxCovers: 30, whatsappConfigured: false };
       else if (path === "/api/reservations/public/request" && request.method === "POST") {
         const input = JSON.parse(request.postData);
@@ -899,8 +909,27 @@ try {
     assert(order.items.every(item => item.quantity === 1));
     console.log("PASS persistent keypad: selection without modal, quantity/decimal price/clear, prepared quantity as separate rows, price override, triple taps create three rows and a single quick order");
   }
+  if (process.env.POS_Z_CHECK === "1") {
+    await send("Emulation.setDeviceMetricsOverride", { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false });
+    await send("Page.navigate", { url: new URL("/backoffice/fiscale", origin).href });
+    await wait(`document.body.textContent.includes("Chiusura Z")`);
+    await button("Chiusura Z", "body");
+    await button("Esegui Chiusura Z", "body");
+    await wait(`document.querySelector('[data-testid="z-report-error"]')?.textContent.includes("Scontrino fiscale aperto")`);
+    const error = await evaluate(`(() => {
+      const el=document.querySelector('[data-testid="z-report-error"]'), r=el.getBoundingClientRect();
+      el.scrollIntoView({block:"center"});
+      return {text:el.textContent,display:getComputedStyle(el).display,height:r.height};
+    })()`);
+    assert.equal(error.display === "none", false);
+    assert(error.height > 20 && error.text.includes("Chiusura Z non inviata"));
+    assert.equal(writes.filter(w => w === "POST /api/fiscal/z-report").length, 1, "No automatic Z retry");
+    const shot = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
+    await writeFile("generated-artifacts/pos-smart/z-report-error-1024x768.jpg", Buffer.from(shot.data, "base64"));
+    console.log("PASS fiscal Z UI: exact pre-send failure remains visible, status refreshed, no automatic retry; API mocked");
+  }
   assert.deepEqual(errors, [], "Browser errors");
-  if (process.env.POS_BILLING_CHECK !== "1" && process.env.POS_SPLIT_CHECK !== "1") assert(!writes.some(w => /payments|fiscal|invoices|comanda/.test(w)), "No fiscal writes expected");
+  if (process.env.POS_BILLING_CHECK !== "1" && process.env.POS_SPLIT_CHECK !== "1" && process.env.POS_Z_CHECK !== "1") assert(!writes.some(w => /payments|fiscal|invoices|comanda/.test(w)), "No fiscal writes expected");
   console.log("PASS login, unified map table selection, item timestamps, all advanced controls, product mutation, payment modes and responsive category/navigation targets. All APIs mocked; no live fiscal operations.");
 } finally {
   ws?.close();

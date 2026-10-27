@@ -90,6 +90,7 @@ export default function FiscalePage() {
   const [reportResult, setReportResult] = useState<ReportResult | null>(null);
   const [xLoading, setXLoading] = useState(false);
   const [zLoading, setZLoading] = useState(false);
+  const [zError, setZError] = useState<string | null>(null);
   const [repartiEdit, setRepartiEdit] = useState<Record<string, string>>({});
   const [repartiOpen, setRepartiOpen] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
@@ -193,7 +194,7 @@ export default function FiscalePage() {
   }
 
   async function handleZReport() {
-    setZLoading(true); setReportResult(null);
+    setZLoading(true); setReportResult(null); setZError(null);
     try {
       const resp = await fetch(`${API}/fiscal/z-report`, { method: "POST" });
       if (!resp.ok) {
@@ -204,8 +205,13 @@ export default function FiscalePage() {
       setReportResult(data);
       toast({ title: data.printer?.ok ? "Chiusura Z confermata dalla RT" : "Chiusura Z da verificare sulla RT", variant: data.printer?.ok ? "default" : "destructive" });
     } catch (error) {
+      setZError((error as Error).message);
       toast({ title: "Chiusura non confermata", description: (error as Error).message, variant: "destructive" });
-    } finally { setZLoading(false); qc.invalidateQueries({ queryKey: ["fiscal_reports"] }); }
+    } finally {
+      setZLoading(false);
+      qc.invalidateQueries({ queryKey: ["fiscal_reports"] });
+      qc.invalidateQueries({ queryKey: ["fiscal_printer_status"] });
+    }
   }
 
   async function handleCancelOpenReceipt() {
@@ -543,6 +549,10 @@ export default function FiscalePage() {
                 {zLoading ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Printer className="h-5 w-5" />}
                 {zLoading ? "Elaborazione…" : "Esegui Chiusura Z"}
               </Button>
+              {zError && <div role="alert" data-testid="z-report-error"
+                className="rounded-xl border border-red-300 bg-red-50 p-3 text-left text-sm font-semibold text-red-800">
+                {zError}
+              </div>}
 
               {/* Apri cassetto cassa */}
               <div className="pt-3 border-t border-slate-200">
