@@ -528,6 +528,22 @@
   .pos-control-panel .pos-dock-keys, .pos-control-panel .pos-dock-modes { grid-auto-rows: 32px; }
 }
 
+/* Keep desktop digits low and tall, immediately above the payment actions. */
+@media (min-width: 1024px) {
+  .pos-control-panel > .pos-keypad-dock { justify-content: flex-end; }
+  .pos-control-panel .pos-dock-pad {
+    order: 2;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "readout" "modes" "keys";
+    grid-template-rows: auto auto auto;
+  }
+  .pos-control-panel .pos-dock-readout { min-height: 52px; }
+  .pos-control-panel .pos-dock-modes { grid-template-columns: 1fr 1fr; grid-auto-rows: 44px; }
+  .pos-control-panel .pos-dock-keys { grid-auto-rows: clamp(44px, 6.7dvh, 68px); }
+  .pos-control-panel .pos-dock-keys button { font-size: 20px; }
+  .pos-control-panel .pos-dock-ops { order: 1; flex: 0 1 auto; }
+}
+
 /* The same split selection moves to the central bill on desktop.
    Its owning component keeps quantities, method and recovery state unchanged. */
 .pos-central-split:empty { display: none; }

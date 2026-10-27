@@ -37,6 +37,8 @@ L’utente vuole restringere mappa e categorie e inserire una colonna con tutti 
 
 Le due colonne della comanda e del tastierino/comandi devono avere pari larghezza. Mappa, Categorie, Cliente e Pagamento devono mantenere le stesse dimensioni passando da una vista all’altra.
 
+Nella colonna destra il tastierino deve essere più ampio in verticale e in basso, non in alto. La colonna centrale della comanda non deve ripetere il marchio HelloTable.
+
 **Why:** l’utente ha richiesto esplicitamente proporzioni uniformi.
 
 Su desktop il tastierino rimane visibile in tutte le viste, senza menu “Altro”. Su telefono, dove le colonne diventano viste separate, appartiene alla vista Conto: mappa e pagamento non devono essere compressi da un dock separato.

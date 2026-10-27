@@ -4171,6 +4171,7 @@ export default function FrontOffice() {
       )}>
 
         {/* Header */}
+        {(activeOrderId || selectedTableId) && (
         <div className="flex items-center justify-between px-2 py-1.5 border-b border-[#37415c] shrink-0 bg-[#171b27]">
           {/* Table name / brand — click to send comanda when drafts exist */}
           <button
@@ -4207,12 +4208,13 @@ export default function FrontOffice() {
               </div>
             ) : (
               <span className="font-bold text-slate-300 text-sm">
-                Hello<span className="text-primary">Table</span>
+                {orderLabel}
               </span>
             )}
           </button>
 
         </div>
+        )}
 
         {/* Totale */}
         <div className="pos-order-summary px-2.5 pt-2 pb-1 shrink-0">

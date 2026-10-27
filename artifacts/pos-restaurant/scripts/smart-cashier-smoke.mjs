@@ -389,6 +389,14 @@ try {
           });
       })()`), `Bill and touch controls must have independent usable space at ${width}×${height}`);
       if (width >= 1024) {
+        assert(await evaluate(`(() => {
+          const pad=document.querySelector(".pos-dock-pad").getBoundingClientRect();
+          const ops=document.querySelector(".pos-dock-ops").getBoundingClientRect();
+          const dock=document.querySelector(".pos-keypad-dock").getBoundingClientRect();
+          return pad.top>=ops.bottom && Math.abs(pad.bottom-dock.bottom)<=2 &&
+            [...document.querySelectorAll(".pos-dock-keys button")].every(b=>b.getBoundingClientRect().height>=44) &&
+            !document.querySelector(".pos-order-panel").textContent.includes("HelloTable");
+        })()`), `Desktop keypad must be tall, below operations and bottom-aligned without duplicate bill branding at ${width}×${height}`);
         assert(await evaluate(`Math.abs(document.querySelector(".pos-order-panel").getBoundingClientRect().width-document.querySelector(".pos-control-panel").getBoundingClientRect().width)<=1`),
           `Bill and keypad columns must have equal widths at ${width}`);
         for (const tab of ["tavl", "grp", "clnt", "tot"]) {
