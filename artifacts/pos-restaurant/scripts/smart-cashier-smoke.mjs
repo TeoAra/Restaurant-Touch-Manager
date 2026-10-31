@@ -37,7 +37,7 @@ try {
   let invoiceConflict = true;
   let savedInvoice = null;
   let failCustomerSave = true;
-  const exportCustomer = { id: 41, tipo: "azienda", ragioneSociale: "Cliente collegato test", partitaIva: "12345678901", indirizzo: "Via Test 1", cap: "", comune: "Roma" };
+  const exportCustomer = { id: 41, tipo: "azienda", ragioneSociale: "Cliente collegato test", partitaIva: "12345678901", indirizzo: "Via Test 1", cap: "", comune: "Roma", createdAt: "2026-01-01T10:00:00.000Z", updatedAt: "2026-01-02T10:00:00.000Z" };
   const exportInvoice = { id: 81, numero: 24, sezionale: "1", anno: 2026, numeroDocumento: "1/24", customerId: 41, data: "2026-10-31", tipoDocumento: "TD01", stato: "bozza", totale: "57.50", ragioneSociale: exportCustomer.ragioneSociale };
   const xmlFixture = '<?xml version="1.0"?><FatturaElettronica><Numero>1/23</Numero></FatturaElettronica>';
   const settings = { cover_price: "1.50", feat_table_ops: "true", pos_type: "none" };
@@ -190,7 +190,7 @@ try {
           else { Object.assign(exportCustomer, JSON.parse(request.postData)); body = exportCustomer; }
         } else body = exportCustomer;
       } else if (path === "/api/customers") {
-        body = [{ id: 1, tipo: "azienda", ragioneSociale: "Cliente Test", partitaIva: "12345678901", indirizzo: "Via Test", cap: "00100", comune: "Roma" }];
+        body = process.env.POS_INVOICE_CUSTOMER_CHECK === "1" ? [exportCustomer] : [{ id: 1, tipo: "azienda", ragioneSociale: "Cliente Test", partitaIva: "12345678901", indirizzo: "Via Test", cap: "00100", comune: "Roma" }];
       } else if (path === "/api/fiscal/romana") {
         const input = JSON.parse(request.postData);
         if (failRomana) { responseCode = 502; body = { ok: false, rtOk: false, error: "RT di test non confermata" }; }
@@ -1035,7 +1035,50 @@ try {
     await wait(`!document.querySelector('[role="dialog"][data-state="open"]') && !document.querySelector('[data-testid="invoice-export-error"]')`);
     assert.equal(exportCustomer.cap, "00100");
     assert.deepEqual(writes.slice(before), ["PATCH /api/customers/41", "PATCH /api/customers/41"], "Recovery must not emit, renumber or charge an invoice");
+    await send("Page.navigate", { url: new URL("/backoffice/clienti", origin).href });
+    const editSelector = '[aria-label="Modifica cliente Cliente collegato test"]';
+    await wait(`document.querySelector(${JSON.stringify(editSelector)})`);
+    await click(editSelector);
+    const optionalFields = {
+      "Codice SDI (Destinatario)": ["codiceDestinatario", "ABC1234"],
+      "Codice Fiscale": ["codiceFiscale", ""],
+      "PEC": ["pec", "test@example.invalid"],
+      "Indirizzo": ["indirizzo", "Via Salvataggio 42"],
+      "CAP": ["cap", "20100"],
+      "Comune": ["comune", "Milano"],
+      "Provincia": ["provincia", "MI"],
+      "Nazione": ["nazione", "IT"],
+      "Telefono": ["telefono", "000000"],
+      "Email": ["email", "test@example.invalid"],
+      "Note": ["note", "Salvataggio facoltativi test"],
+    };
+    await evaluate(`(() => {
+      const dialog=document.querySelector('[role="dialog"][data-state="open"]');
+      for(const [labelText,[,value]] of Object.entries(${JSON.stringify(optionalFields)})) {
+        const label=[...dialog.querySelectorAll("label")].find(l=>l.textContent===labelText);
+        const input=label?.parentElement.querySelector("input");
+        if(!input) throw Error("Missing field "+labelText);
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(input,value);
+        input.dispatchEvent(new Event("input",{bubbles:true}));
+      }
+    })()`);
+    await button("Salva", '[role="dialog"][data-state="open"]');
+    await wait(`!document.querySelector('[role="dialog"][data-state="open"]')`);
+    const submitted = payloads.filter(p=>p.path==="/api/customers/41").at(-1).data;
+    for (const key of ["id", "createdAt", "updatedAt"]) assert(!Object.hasOwn(submitted, key), `Do not resend server-owned ${key}`);
+    for (const [, [key, value]] of Object.entries(optionalFields)) assert.equal(submitted[key], value, key);
+    await send("Page.navigate", { url: new URL("/backoffice/clienti", origin).href });
+    await wait(`document.querySelector(${JSON.stringify(editSelector)})`);
+    await click(editSelector);
+    assert(await evaluate(`(() => {
+      const dialog=document.querySelector('[role="dialog"][data-state="open"]');
+      return Object.entries(${JSON.stringify(optionalFields)}).every(([labelText,[,value]])=>{
+        const label=[...dialog.querySelectorAll("label")].find(l=>l.textContent===labelText);
+        return label.parentElement.querySelector("input").value===value;
+      });
+    })()`), "SDI and all optional customer fields must survive save, reload and reopen");
     console.log("PASS invoice customer: exact missing field, fetch linked customer by invoice ID, failed save preserves form, successful correction without emission or payment; all APIs mocked");
+    console.log("PASS customer optional fields: SDI, PEC, full address and contacts survive save/reload/reopen without timestamp metadata; all APIs mocked");
   }
   assert.deepEqual(errors, [], "Browser errors");
   if (process.env.POS_BILLING_CHECK !== "1" && process.env.POS_SPLIT_CHECK !== "1" && process.env.POS_Z_CHECK !== "1") assert(!writes.some(w => /payments|fiscal|invoices|comanda/.test(w)), "No fiscal writes expected");

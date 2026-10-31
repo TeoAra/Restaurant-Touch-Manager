@@ -288,6 +288,7 @@ export default function FatturePage() {
         return;
       }
       qc.invalidateQueries({ queryKey: ["customers"] });
+      qc.invalidateQueries({ queryKey: ["customers-all"] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
       setCustomerDialog({ open: false });
       setInvoiceIssue(null);

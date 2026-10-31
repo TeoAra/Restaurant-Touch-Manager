@@ -59,7 +59,11 @@ export default function ClientiPage() {
 
   function openNew() { setForm(BLANK); setViesStatus("idle"); setViesMsg(""); setDialog({ open: true }); }
   function openEdit(c: Customer) {
-    setForm({ ...BLANK, ...c });
+    // Copy only editable fields, not id/createdAt/updatedAt from the GET.
+    setForm({
+      ...BLANK,
+      ...Object.fromEntries(Object.keys(BLANK).map(key => [key, c[key as keyof Customer] ?? BLANK[key as keyof typeof BLANK]])),
+    });
     setViesStatus("idle"); setViesMsg("");
     setDialog({ open: true, item: c });
   }
@@ -128,6 +132,7 @@ export default function ClientiPage() {
         throw new Error(error.error || "Salvataggio cliente non riuscito");
       }
       qc.invalidateQueries({ queryKey: ["customers"] });
+      qc.invalidateQueries({ queryKey: ["customers-all"] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
       setDialog({ open: false });
       toast({ title: dialog.item ? "Cliente aggiornato" : "Cliente creato" });
@@ -195,7 +200,7 @@ export default function ClientiPage() {
                 </div>
               </div>
               <div className="flex gap-1 shrink-0">
-                <button onClick={() => openEdit(c)} className="p-2 rounded-lg text-slate-400 hover:text-primary hover:bg-[#edf5e9] transition-colors">
+                <button onClick={() => openEdit(c)} aria-label={`Modifica cliente ${c.ragioneSociale}`} className="p-2 rounded-lg text-slate-400 hover:text-primary hover:bg-[#edf5e9] transition-colors">
                   <Pencil className="h-4 w-4" />
                 </button>
                 <button onClick={() => handleDelete(c.id)} className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors">

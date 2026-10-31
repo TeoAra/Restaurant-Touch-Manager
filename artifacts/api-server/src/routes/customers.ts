@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, customersTable } from "@workspace/db";
+import { db, customersTable, insertCustomerSchema } from "@workspace/db";
 import { eq, ilike, or } from "drizzle-orm";
 
 const router = Router();
@@ -29,7 +29,10 @@ router.get("/:id", async (req, res) => {
 });
 
 router.post("/", async (req, res) => {
-  const body = req.body;
+  const parsed = insertCustomerSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Dati cliente non validi: " + parsed.error.issues.map(issue => issue.path.join(".")).join(", ") });
+  const body = parsed.data;
+  if (!body.ragioneSociale.trim()) return res.status(400).json({ error: "Denominazione obbligatoria" });
   const [customer] = await db.insert(customersTable).values({
     tipo: body.tipo ?? "privato",
     ragioneSociale: body.ragioneSociale,
@@ -48,12 +51,18 @@ router.post("/", async (req, res) => {
     email: body.email,
     note: body.note,
   }).returning();
-  res.status(201).json(customer);
+  return res.status(201).json(customer);
 });
 
 router.patch("/:id", async (req, res) => {
   const id = Number(req.params.id);
-  const body = req.body;
+  if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: "Cliente non valido" });
+  // A GET response includes ISO timestamps: never feed those strings back to
+  // Drizzle's Date columns, or an otherwise valid customer edit fails entirely.
+  const parsed = insertCustomerSchema.partial().safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Dati cliente non validi: " + parsed.error.issues.map(issue => issue.path.join(".")).join(", ") });
+  const body = parsed.data;
+  if (body.ragioneSociale !== undefined && !body.ragioneSociale.trim()) return res.status(400).json({ error: "Denominazione obbligatoria" });
   const [customer] = await db.update(customersTable)
     .set({ ...body, updatedAt: new Date() })
     .where(eq(customersTable.id, id))

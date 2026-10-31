@@ -7,3 +7,4 @@
 - [Avvio e vincoli del database](database-startup.md) — la sincronizzazione dello schema all’avvio non deve attendere conferme né troncare dati contabili.
 - [Compatibilità dei terminali](payment-hardware-boundaries.md) — Go 2 ECR non equivale all’ePOS API Android; distinguere sempre incasso verificato e conferma manuale.
 - [Validazione numerica API](api-numeric-validation.md) — Orval può generare number senza controllo degli interi; verificare anche coordinate e quantità frazionarie.
+- [Dati facoltativi cliente](customer-data.md) — SDI e altri dati inseriti devono essere salvati senza diventare obbligatori per l’anagrafica.
