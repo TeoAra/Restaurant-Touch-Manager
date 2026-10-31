@@ -471,6 +471,7 @@ async function stampaDocumentoGestionale(
   printer: RtPrinter,
   righeTesto: string[],
   waitMs = 8000,
+  requireIdle = false,
 ): Promise<CgiResult> {
   const rtPort = printer.port ?? 1126;
 
@@ -478,6 +479,9 @@ async function stampaDocumentoGestionale(
   // da un tentativo precedente fallito, chiudilo/annullalo prima di aprire.
   const preStatus = await sendXonXoff(printer.ip, rtPort, "?", 2500);
   const preQ = parseStatusQ(preStatus.ascii);
+  if (requireIdle && (!preStatus.ok || !preQ || preQ.stato !== 0)) {
+    return { ok: false, error: "RT non pronta o documento aperto: copia gestionale non inviata. Verificare la stampante senza annullare il documento corrente." };
+  }
   if (preQ && preQ.stato === 3) {
     console.warn("[GESTIONALE] Documento gestionale rimasto aperto, invio chiusura 'J'...");
     await sendXonXoff(printer.ip, rtPort, "J", 2500);
@@ -568,6 +572,8 @@ export async function emettiFatturaCortesia(opts: {
   iva?: string | null;
   totale: string;
   printer?: RtPrinter | null;
+  requireIdle?: boolean;
+  bozza?: boolean;
 }): Promise<CgiResult> {
   const printer = opts.printer ?? await getFiscalPrinter();
   if (!printer) return { ok: false, error: "Nessuna stampante fiscale configurata" };
@@ -582,7 +588,7 @@ export async function emettiFatturaCortesia(opts: {
   if (m) dataIt = `${m[3]}/${m[2]}/${m[1]}`;
 
   lines.push("*** FATTURA ***");
-  lines.push("(COPIA DI CORTESIA)");
+  lines.push(opts.bozza ? "(BOZZA - COPIA DI CORTESIA)" : "(COPIA DI CORTESIA)");
   lines.push(sep);
   lines.push(`FATTURA N. ${numero}`);
   lines.push(`DATA: ${dataIt}`);
@@ -606,7 +612,7 @@ export async function emettiFatturaCortesia(opts: {
     const pu = parseFloat(r.prezzoUnitario);
     const tot = (qta * pu).toFixed(2);
     const desc = xonDesc(r.desc);
-    const qtaStr = Number.isInteger(qta) && qta === 1 ? "" : `${Math.round(qta)}x `;
+    const qtaStr = qta === 1 ? "" : `${String(qta).replace(".", ",")}x `;
     lines.push(`${qtaStr}${desc}`);
     lines.push(`  EUR ${tot}`);
   }
@@ -624,13 +630,22 @@ export async function emettiFatturaCortesia(opts: {
   lines.push(`TOT. EUR ${(isNaN(totNum) ? 0 : totNum).toFixed(2)}`);
 
   lines.push(sep);
-  lines.push("FATTURA ELETTRONICA EMESSA");
-  lines.push("IN FORMATO XML (FatturaPA)");
+  lines.push("DOCUMENTO GESTIONALE");
+  lines.push("NESSUN INVIO SDI");
   lines.push("COPIA NON VALIDA AI");
   lines.push("FINI FISCALI");
 
   console.log("[FATTURA-RT] righe=%d numero=%s", lines.length, numero);
-  return stampaDocumentoGestionale(printer, lines);
+  // Courtesy copies share the printer queue with fiscal receipts, but never
+  // use their sale/payment commands or interrupt an open commercial document.
+  const key = `${printer.ip}:${printer.port ?? 1126}`;
+  const previous = fiscalJobs.get(key) ?? Promise.resolve();
+  const job = previous.catch(() => undefined).then(() => stampaDocumentoGestionale(printer, lines, 8000, opts.requireIdle ?? false));
+  fiscalJobs.set(key, job);
+  void job.finally(() => {
+    if (fiscalJobs.get(key) === job) fiscalJobs.delete(key);
+  }).catch(() => undefined);
+  return job;
 }
 
 // ── Stampa preconto sulla RT (ordine rimane aperto) ───────────────────────────

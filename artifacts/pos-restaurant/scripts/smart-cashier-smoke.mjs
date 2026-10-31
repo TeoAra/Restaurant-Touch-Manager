@@ -37,6 +37,7 @@ try {
   let invoiceConflict = true;
   let savedInvoice = null;
   let failCustomerSave = true;
+  let failCourtesyPrint = true;
   const exportCustomer = { id: 41, tipo: "azienda", ragioneSociale: "Cliente collegato test", partitaIva: "12345678901", indirizzo: "Via Test 1", cap: "", comune: "Roma", createdAt: "2026-01-01T10:00:00.000Z", updatedAt: "2026-01-02T10:00:00.000Z" };
   const exportInvoice = { id: 81, numero: 24, sezionale: "1", anno: 2026, numeroDocumento: "1/24", customerId: 41, data: "2026-10-31", tipoDocumento: "TD01", stato: "bozza", totale: "57.50", ragioneSociale: exportCustomer.ragioneSociale };
   const xmlFixture = '<?xml version="1.0"?><FatturaElettronica><Numero>1/23</Numero></FatturaElettronica>';
@@ -177,6 +178,14 @@ try {
         order.items.push(body);
       } else if (path === "/api/orders/101/covers" && request.method === "PATCH") {
         Object.assign(order, JSON.parse(request.postData)); body = order;
+      } else if (process.env.POS_INVOICE_COURTESY_CHECK === "1" && path === "/api/invoices" && request.method === "GET") {
+        body = [exportInvoice, { ...exportInvoice, id: 82, numero: 25, numeroDocumento: "1/25", stato: "emessa" },
+          { ...exportInvoice, id: 83, numero: 26, numeroDocumento: "1/26", stato: "annullata" }];
+      } else if (process.env.POS_INVOICE_COURTESY_CHECK === "1" && /^\/api\/invoices\/8[12]\/print-courtesy$/.test(path)) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+        responseCode = failCourtesyPrint ? 502 : 200;
+        body = { ok: !failCourtesyPrint, nonFiscale: true, sdiSent: false,
+          ...(failCourtesyPrint ? { error: "RT di test occupata: copia gestionale non inviata" } : {}) };
       } else if (process.env.POS_INVOICE_CUSTOMER_CHECK === "1" && path === "/api/invoices" && request.method === "GET") {
         body = [exportInvoice];
       } else if (process.env.POS_INVOICE_CUSTOMER_CHECK === "1" && path === "/api/invoices/81") {
@@ -1080,8 +1089,30 @@ try {
     console.log("PASS invoice customer: exact missing field, fetch linked customer by invoice ID, failed save preserves form, successful correction without emission or payment; all APIs mocked");
     console.log("PASS customer optional fields: SDI, PEC, full address and contacts survive save/reload/reopen without timestamp metadata; all APIs mocked");
   }
+  if (process.env.POS_INVOICE_COURTESY_CHECK === "1") {
+    await send("Emulation.setDeviceMetricsOverride", { width: 1366, height: 768, deviceScaleFactor: 1, mobile: false });
+    await send("Page.navigate", { url: new URL("/backoffice/fatture", origin).href });
+    await wait(`document.querySelector('[data-testid="print-invoice-courtesy-81"]')`);
+    assert(await evaluate(`!!document.querySelector('[data-testid="print-invoice-courtesy-82"]')`), "Issued invoices can be reprinted");
+    assert(!await evaluate(`!!document.querySelector('[data-testid="print-invoice-courtesy-83"]')`), "Cancelled invoices must not be printed as valid copies");
+    const before = writes.length;
+    await evaluate(`(() => {const b=document.querySelector('[data-testid="print-invoice-courtesy-81"]');b.click();b.click();})()`);
+    await wait(`document.querySelector('[data-testid="invoice-courtesy-result"]')?.textContent.includes("RT di test occupata")`);
+    assert.equal(writes.length-before, 1, "Duplicate clicks do not duplicate the print request");
+    assert.equal(await evaluate(`document.querySelector('[data-testid="invoice-courtesy-result"]').getAttribute("role")`), "alert");
+    assert.equal(exportInvoice.stato, "bozza");
+    failCourtesyPrint = false;
+    await click('[data-testid="print-invoice-courtesy-82"]');
+    await wait(`document.querySelector('[data-testid="invoice-courtesy-result"]')?.textContent.includes("nessun invio SDI")`);
+    assert.equal(await evaluate(`document.querySelector('[data-testid="invoice-courtesy-result"]').getAttribute("role")`), "status");
+    assert.deepEqual(writes.slice(before), ["POST /api/invoices/81/print-courtesy", "POST /api/invoices/82/print-courtesy"],
+      "Reprinting must not call emit, XML generation, payments or fiscal receipt endpoints");
+    const screenshot=await send("Page.captureScreenshot", {format:"jpeg",quality:80});
+    await writeFile("generated-artifacts/pos-smart/invoice-courtesy-1366x768.jpg",Buffer.from(screenshot.data,"base64"));
+    console.log("PASS invoice courtesy: draft/issued actions, cancelled blocked, duplicate-click guard, visible RT error and success, only non-fiscal print route called; all APIs mocked");
+  }
   assert.deepEqual(errors, [], "Browser errors");
-  if (process.env.POS_BILLING_CHECK !== "1" && process.env.POS_SPLIT_CHECK !== "1" && process.env.POS_Z_CHECK !== "1") assert(!writes.some(w => /payments|fiscal|invoices|comanda/.test(w)), "No fiscal writes expected");
+  if (process.env.POS_BILLING_CHECK !== "1" && process.env.POS_SPLIT_CHECK !== "1" && process.env.POS_Z_CHECK !== "1" && process.env.POS_INVOICE_COURTESY_CHECK !== "1") assert(!writes.some(w => /payments|fiscal|invoices|comanda/.test(w)), "No fiscal writes expected");
   console.log("PASS login, unified map table selection, item timestamps, all advanced controls, product mutation, payment modes and responsive category/navigation targets. All APIs mocked; no live fiscal operations.");
 } finally {
   ws?.close();

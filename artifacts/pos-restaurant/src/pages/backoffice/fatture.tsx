@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import type { InvoiceCourtesyPrintResult } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { Button } from "@/components/ui/button";
@@ -7,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   Plus, Download, FileText, Trash2, Send, Users, ChevronRight,
-  Building2, CheckCircle2, AlertCircle, Printer, X, Pencil,
+  Building2, CheckCircle2, AlertCircle, Printer, X, Pencil, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -72,6 +73,9 @@ export default function FatturePage() {
   const [customerForm, setCustomerForm] = useState({ ...BLANK_CUSTOMER });
   const [customerSaving, setCustomerSaving] = useState(false);
   const [savingInvoice, setSavingInvoice] = useState(false);
+  const printingRef = useRef(false);
+  const [printingId, setPrintingId] = useState<number | null>(null);
+  const [printNotice, setPrintNotice] = useState<{ ok: boolean; message: string } | null>(null);
   const [invoiceIssue, setInvoiceIssue] = useState<{ id: number; message: string } | null>(null);
 
   const [form, setForm] = useState({
@@ -178,6 +182,26 @@ export default function FatturePage() {
       setForm({ sezionale: detail.sezionale ?? "1", numero: String(detail.numero), anno: String(detail.anno), customerId: String(detail.customerId ?? ""), tipoDocumento: detail.tipoDocumento, data: detail.data, aliquotaIva: detail.aliquotaIva, righe, note: detail.note ?? "" });
       setDialog({ open: true, item: detail });
     } catch (error) { toast({ title: (error as Error).message, variant: "destructive" }); }
+  }
+
+  async function handlePrintCourtesy(id: number) {
+    if (printingRef.current) return;
+    printingRef.current = true;
+    setPrintingId(id);
+    setPrintNotice(null);
+    try {
+      const response = await fetch(`${API}/invoices/${id}/print-courtesy`, { method: "POST" });
+      const result = await response.json().catch(() => null) as InvoiceCourtesyPrintResult | null;
+      if (!response.ok || !result?.ok || result.nonFiscale !== true || result.sdiSent !== false) {
+        throw new Error(result?.error || "Ristampa non confermata: verificare la RT prima di riprovare.");
+      }
+      setPrintNotice({ ok: true, message: "Copia gestionale inviata alla RT. Documento non valido ai fini fiscali; nessun invio SDI, nessun nuovo incasso." });
+    } catch (error) {
+      setPrintNotice({ ok: false, message: error instanceof Error ? error.message : "Ristampa non confermata: verificare la RT prima di riprovare." });
+    } finally {
+      printingRef.current = false;
+      setPrintingId(null);
+    }
   }
 
   async function handleEmit(id: number) {
@@ -375,6 +399,17 @@ export default function FatturePage() {
         {/* ── TAB: FATTURE ────────────────────────────────────────────────── */}
         {activeTab === "fatture" && (
           <>
+            <p className="text-sm text-slate-600">
+              La copia gestionale è una copia di cortesia non fiscale, senza invio SDI.
+              Scarica separatamente l’XML da importare in Passepartout.
+            </p>
+            {printNotice && (
+              <div role={printNotice.ok ? "status" : "alert"} data-testid="invoice-courtesy-result"
+                className={cn("rounded-xl border-2 p-4 text-sm font-medium",
+                  printNotice.ok ? "border-slate-400 bg-slate-50 text-slate-900" : "border-amber-400 bg-amber-50 text-slate-900")}>
+                {printNotice.message}
+              </div>
+            )}
             {invoices.length === 0 && (
               <div className="text-center py-16 text-slate-400">
                 <FileText className="h-12 w-12 mx-auto mb-3 opacity-30" />
@@ -407,8 +442,18 @@ export default function FatturePage() {
                       {inv.stato === "bozza" && <button onClick={() => openEdit(inv)} className="p-2 rounded-lg text-primary hover:bg-accent" title="Modifica bozza"><Pencil className="h-4 w-4" /></button>}
                       {inv.stato === "bozza" && (
                         <button onClick={() => handleEmit(inv.id)}
-                          className="p-2 rounded-lg text-slate-500 hover:text-green-600 hover:bg-green-50 transition-colors" title="Emetti fattura + stampa gestionale">
+                          className="p-2 rounded-lg text-slate-500 hover:text-green-600 hover:bg-green-50 transition-colors" title="Genera XML e copia gestionale (nessun invio SDI)">
                           <Send className="h-4 w-4" />
+                        </button>
+                      )}
+                      {inv.stato !== "annullata" && (
+                        <button type="button" onClick={() => handlePrintCourtesy(inv.id)}
+                          disabled={printingId !== null}
+                          data-testid={`print-invoice-courtesy-${inv.id}`}
+                          className="min-h-11 px-3 rounded-lg border border-slate-300 text-slate-800 bg-slate-50 hover:bg-slate-100 flex items-center gap-2 text-xs font-semibold disabled:opacity-50"
+                          title="Ristampa documento gestionale non fiscale, senza XML o invio SDI">
+                          {printingId === inv.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+                          {printingId === inv.id ? "Stampa in corso…" : "Ristampa copia"}
                         </button>
                       )}
                       <button onClick={() => downloadXml(inv.id, inv.numero, inv.anno)}

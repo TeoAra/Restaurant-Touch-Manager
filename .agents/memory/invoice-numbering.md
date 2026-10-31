@@ -11,6 +11,12 @@ Nel formato «1/23», 1 è il sezionale e 23 è il progressivo della fattura cor
 
 Non rinumerare automaticamente documenti storici già emessi quando cambia la convenzione visuale.
 
+L’utente gestisce la fatturazione elettronica con Passepartout. Dal backoffice vuole poter ristampare la fattura come documento gestionale non commerciale, copia senza validità fiscale e senza invio SDI, anche indipendentemente dalla generazione XML.
+
+**Why:** l’utente ha chiesto di reintegrare la funzione precedente mantenendola funzionante, senza una nuova emissione commerciale.
+
+**How to apply:** la ristampa non deve cambiare numero, stato, XML o incassi della fattura; non deve richiedere i dati obbligatori della trasmissione XML per produrre una semplice copia gestionale.
+
 **Why:** modificare l’identità di un documento esistente compromette il collegamento con la contabilità.
 
 **How to apply:** applicare il formato richiesto ai nuovi documenti; preservare l’identità già assegnata ai precedenti.

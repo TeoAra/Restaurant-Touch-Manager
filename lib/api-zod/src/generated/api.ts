@@ -904,3 +904,18 @@ export const ListFiscalReportsResponseItem = zod.object({
 export const ListFiscalReportsResponse = zod.array(
   ListFiscalReportsResponseItem,
 );
+
+/**
+ * @summary Print a non-fiscal courtesy copy without generating XML or sending to SDI
+ */
+
+export const PrintInvoiceCourtesyParams = zod.object({
+  id: zod.coerce.number().min(1),
+});
+
+export const PrintInvoiceCourtesyResponse = zod.object({
+  ok: zod.boolean(),
+  nonFiscale: zod.literal(true),
+  sdiSent: zod.literal(false),
+  error: zod.string().optional(),
+});

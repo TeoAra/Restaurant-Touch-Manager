@@ -32,6 +32,7 @@ import type {
   GetSalesByDayParams,
   GetTopProductsParams,
   HealthStatus,
+  InvoiceCourtesyPrintResult,
   ListFiscalReports200Item,
   ListOrdersParams,
   ListProductsParams,
@@ -3583,3 +3584,90 @@ export function useListFiscalReports<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Print a non-fiscal courtesy copy without generating XML or sending to SDI
+ */
+export const getPrintInvoiceCourtesyUrl = (id: number) => {
+  return `/api/invoices/${id}/print-courtesy`;
+};
+
+export const printInvoiceCourtesy = async (
+  id: number,
+  options?: RequestInit,
+): Promise<InvoiceCourtesyPrintResult> => {
+  return customFetch<InvoiceCourtesyPrintResult>(
+    getPrintInvoiceCourtesyUrl(id),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getPrintInvoiceCourtesyMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof printInvoiceCourtesy>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof printInvoiceCourtesy>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["printInvoiceCourtesy"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof printInvoiceCourtesy>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return printInvoiceCourtesy(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PrintInvoiceCourtesyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof printInvoiceCourtesy>>
+>;
+
+export type PrintInvoiceCourtesyMutationError = ErrorType<void>;
+
+/**
+ * @summary Print a non-fiscal courtesy copy without generating XML or sending to SDI
+ */
+export const usePrintInvoiceCourtesy = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof printInvoiceCourtesy>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof printInvoiceCourtesy>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getPrintInvoiceCourtesyMutationOptions(options));
+};

@@ -8,6 +8,53 @@ import { emettiFatturaCortesia, getFiscalPrinter } from "../lib/fiscal-printer.j
 import { cents, invoiceNumber, invoiceTotals, money, orderDue, orderInvoiceLines, transmissionId, type InvoiceLine } from "../lib/billing.js";
 
 const router = Router();
+const courtesyPrints = new Set<number>();
+
+// Deliberately separate from emit/buildXml: this operation only reads the
+// saved invoice and prints a management document. It never changes its state.
+router.post("/:id/print-courtesy", async (req, res) => {
+  const id = Number(req.params.id);
+  const reply = (status: number, ok: boolean, error?: string) =>
+    res.status(status).json({ ok, nonFiscale: true, sdiSent: false, ...(error ? { error } : {}) });
+  if (!Number.isSafeInteger(id) || id < 1) return reply(400, false, "Fattura non valida");
+  if (courtesyPrints.has(id)) return reply(409, false, "Ristampa già in corso: attendere e verificare la RT prima di riprovare.");
+  courtesyPrints.add(id);
+  try {
+    const [inv] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
+    if (!inv) return reply(404, false, "Fattura non trovata");
+    if (inv.stato === "annullata") return reply(409, false, "La fattura è annullata: ristampa non eseguita");
+    const printer = await getFiscalPrinter();
+    if (!printer) return reply(502, false, "Nessuna stampante RT attiva configurata");
+    const [customer] = inv.customerId
+      ? await db.select().from(customersTable).where(eq(customersTable.id, inv.customerId))
+      : [];
+    let righe: InvoiceLine[];
+    try { righe = JSON.parse(inv.righe ?? "[]") as InvoiceLine[]; }
+    catch { return reply(400, false, "Righe della fattura illeggibili: ristampa non inviata"); }
+    if (!Array.isArray(righe) || righe.some(r => !r || !r.descrizione ||
+      !Number.isFinite(Number(r.quantita)) || Number(r.quantita) <= 0 ||
+      !Number.isFinite(Number(r.prezzoUnitario)))) {
+      return reply(400, false, "Righe della fattura non valide: ristampa non inviata");
+    }
+    const rt = await emettiFatturaCortesia({
+      numero: invoiceNumber(inv), data: inv.data, bozza: inv.stato === "bozza",
+      cliente: customer ? {
+        denominazione: customer.ragioneSociale || [customer.nome, customer.cognome].filter(Boolean).join(" "),
+        partitaIva: customer.partitaIva, codiceFiscale: customer.codiceFiscale,
+        indirizzo: customer.indirizzo, cap: customer.cap, comune: customer.comune, provincia: customer.provincia,
+      } : null,
+      righe: righe.length ? righe.map(r => ({ desc: r.descrizione, qta: Number(r.quantita), prezzoUnitario: r.prezzoUnitario }))
+        : [{ desc: "Servizi ristorazione", qta: 1, prezzoUnitario: inv.imponibile ?? "0" }],
+      imponibile: inv.imponibile, aliquotaIva: inv.aliquotaIva, iva: inv.iva, totale: inv.totale,
+      printer, requireIdle: true,
+    });
+    return reply(rt.ok ? 200 : 502, rt.ok, rt.ok ? undefined : (rt.error || "Stampa non confermata: controllare la RT prima di riprovare"));
+  } catch {
+    return reply(502, false, "Ristampa non confermata: controllare la RT prima di riprovare. Nessun invio SDI eseguito.");
+  } finally {
+    courtesyPrints.delete(id);
+  }
+});
 
 async function getSettings(): Promise<Record<string, string>> {
   const rows = await db.execute(sql`SELECT key, value FROM app_settings`);

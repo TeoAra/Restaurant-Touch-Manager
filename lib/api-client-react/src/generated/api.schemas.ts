@@ -5,6 +5,13 @@
  * POS Restaurant API
  * OpenAPI spec version: 0.1.0
  */
+export interface InvoiceCourtesyPrintResult {
+  ok: boolean;
+  nonFiscale: boolean;
+  sdiSent: boolean;
+  error?: string;
+}
+
 export interface OnlineBookingBody {
   date: string;
   /** @pattern ^([01]\d|2[0-3]):[0-5]\d$ */

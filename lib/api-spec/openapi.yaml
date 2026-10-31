@@ -844,6 +844,26 @@ paths:
                     completedAt: { type: [string, "null"], format: date-time }
         "401": { description: PIN session required }
         "403": { description: Administrator required }
+  /invoices/{id}/print-courtesy:
+    post:
+      operationId: printInvoiceCourtesy
+      security: [{ staffCookie: [] }]
+      summary: Print a non-fiscal courtesy copy without generating XML or sending to SDI
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Non-fiscal copy sent to the configured RT
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InvoiceCourtesyPrintResult" }
+        "400": { description: Invalid invoice identifier }
+        "404": { description: Invoice not found }
+        "409": { description: Cancelled invoice or courtesy print already in progress }
+        "502": { description: Print not confirmed; check RT before retrying }
 components:
   securitySchemes:
     staffCookie:
@@ -851,6 +871,14 @@ components:
       in: cookie
       name: hellotable_staff
   schemas:
+    InvoiceCourtesyPrintResult:
+      type: object
+      required: [ok, nonFiscale, sdiSent]
+      properties:
+        ok: { type: boolean }
+        nonFiscale: { type: boolean, enum: [true] }
+        sdiSent: { type: boolean, enum: [false] }
+        error: { type: string }
     OnlineBookingBody:
       type: object
       required: [date, time, covers, guestName, phone]
