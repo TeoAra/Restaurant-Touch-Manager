@@ -72,6 +72,7 @@ export default function FatturePage() {
   const [customerForm, setCustomerForm] = useState({ ...BLANK_CUSTOMER });
   const [customerSaving, setCustomerSaving] = useState(false);
   const [savingInvoice, setSavingInvoice] = useState(false);
+  const [invoiceIssue, setInvoiceIssue] = useState<{ id: number; message: string } | null>(null);
 
   const [form, setForm] = useState({
     sezionale: "1", numero: "",
@@ -183,9 +184,12 @@ export default function FatturePage() {
     const resp = await fetch(`${API}/invoices/${id}/emit`, { method: "POST" });
     if (!resp.ok) {
       const error = await resp.json().catch(() => ({})) as { error?: string };
-      return toast({ title: error.error ?? "Errore emissione", variant: "destructive" });
+      const message = error.error ?? "Errore emissione";
+      setInvoiceIssue({ id, message });
+      return toast({ title: "Fattura non emessa", description: message, variant: "destructive" });
     }
     const data = await resp.json() as { xml?: string; xmlContent?: string; fileName?: string; rtOk?: boolean; rtError?: string };
+    setInvoiceIssue(null);
     const inv = invoices.find(i => i.id === id);
     const anno = inv?.anno ?? new Date().getFullYear();
     const numero = inv?.numero ?? 0;
@@ -199,9 +203,12 @@ export default function FatturePage() {
     const resp = await fetch(`${API}/invoices/${id}/xml`);
     if (!resp.ok) {
       const error = await resp.json().catch(() => ({})) as { error?: string };
-      return toast({ title: error.error ?? "Errore generazione XML", variant: "destructive" });
+      const message = error.error ?? "Errore generazione XML";
+      setInvoiceIssue({ id, message });
+      return toast({ title: "XML non generato", description: message, variant: "destructive" });
     }
     const xml = await resp.text();
+    setInvoiceIssue(null);
     const filename = resp.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1]
       ?? `Fattura_${numero}_${anno}.xml`;
     triggerDownload(xml, filename);
@@ -247,6 +254,20 @@ export default function FatturePage() {
     setCustomerDialog({ open: true, item: c });
   }
 
+  async function verifyLinkedCustomer(id: number) {
+    try {
+      const detailResp = await fetch(`${API}/invoices/${id}`);
+      if (!detailResp.ok) throw new Error("Impossibile verificare il cliente della fattura");
+      const detail = await detailResp.json() as Invoice;
+      if (!detail.customerId) throw new Error("La fattura non ha un cliente collegato. Correggi la bozza.");
+      const customerResp = await fetch(`${API}/customers/${detail.customerId}`);
+      if (!customerResp.ok) throw new Error("Il cliente collegato non esiste più. Correggi la bozza selezionando il cliente corretto.");
+      openEditCustomer(await customerResp.json() as Customer);
+    } catch (error) {
+      toast({ title: (error as Error).message, variant: "destructive" });
+    }
+  }
+
   async function handleSaveCustomer() {
     setCustomerSaving(true);
     try {
@@ -267,8 +288,12 @@ export default function FatturePage() {
         return;
       }
       qc.invalidateQueries({ queryKey: ["customers"] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
       setCustomerDialog({ open: false });
+      setInvoiceIssue(null);
       toast({ title: customerDialog.item ? "Cliente aggiornato" : "Cliente aggiunto" });
+    } catch {
+      toast({ title: "Salvataggio cliente non confermato", description: "Controlla il collegamento e riprova. I dati inseriti restano aperti.", variant: "destructive" });
     } finally {
       setCustomerSaving(false);
     }
@@ -282,6 +307,7 @@ export default function FatturePage() {
   }
 
   const { imponibile, iva, totale } = totals();
+  const issueInvoice = invoiceIssue ? invoices.find(inv => inv.id === invoiceIssue.id) : undefined;
 
   return (
     <BackofficeShell
@@ -330,6 +356,20 @@ export default function FatturePage() {
       </div>
 
       <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-3">
+        {invoiceIssue && (
+          <div role="alert" data-testid="invoice-export-error" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-slate-900 space-y-3">
+            <p className="font-bold">Esportazione non completata</p>
+            <p className="text-sm break-words">{invoiceIssue.message}</p>
+            <p className="text-sm">La fattura resta salvata. Verifica il cliente collegato, poi riprova l’operazione.</p>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => verifyLinkedCustomer(invoiceIssue.id)}>Verifica cliente collegato</Button>
+              {issueInvoice?.stato === "bozza" && (
+                <Button variant="outline" onClick={() => openEdit(issueInvoice)}>Verifica bozza</Button>
+              )}
+              <Button variant="ghost" onClick={() => setInvoiceIssue(null)}>Chiudi avviso</Button>
+            </div>
+          </div>
+        )}
 
         {/* ── TAB: FATTURE ────────────────────────────────────────────────── */}
         {activeTab === "fatture" && (

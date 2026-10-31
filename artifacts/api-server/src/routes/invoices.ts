@@ -3,6 +3,7 @@ import { db, invoicesTable, customersTable, ordersTable, orderItemsTable, paymen
 import { eq, desc, and } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { generateFatturaPAXml } from "../lib/fatturaPA.js";
+import { invoiceCustomerError } from "../lib/invoice-customer.js";
 import { emettiFatturaCortesia, getFiscalPrinter } from "../lib/fiscal-printer.js";
 import { cents, invoiceNumber, invoiceTotals, money, orderDue, orderInvoiceLines, transmissionId, type InvoiceLine } from "../lib/billing.js";
 
@@ -250,10 +251,8 @@ async function buildXml(inv: typeof invoicesTable.$inferSelect): Promise<string>
       !settings.indirizzo || !settings.cap || !settings.comune) {
       throw new Error("Completare ragione sociale, P.IVA e indirizzo dell'azienda in Impostazioni prima di esportare XML");
     }
-    if (!customer || (!customer.partitaIva && !customer.codiceFiscale) ||
-      !customer.indirizzo || !customer.cap || !customer.comune) {
-      throw new Error("Completare codice fiscale/P.IVA e indirizzo del cliente prima di esportare XML");
-    }
+    const customerError = invoiceCustomerError(customer);
+    if (customerError) throw new Error(`Fattura ${invoiceNumber(inv)} — ${customerError}`);
   }
 
   let righe: Array<{ descrizione: string; quantita: string; prezzoUnitario: string; importo: string; aliquotaIva: string }> = [];

@@ -36,6 +36,9 @@ try {
   let failRomana = true;
   let invoiceConflict = true;
   let savedInvoice = null;
+  let failCustomerSave = true;
+  const exportCustomer = { id: 41, tipo: "azienda", ragioneSociale: "Cliente collegato test", partitaIva: "12345678901", indirizzo: "Via Test 1", cap: "", comune: "Roma" };
+  const exportInvoice = { id: 81, numero: 24, sezionale: "1", anno: 2026, numeroDocumento: "1/24", customerId: 41, data: "2026-10-31", tipoDocumento: "TD01", stato: "bozza", totale: "57.50", ragioneSociale: exportCustomer.ragioneSociale };
   const xmlFixture = '<?xml version="1.0"?><FatturaElettronica><Numero>1/23</Numero></FatturaElettronica>';
   const settings = { cover_price: "1.50", feat_table_ops: "true", pos_type: "none" };
   const send = (method, params = {}) => new Promise((resolve, reject) => {
@@ -174,6 +177,18 @@ try {
         order.items.push(body);
       } else if (path === "/api/orders/101/covers" && request.method === "PATCH") {
         Object.assign(order, JSON.parse(request.postData)); body = order;
+      } else if (process.env.POS_INVOICE_CUSTOMER_CHECK === "1" && path === "/api/invoices" && request.method === "GET") {
+        body = [exportInvoice];
+      } else if (process.env.POS_INVOICE_CUSTOMER_CHECK === "1" && path === "/api/invoices/81") {
+        body = exportInvoice;
+      } else if (process.env.POS_INVOICE_CUSTOMER_CHECK === "1" && path === "/api/invoices/81/xml") {
+        responseCode = 400;
+        body = { error: "Fattura 1/24 — Cliente collegato «Cliente collegato test»: dati mancanti: CAP." };
+      } else if (process.env.POS_INVOICE_CUSTOMER_CHECK === "1" && path === "/api/customers/41") {
+        if (request.method === "PATCH") {
+          if (failCustomerSave) { responseCode = 503; body = { error: "Salvataggio test non riuscito" }; }
+          else { Object.assign(exportCustomer, JSON.parse(request.postData)); body = exportCustomer; }
+        } else body = exportCustomer;
       } else if (path === "/api/customers") {
         body = [{ id: 1, tipo: "azienda", ragioneSociale: "Cliente Test", partitaIva: "12345678901", indirizzo: "Via Test", cap: "00100", comune: "Roma" }];
       } else if (path === "/api/fiscal/romana") {
@@ -992,6 +1007,35 @@ try {
     const shot = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
     await writeFile("generated-artifacts/pos-smart/z-report-error-1024x768.jpg", Buffer.from(shot.data, "base64"));
     console.log("PASS fiscal Z UI: exact pre-send failure remains visible, status refreshed, no automatic retry; API mocked");
+  }
+  if (process.env.POS_INVOICE_CUSTOMER_CHECK === "1") {
+    await send("Emulation.setDeviceMetricsOverride", { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false });
+    await send("Page.navigate", { url: new URL("/backoffice/fatture", origin).href });
+    await wait(`document.querySelector('button[title="Scarica XML Passepartout"]')`);
+    const before = writes.length;
+    await click('button[title="Scarica XML Passepartout"]');
+    await wait(`document.querySelector('[data-testid="invoice-export-error"]')?.textContent.includes("dati mancanti: CAP")`);
+    assert(!(await evaluate(`document.querySelector('[data-testid="invoice-export-error"]').textContent`)).includes("codice fiscale/P.IVA"), "Show only the missing field");
+    await button("Verifica cliente collegato", "body");
+    await wait(`document.querySelector('[role="dialog"][data-state="open"] input')`);
+    assert.equal(await evaluate(`document.querySelector('[role="dialog"][data-state="open"] input').value`), exportCustomer.ragioneSociale);
+    await evaluate(`(() => {
+      const dialog=document.querySelector('[role="dialog"][data-state="open"]');
+      const label=[...dialog.querySelectorAll("label")].find(l=>l.textContent==="CAP");
+      const input=label.parentElement.querySelector("input");
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(input,"00100");
+      input.dispatchEvent(new Event("input",{bubbles:true})); input.dispatchEvent(new Event("change",{bubbles:true}));
+    })()`);
+    await button("Aggiorna", '[role="dialog"][data-state="open"]');
+    await wait(`document.body.textContent.includes("Salvataggio test non riuscito")`);
+    assert(await evaluate(`!!document.querySelector('[role="dialog"][data-state="open"]')`), "Failed save must keep customer form open");
+    assert.equal(exportCustomer.cap, "");
+    failCustomerSave = false;
+    await button("Aggiorna", '[role="dialog"][data-state="open"]');
+    await wait(`!document.querySelector('[role="dialog"][data-state="open"]') && !document.querySelector('[data-testid="invoice-export-error"]')`);
+    assert.equal(exportCustomer.cap, "00100");
+    assert.deepEqual(writes.slice(before), ["PATCH /api/customers/41", "PATCH /api/customers/41"], "Recovery must not emit, renumber or charge an invoice");
+    console.log("PASS invoice customer: exact missing field, fetch linked customer by invoice ID, failed save preserves form, successful correction without emission or payment; all APIs mocked");
   }
   assert.deepEqual(errors, [], "Browser errors");
   if (process.env.POS_BILLING_CHECK !== "1" && process.env.POS_SPLIT_CHECK !== "1" && process.env.POS_Z_CHECK !== "1") assert(!writes.some(w => /payments|fiscal|invoices|comanda/.test(w)), "No fiscal writes expected");

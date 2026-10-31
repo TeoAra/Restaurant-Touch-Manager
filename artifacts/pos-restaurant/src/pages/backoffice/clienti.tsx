@@ -121,10 +121,19 @@ export default function ClientiPage() {
     if (!form.ragioneSociale.trim()) return toast({ title: "Denominazione obbligatoria", variant: "destructive" });
     const url = dialog.item ? `${API}/customers/${dialog.item.id}` : `${API}/customers`;
     const method = dialog.item ? "PATCH" : "POST";
-    await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
-    qc.invalidateQueries({ queryKey: ["customers"] });
-    setDialog({ open: false });
-    toast({ title: dialog.item ? "Cliente aggiornato" : "Cliente creato" });
+    try {
+      const response = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(error.error || "Salvataggio cliente non riuscito");
+      }
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      setDialog({ open: false });
+      toast({ title: dialog.item ? "Cliente aggiornato" : "Cliente creato" });
+    } catch (error) {
+      toast({ title: "Cliente non salvato", description: error instanceof Error ? error.message : "Controlla il collegamento e riprova", variant: "destructive" });
+    }
     return;
   }
 
