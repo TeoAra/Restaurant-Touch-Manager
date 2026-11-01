@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import type { ZReportRecoveryResult } from "@workspace/api-client-react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { Button } from "@/components/ui/button";
@@ -91,6 +92,11 @@ export default function FiscalePage() {
   const [xLoading, setXLoading] = useState(false);
   const [zLoading, setZLoading] = useState(false);
   const [zError, setZError] = useState<string | null>(null);
+  const recoveryLock = useRef(false);
+  const [recoveringId, setRecoveringId] = useState<number | null>(null);
+  const [recoveryNotice, setRecoveryNotice] = useState<{ id: number; message: string; error: boolean } | null>(null);
+  const [retryReport, setRetryReport] = useState<FiscalReport | null>(null);
+  const [retryConfirmed, setRetryConfirmed] = useState(false);
   const [repartiEdit, setRepartiEdit] = useState<Record<string, string>>({});
   const [repartiOpen, setRepartiOpen] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
@@ -113,6 +119,7 @@ export default function FiscalePage() {
       return response.json();
     },
     enabled: tab === "zreport",
+    refetchInterval: 30_000,
   });
   const { data: printerStatus, refetch: refetchPrinter } = usePrinterStatus();
   const { data: lotteriaData, refetch: refetchLotteria } = useLotteria();
@@ -194,6 +201,7 @@ export default function FiscalePage() {
   }
 
   async function handleZReport() {
+    if (recoveryLock.current || zLoading) return;
     setZLoading(true); setReportResult(null); setZError(null);
     try {
       const resp = await fetch(`${API}/fiscal/z-report`, { method: "POST" });
@@ -209,6 +217,33 @@ export default function FiscalePage() {
       toast({ title: "Chiusura non confermata", description: (error as Error).message, variant: "destructive" });
     } finally {
       setZLoading(false);
+      qc.invalidateQueries({ queryKey: ["fiscal_reports"] });
+      qc.invalidateQueries({ queryKey: ["fiscal_printer_status"] });
+    }
+  }
+
+  async function handleZRecovery(id: number, action: "verify" | "retry") {
+    if (recoveryLock.current || zLoading || (action === "retry" && !retryConfirmed)) return;
+    recoveryLock.current = true;
+    setRecoveringId(id);
+    setRecoveryNotice(null);
+    try {
+      const response = await fetch(`${API}/fiscal/reports/${id}/recover`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...(action === "retry" ? { confirmNotExecuted: true } : {}) }),
+      });
+      const data = await response.json() as Partial<ZReportRecoveryResult> & { error?: string };
+      if (!response.ok || !data.status || !data.message) throw new Error(data.message || data.error || "Verifica RT non completata");
+      setZError(null);
+      setReportResult(null);
+      setRecoveryNotice({ id, message: data.message, error: false });
+    } catch (error) {
+      setRecoveryNotice({ id, message: error instanceof Error ? error.message : "Esito da verificare sulla RT", error: true });
+    } finally {
+      recoveryLock.current = false;
+      setRecoveringId(null);
+      setRetryReport(null);
+      setRetryConfirmed(false);
       qc.invalidateQueries({ queryKey: ["fiscal_reports"] });
       qc.invalidateQueries({ queryKey: ["fiscal_printer_status"] });
     }
@@ -544,7 +579,7 @@ export default function FiscalePage() {
                 <div className="flex items-center gap-2 font-semibold mb-1"><AlertTriangle className="h-3.5 w-3.5" /> Operazione irreversibile</div>
                 <p>La chiusura Z azzera i totali giornalieri della RT. Eseguire solo a fine servizio, dopo l'ultimo incasso.</p>
               </div>
-              <Button size="lg" onClick={handleZReport} disabled={zLoading}
+              <Button size="lg" onClick={handleZReport} disabled={zLoading || recoveringId !== null}
                 className="w-full gap-2 text-base bg-amber-600 hover:bg-amber-700 text-white">
                 {zLoading ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Printer className="h-5 w-5" />}
                 {zLoading ? "Elaborazione…" : "Esegui Chiusura Z"}
@@ -571,18 +606,61 @@ export default function FiscalePage() {
         {tab === "zreport" && (
           <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
             <h2 className="font-semibold text-slate-800">Storico chiusure Z</h2>
-            <p className="text-xs text-slate-600">Numeri acquisiti dalla RT. Gli esiti incerti non autorizzano una nuova chiusura automatica.</p>
+            <p className="text-xs text-slate-600">Se una chiusura non risulta completata, premi «Verifica esito RT». Se il contatore non è avanzato e la RT è pronta, sarà disponibile il reinvio manuale. Attendere almeno due minuti dopo un invio.</p>
             {reportHistory.length === 0 && <p className="text-sm text-slate-500">Nessuna chiusura registrata da questa versione.</p>}
             {reportHistory.map(report => (
               <div key={report.id} className="rounded-lg border border-slate-200 p-3 text-sm space-y-1">
                 <div className="font-semibold">Z {report.numeroChiusura} · Matricola {report.printerSerial}</div>
-                <div>{new Date(report.createdAt).toLocaleString("it-IT")} · {report.status === "confirmed" ? "Confermata dalla RT" : report.status === "pending" ? "In corso / da verificare" : "Esito da verificare sulla RT"}</div>
+                <div>{new Date(report.createdAt).toLocaleString("it-IT")} · {report.status === "confirmed" ? "Confermata dalla RT" : report.status === "retry_ready" ? "Contatore invariato · reinvio manuale disponibile" : report.status === "pending" ? "In corso / da verificare" : "Esito da verificare sulla RT"}</div>
                 <div className="text-xs text-slate-600">Totale gestionale: € {Number(report.totalDb).toFixed(2)}</div>
                 {report.error && <p className="text-amber-800">{report.error}</p>}
+                {["pending", "unknown", "retry_ready"].includes(report.status) && (
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <Button variant="outline" disabled={zLoading || recoveringId !== null}
+                      data-testid={`verify-z-${report.id}`} onClick={() => handleZRecovery(report.id, "verify")}>
+                      <RefreshCw className={cn("h-4 w-4 mr-2", recoveringId === report.id && "animate-spin")} />
+                      {recoveringId === report.id ? "Verifica in corso…" : "Verifica esito RT"}
+                    </Button>
+                    {report.status === "retry_ready" && (
+                      <Button disabled={zLoading || recoveringId !== null} data-testid={`retry-z-${report.id}`}
+                        className="bg-amber-700 text-white hover:bg-amber-800"
+                        onClick={() => { setRetryConfirmed(false); setRetryReport(report); }}>
+                        <Printer className="h-4 w-4 mr-2" /> Rimanda chiusura Z
+                      </Button>
+                    )}
+                  </div>
+                )}
+                {recoveryNotice?.id === report.id && (
+                  <div role={recoveryNotice.error ? "alert" : "status"} data-testid={`z-recovery-result-${report.id}`}
+                    className={cn("rounded-lg border p-3 font-medium", recoveryNotice.error ? "border-red-300 bg-red-50 text-red-900" : "border-slate-300 bg-slate-50 text-slate-900")}>
+                    {recoveryNotice.message}
+                  </div>
+                )}
               </div>
             ))}
           </section>
         )}
+        <Dialog open={retryReport !== null} onOpenChange={open => { if (!open && !recoveryLock.current) setRetryReport(null); }}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Rimandare la chiusura Z {retryReport?.numeroChiusura}?</DialogTitle></DialogHeader>
+            <p className="text-sm text-slate-700">La chiusura fiscale è irreversibile. Prima di rimandarla, controlla sul display e nello storico della RT che non sia già stata eseguita.</p>
+            <p className="text-sm text-slate-700">Il contatore e la matricola verranno ricontrollati prima dell’invio. Se la chiusura risulta già eseguita, il comando non sarà ripetuto.</p>
+            <label className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-medium">
+              <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={retryConfirmed}
+                onChange={event => setRetryConfirmed(event.target.checked)} disabled={recoveringId !== null}
+                data-testid="confirm-z-not-executed" />
+              Ho controllato la RT e confermo che questa chiusura non risulta eseguita.
+            </label>
+            <DialogFooter>
+              <Button variant="outline" disabled={recoveringId !== null} onClick={() => setRetryReport(null)}>Annulla</Button>
+              <Button data-testid="confirm-retry-z" disabled={!retryConfirmed || recoveringId !== null}
+                className="bg-amber-700 text-white hover:bg-amber-800"
+                onClick={() => retryReport && handleZRecovery(retryReport.id, "retry")}>
+                {recoveringId !== null ? "Invio in corso…" : "Confermo: rimanda chiusura"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         {/* ── TAB: LOTTERIA SCONTRINI ─────────────────────────────────────── */}
         {tab === "lotteria" && (
           <div className="space-y-4">

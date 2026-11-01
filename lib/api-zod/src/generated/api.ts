@@ -894,7 +894,7 @@ export const ListFiscalReportsResponseItem = zod.object({
   type: zod.string(),
   printerSerial: zod.string(),
   numeroChiusura: zod.number(),
-  status: zod.enum(["pending", "confirmed", "unknown"]),
+  status: zod.enum(["pending", "confirmed", "unknown", "retry_ready"]),
   totalDb: zod.string(),
   error: zod.string().nullish(),
   response: zod.string().nullish(),
@@ -904,6 +904,23 @@ export const ListFiscalReportsResponseItem = zod.object({
 export const ListFiscalReportsResponse = zod.array(
   ListFiscalReportsResponseItem,
 );
+
+export const RecoverZReportParams = zod.object({
+  id: zod.coerce.number().min(1),
+});
+
+export const RecoverZReportBody = zod.object({
+  action: zod.enum(["verify", "retry"]),
+  confirmNotExecuted: zod.boolean().optional(),
+});
+
+export const RecoverZReportResponse = zod.object({
+  reportId: zod.number(),
+  status: zod.enum(["confirmed", "retry_ready", "unknown"]),
+  canRetry: zod.boolean(),
+  commandSent: zod.boolean(),
+  message: zod.string(),
+});
 
 /**
  * @summary Print a non-fiscal courtesy copy without generating XML or sending to SDI

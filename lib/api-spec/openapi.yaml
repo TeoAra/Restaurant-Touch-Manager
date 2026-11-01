@@ -836,12 +836,36 @@ paths:
                     type: { type: string }
                     printerSerial: { type: string }
                     numeroChiusura: { type: integer }
-                    status: { type: string, enum: [pending, confirmed, unknown] }
+                    status: { type: string, enum: [pending, confirmed, unknown, retry_ready] }
                     totalDb: { type: string }
                     error: { type: [string, "null"] }
                     response: { type: [string, "null"] }
                     createdAt: { type: string, format: date-time }
                     completedAt: { type: [string, "null"], format: date-time }
+  /fiscal/reports/{id}/recover:
+    post:
+      operationId: recoverZReport
+      security: [{ staffCookie: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ZReportRecoveryInput" }
+      responses:
+        "200":
+          description: Verified on RT; retry only after explicit confirmation and a fresh unchanged counter
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ZReportRecoveryResult" }
+        "400": { description: Invalid request }
+        "404": { description: Report not found }
+        "409": { description: "Active operation, incompatible evidence or retry not authorized" }
+        "503": { description: RT unavailable or outcome still uncertain }
         "401": { description: PIN session required }
         "403": { description: Administrator required }
   /invoices/{id}/print-courtesy:
@@ -871,6 +895,21 @@ components:
       in: cookie
       name: hellotable_staff
   schemas:
+    ZReportRecoveryInput:
+      type: object
+      required: [action]
+      properties:
+        action: { type: string, enum: [verify, retry] }
+        confirmNotExecuted: { type: boolean }
+    ZReportRecoveryResult:
+      type: object
+      required: [reportId, status, canRetry, message, commandSent]
+      properties:
+        reportId: { type: integer }
+        status: { type: string, enum: [confirmed, retry_ready, unknown] }
+        canRetry: { type: boolean }
+        commandSent: { type: boolean }
+        message: { type: string }
     InvoiceCourtesyPrintResult:
       type: object
       required: [ok, nonFiscale, sdiSent]

@@ -5,6 +5,36 @@
  * POS Restaurant API
  * OpenAPI spec version: 0.1.0
  */
+export type ZReportRecoveryInputAction =
+  (typeof ZReportRecoveryInputAction)[keyof typeof ZReportRecoveryInputAction];
+
+export const ZReportRecoveryInputAction = {
+  verify: "verify",
+  retry: "retry",
+} as const;
+
+export interface ZReportRecoveryInput {
+  action: ZReportRecoveryInputAction;
+  confirmNotExecuted?: boolean;
+}
+
+export type ZReportRecoveryResultStatus =
+  (typeof ZReportRecoveryResultStatus)[keyof typeof ZReportRecoveryResultStatus];
+
+export const ZReportRecoveryResultStatus = {
+  confirmed: "confirmed",
+  retry_ready: "retry_ready",
+  unknown: "unknown",
+} as const;
+
+export interface ZReportRecoveryResult {
+  reportId: number;
+  status: ZReportRecoveryResultStatus;
+  canRetry: boolean;
+  commandSent: boolean;
+  message: string;
+}
+
 export interface InvoiceCourtesyPrintResult {
   ok: boolean;
   nonFiscale: boolean;
@@ -646,6 +676,7 @@ export const ListFiscalReports200ItemStatus = {
   pending: "pending",
   confirmed: "confirmed",
   unknown: "unknown",
+  retry_ready: "retry_ready",
 } as const;
 
 export type ListFiscalReports200Item = {

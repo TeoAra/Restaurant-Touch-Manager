@@ -55,6 +55,8 @@ import type {
   UpdateReservationBody,
   UpdateTableBody,
   VoidFiscalReceiptBody,
+  ZReportRecoveryInput,
+  ZReportRecoveryResult,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -3536,7 +3538,7 @@ export const getListFiscalReportsQueryKey = () => {
 
 export const getListFiscalReportsQueryOptions = <
   TData = Awaited<ReturnType<typeof listFiscalReports>>,
-  TError = ErrorType<void>,
+  TError = ErrorType<unknown>,
 >(options?: {
   query?: UseQueryOptions<
     Awaited<ReturnType<typeof listFiscalReports>>,
@@ -3563,11 +3565,11 @@ export const getListFiscalReportsQueryOptions = <
 export type ListFiscalReportsQueryResult = NonNullable<
   Awaited<ReturnType<typeof listFiscalReports>>
 >;
-export type ListFiscalReportsQueryError = ErrorType<void>;
+export type ListFiscalReportsQueryError = ErrorType<unknown>;
 
 export function useListFiscalReports<
   TData = Awaited<ReturnType<typeof listFiscalReports>>,
-  TError = ErrorType<void>,
+  TError = ErrorType<unknown>,
 >(options?: {
   query?: UseQueryOptions<
     Awaited<ReturnType<typeof listFiscalReports>>,
@@ -3584,6 +3586,87 @@ export function useListFiscalReports<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+export const getRecoverZReportUrl = (id: number) => {
+  return `/api/fiscal/reports/${id}/recover`;
+};
+
+export const recoverZReport = async (
+  id: number,
+  zReportRecoveryInput: ZReportRecoveryInput,
+  options?: RequestInit,
+): Promise<ZReportRecoveryResult> => {
+  return customFetch<ZReportRecoveryResult>(getRecoverZReportUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(zReportRecoveryInput),
+  });
+};
+
+export const getRecoverZReportMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recoverZReport>>,
+    TError,
+    { id: number; data: BodyType<ZReportRecoveryInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof recoverZReport>>,
+  TError,
+  { id: number; data: BodyType<ZReportRecoveryInput> },
+  TContext
+> => {
+  const mutationKey = ["recoverZReport"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof recoverZReport>>,
+    { id: number; data: BodyType<ZReportRecoveryInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return recoverZReport(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RecoverZReportMutationResult = NonNullable<
+  Awaited<ReturnType<typeof recoverZReport>>
+>;
+export type RecoverZReportMutationBody = BodyType<ZReportRecoveryInput>;
+export type RecoverZReportMutationError = ErrorType<void>;
+
+export const useRecoverZReport = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recoverZReport>>,
+    TError,
+    { id: number; data: BodyType<ZReportRecoveryInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof recoverZReport>>,
+  TError,
+  { id: number; data: BodyType<ZReportRecoveryInput> },
+  TContext
+> => {
+  return useMutation(getRecoverZReportMutationOptions(options));
+};
 
 /**
  * @summary Print a non-fiscal courtesy copy without generating XML or sending to SDI

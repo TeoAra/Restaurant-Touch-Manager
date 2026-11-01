@@ -18,7 +18,7 @@ import { cents, money, normalizeLottery, orderDue, validateRomana } from "../lib
 import { randomUUID } from "node:crypto";
 import { requireStaffAdmin } from "../lib/staff-session";
 import { rtReference, cancellationConfirmed } from "../lib/fiscal-identity";
-import { zReadiness, zConfirmed } from "../lib/fiscal-z-state";
+import { zReadiness, zConfirmed, zRecoveryState, type ZBaseline } from "../lib/fiscal-z-state";
 
 const router = Router();
 
@@ -265,8 +265,109 @@ router.post("/x-report", async (req, res) => {
 });
 
 // ── Report Z — Chiusura fiscale giornaliera (azzera contatori) ─────────────
+const activeZReports = new Set<number>();
+const Z_RECOVERY_WAIT_MS = 120_000;
+
 router.get("/reports", requireStaffAdmin, async (_req, res) => {
   res.json(await db.select().from(fiscalReportsTable).orderBy(desc(fiscalReportsTable.createdAt)).limit(100));
+});
+
+// Read the device first; never turn an uncertain Z into an unconditional resend.
+router.post("/reports/:id/recover", requireStaffAdmin, async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  const { action, confirmNotExecuted } = req.body ?? {};
+  if (!Number.isSafeInteger(id) || id < 1 || !["verify", "retry"].includes(action) ||
+      (action === "retry" && confirmNotExecuted !== true)) {
+    res.status(400).json({ error: "Richiesta non valida: il reinvio richiede conferma esplicita dopo la verifica RT." }); return;
+  }
+  if (activeZReports.has(id)) {
+    res.status(409).json({ error: "Operazione RT ancora in corso: attendere prima di verificare o rimandare." }); return;
+  }
+  activeZReports.add(id);
+  try {
+    // Short durable lease prevents concurrent recovery in another process.
+    const claim = await db.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(7315092)`);
+      const [report] = await tx.select().from(fiscalReportsTable).where(eq(fiscalReportsTable.id, id));
+      if (!report || report.type !== "Z") return { error: "Chiusura non trovata", code: 404 } as const;
+      if (report.status === "confirmed") return { confirmed: true } as const;
+      if (!["pending", "unknown", "retry_ready"].includes(report.status)) return { error: "Stato della chiusura non recuperabile", code: 409 } as const;
+      let evidence;
+      try { evidence = JSON.parse(report.response ?? "{}"); } catch { evidence = null; }
+      const baseline = evidence?.baseline as ZBaseline | undefined;
+      if (!baseline || baseline.serial !== report.printerSerial || baseline.closure !== report.numeroChiusura ||
+          !["Q", "2X"].includes(baseline.source)) return { error: "Riferimenti originali della RT incompleti: reinvio non consentito.", code: 409 } as const;
+      const started = new Date(evidence.recoveryStartedAt ?? report.createdAt).getTime();
+      if (!Number.isFinite(started) || Date.now() - started < Z_RECOVERY_WAIT_MS) {
+        return { error: "Attendere almeno due minuti dal tentativo prima del recupero, per evitare comandi sovrapposti.", code: 409 } as const;
+      }
+      if (action === "retry" && report.status !== "retry_ready") {
+        return { error: "Eseguire prima «Verifica esito RT»: il reinvio non è ancora autorizzato.", code: 409 } as const;
+      }
+      const others = await tx.select().from(fiscalReportsTable).where(and(
+        eq(fiscalReportsTable.printerSerial, report.printerSerial),
+        eq(fiscalReportsTable.type, "Z"), inArray(fiscalReportsTable.status, ["pending", "unknown", "retry_ready"]),
+      ));
+      if (action === "retry" && others.some(other => other.id !== id)) return { error: "Altri tentativi Z irrisolti sulla stessa RT: verificare prima lo storico.", code: 409 } as const;
+      await tx.update(fiscalReportsTable).set({
+        status: "pending", response: JSON.stringify({ ...evidence, recoveryStartedAt: new Date().toISOString() }),
+      }).where(eq(fiscalReportsTable.id, id));
+      return { report, evidence, baseline } as const;
+    });
+    if ("error" in claim) { res.status(claim.code ?? 409).json({ error: claim.error }); return; }
+    if ("confirmed" in claim) {
+      res.json({ reportId: id, status: "confirmed", canRetry: false, commandSent: false, message: "Chiusura già confermata: nessun nuovo comando inviato." }); return;
+    }
+    const { baseline, evidence } = claim;
+    let commandSent = false;
+    let command;
+    let q;
+    let identity;
+    let state: "confirmed" | "retry_ready" | "unknown" = "unknown";
+    let message = "Esito ancora incerto: controllare la RT. Nessun reinvio consentito.";
+    try {
+      const printer = await getFiscalPrinter();
+      if (!printer) throw new Error("Nessuna RT configurata");
+      const port = printer.port ?? 1126;
+      q = await getStatusQ(printer.ip, port);
+      identity = await getStatus2X(printer.ip, port);
+      const observed = zRecoveryState(baseline, q, identity);
+      if (observed === "confirmed") {
+        state = "confirmed";
+        message = "La RT conferma la chiusura già eseguita. Storico aggiornato senza reinviare il comando.";
+      } else if (observed === "unchanged" && action === "verify") {
+        state = "retry_ready";
+        message = "RT pronta e contatore Z invariato. Puoi rimandare la chiusura dopo aver controllato anche il display/storico della RT.";
+      } else if (observed === "unchanged" && action === "retry") {
+        commandSent = true;
+        command = await sendXonXoffCommand(printer.ip, port, "1F", 12000);
+        q = await getStatusQ(printer.ip, port);
+        identity = await getStatus2X(printer.ip, port);
+        if (zRecoveryState(baseline, q, identity) === "confirmed") {
+          state = "confirmed";
+          message = "Chiusura rimandata e confermata dal contatore della RT.";
+        } else {
+          message = "Comando rimandato, ma chiusura non confermata: verificare nuovamente la RT prima di altri tentativi.";
+        }
+      } else {
+        message = "RT non pronta, matricola/contatore diversi o stato non leggibile: nessun comando rimandato. Verificare il dispositivo.";
+      }
+    } catch {
+      message = commandSent ? "Comunicazione interrotta durante il reinvio: esito da verificare sulla RT, non ripetere automaticamente."
+        : "Impossibile verificare la RT: nessun comando rimandato.";
+    }
+    const check = { at: new Date().toISOString(), action, commandSent, q, identity, command, state };
+    await db.update(fiscalReportsTable).set({
+      status: state, error: state === "confirmed" ? null : message,
+      completedAt: state === "confirmed" ? new Date() : null,
+      response: JSON.stringify({ ...evidence, recoveryChecks: [...(Array.isArray(evidence.recoveryChecks) ? evidence.recoveryChecks : []), check],
+        // A new retry must settle before any further recovery.
+        recoveryStartedAt: commandSent ? check.at : undefined }),
+    }).where(eq(fiscalReportsTable.id, id));
+    res.status(state === "unknown" ? 503 : 200).json({ reportId: id, status: state, canRetry: state === "retry_ready", commandSent, message });
+  } finally {
+    activeZReports.delete(id);
+  }
 });
 
 router.post("/z-report", requireStaffAdmin, async (req, res): Promise<void> => {
@@ -299,7 +400,7 @@ router.post("/z-report", requireStaffAdmin, async (req, res): Promise<void> => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(7315092)`);
     const [existing] = await tx.select().from(fiscalReportsTable).where(and(
       eq(fiscalReportsTable.printerSerial, serial),
-      or(eq(fiscalReportsTable.numeroChiusura, closure), inArray(fiscalReportsTable.status, ["pending", "unknown"])),
+      or(eq(fiscalReportsTable.numeroChiusura, closure), inArray(fiscalReportsTable.status, ["pending", "unknown", "retry_ready"])),
       eq(fiscalReportsTable.type, "Z"),
     ));
     if (existing) return null;
@@ -310,14 +411,15 @@ router.post("/z-report", requireStaffAdmin, async (req, res): Promise<void> => {
     return saved;
   });
   if (!attempt) {
-    res.status(409).json({ error: "Chiusura già inviata per questo numero Z. Verifica lo storico e la RT prima di ripetere." }); return;
+    res.status(409).json({ error: "Chiusura già inviata per questo numero Z. Usa «Verifica esito RT» nello storico per controllarla e, se possibile, rimandarla." }); return;
   }
   let printerResult;
+  activeZReports.add(attempt.id);
   try {
     const command = await sendXonXoffCommand(printer.ip, port, "1F", 12000);
     const after = await getStatusQ(printer.ip, port);
     const afterIdentity = await getStatus2X(printer.ip, port);
-    const confirmed = command.ok && zConfirmed(readiness.baseline, after, afterIdentity);
+    const confirmed = zConfirmed(readiness.baseline, after, afterIdentity);
     printerResult = { ...command, ok: confirmed, error: confirmed ? undefined : "Esito Z da verificare sulla RT. Non ripetere automaticamente la chiusura." };
     await db.update(fiscalReportsTable).set({
       status: confirmed ? "confirmed" : "unknown", error: printerResult.error ?? null,
@@ -326,6 +428,8 @@ router.post("/z-report", requireStaffAdmin, async (req, res): Promise<void> => {
   } catch (error) {
     await db.update(fiscalReportsTable).set({ status: "unknown", error: "Comunicazione interrotta: verificare la chiusura fisica sulla RT." }).where(eq(fiscalReportsTable.id, attempt.id));
     throw error;
+  } finally {
+    activeZReports.delete(attempt.id);
   }
   res.json({
     tipo: "Z",

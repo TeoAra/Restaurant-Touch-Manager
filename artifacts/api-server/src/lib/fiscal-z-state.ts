@@ -32,3 +32,16 @@ export function zConfirmed(baseline: ZBaseline, q: Reading<StatusQ>, identity: R
   if (baseline.source === "Q") return q.ok && !!q.status && q.status.chiusura === baseline.closure + 1;
   return /^\d+$/.test(s.numChiusura) && Number(s.numChiusura) === baseline.closure + 1;
 }
+
+/** Recovery compares the original source, not a newly preferred counter. */
+export function zRecoveryState(baseline: ZBaseline, q: Reading<StatusQ>, identity: Reading<Status2X>): "confirmed" | "unchanged" | "blocked" {
+  if (!baseline || !["Q", "2X"].includes(baseline.source) ||
+      !Number.isSafeInteger(baseline.closure) || baseline.closure < 0 || baseline.closure >= 9999 ||
+      typeof baseline.serial !== "string" || !baseline.serial.trim()) return "blocked";
+  if (zConfirmed(baseline, q, identity)) return "confirmed";
+  if (!zReadiness(q, identity).ready || identity.status?.matricola.trim() !== baseline.serial) return "blocked";
+  const current = baseline.source === "Q"
+    ? (q.ok && q.status ? q.status.chiusura : NaN)
+    : (/^\d+$/.test(identity.status!.numChiusura) ? Number(identity.status!.numChiusura) : NaN);
+  return current === baseline.closure ? "unchanged" : "blocked";
+}

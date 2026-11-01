@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import net from "node:net";
 import { once } from "node:events";
 import { registerHooks } from "node:module";
-import { zReadiness, zConfirmed } from "../src/lib/fiscal-z-state.ts";
+import { zReadiness, zConfirmed, zRecoveryState } from "../src/lib/fiscal-z-state.ts";
 
 const Q = { chiusura: 42, docCommerciali: 8, docGestionali: 0, resi: 0, annulli: 0, stato: 0,
   totaleScontrino: 0, totalePagato: 0, totaleGiorno: 100, totaleProgressivo: 500, raw: "" };
@@ -195,6 +195,110 @@ test("lost command response leaves Z unknown and cannot trigger a second closure
   assert.equal(h.reports[0].status, "unknown");
   h.q = [missing]; h.x = [ok(ECR)];
   assert.equal((await requestZ()).status, 409);
+  assert.deepEqual(h.sent, ["1F"]);
+});
+
+const requestRecovery = async (action = "verify", extra = {}, id = "90") => {
+  let status = 200, body;
+  await handlers.get("/reports/:id/recover")({ params: { id }, body: { action, ...extra } }, {
+    status(value) { status = value; return this; }, json(value) { body = value; },
+  });
+  return { status, body };
+};
+function seedRecovery(source = "Q") {
+  h.sent.length = 0; h.q.length = 0; h.x.length = 0;
+  h.command = { ok: true, body: "", ms: 1 };
+  h.reports.length = 0;
+  h.reports.push({
+    id: 90, type: "Z", printerSerial: ECR.matricola, numeroChiusura: 42,
+    status: "unknown", createdAt: new Date(Date.now() - 600_000),
+    response: JSON.stringify({ baseline: { serial: ECR.matricola, closure: 42, source }, command: { ok: false, error: "Original lost ACK" } }),
+  });
+}
+function observe(closure = 42, changes = {}) {
+  h.q.push(ok({ ...Q, chiusura: closure }));
+  h.x.push(ok({ ...ECR, numChiusura: String(closure), ...changes }));
+}
+test("Z recovery verifies unchanged counter then allows exactly one explicitly confirmed resend", async () => {
+  seedRecovery(); observe();
+  const verify = await requestRecovery();
+  assert.equal(verify.status, 200); assert.equal(verify.body.canRetry, true);
+  assert.equal(h.reports[0].status, "retry_ready"); assert.deepEqual(h.sent, []);
+  assert.equal((await requestRecovery("retry")).status, 400);
+  observe(); observe(43);
+  const retry = await requestRecovery("retry", { confirmNotExecuted: true });
+  assert.equal(retry.status, 200); assert.equal(retry.body.status, "confirmed");
+  assert.equal(retry.body.commandSent, true);
+  assert.deepEqual(h.sent, ["1F"]);
+  const evidence = JSON.parse(h.reports[0].response);
+  assert.equal(evidence.command.error, "Original lost ACK");
+  assert.equal(evidence.recoveryChecks.length, 2);
+});
+test("already advanced RT counter reconciles a lost ACK without another 1F", async () => {
+  seedRecovery(); observe(43);
+  const result = await requestRecovery();
+  assert.equal(result.body.status, "confirmed"); assert.equal(result.body.canRetry, false);
+  assert.equal(result.body.commandSent, false); assert.deepEqual(h.sent, []);
+  const duplicate = await requestRecovery("retry", { confirmNotExecuted: true });
+  assert.equal(duplicate.body.status, "confirmed"); assert.deepEqual(h.sent, []);
+});
+test("retry rechecks RT and does not resend if the device closed since verification", async () => {
+  seedRecovery(); observe(); await requestRecovery();
+  observe(43);
+  const result = await requestRecovery("retry", { confirmNotExecuted: true });
+  assert.equal(result.body.status, "confirmed");
+  assert.equal(result.body.commandSent, false); assert.deepEqual(h.sent, []);
+});
+test("recovery refuses fresh/in-flight attempts, missing verification, malformed IDs and incompatible evidence", async () => {
+  seedRecovery();
+  assert.equal((await requestRecovery("retry", { confirmNotExecuted: true })).status, 409);
+  assert.equal((await requestRecovery("verify", {}, "bad")).status, 400);
+  assert.equal((await requestRecovery("verify", {}, "99")).status, 404);
+  h.reports[0].createdAt = new Date();
+  assert.equal((await requestRecovery()).status, 409);
+  h.reports[0].createdAt = new Date(Date.now() - 600_000);
+  const evidence = JSON.parse(h.reports[0].response);
+  h.reports[0].response = JSON.stringify({ ...evidence, recoveryStartedAt: new Date().toISOString() });
+  assert.equal((await requestRecovery()).status, 409);
+  h.reports[0].response = "{}";
+  assert.equal((await requestRecovery()).status, 409);
+  assert.deepEqual(h.sent, []);
+});
+test("recovery blocks paper/open-document/matricola/counter/source mismatches without sending", async () => {
+  for (const changes of [{ carta: true }, { scontrinoAperto: true }, { nonFiscaleAperto: true }, { matricola: "OTHER00001" }, { errCode: "016" }]) {
+    seedRecovery(); observe(42, changes);
+    assert.equal((await requestRecovery()).status, 503);
+    assert.equal(h.reports[0].status, "unknown"); assert.deepEqual(h.sent, []);
+  }
+  seedRecovery(); observe(44);
+  assert.equal((await requestRecovery()).status, 503); assert.deepEqual(h.sent, []);
+  seedRecovery(); h.q.push(missing); h.x.push(ok(ECR));
+  assert.equal((await requestRecovery()).status, 503); assert.deepEqual(h.sent, []);
+  assert.equal(zRecoveryState({ serial: ECR.matricola, closure: 41, source: "2X" }, ok({ ...Q, chiusura: 999 }), ok(ECR)), "unchanged");
+});
+test("recovery double clicks are locked and an uncertain retry cannot loop automatically", async () => {
+  seedRecovery(); observe();
+  const results = await Promise.all([requestRecovery(), requestRecovery()]);
+  assert.deepEqual(results.map(r => r.status).sort(), [200, 409]);
+  observe(); observe();
+  h.command = { ok: false, error: "Response lost" };
+  const result = await requestRecovery("retry", { confirmNotExecuted: true });
+  assert.equal(result.status, 503); assert.equal(result.body.commandSent, true);
+  assert.equal(h.reports[0].status, "unknown");
+  assert.equal((await requestRecovery()).status, 409);
+  assert.deepEqual(h.sent, ["1F"]);
+});
+test("multiple uncertain reports can be verified without deadlock, but block resend until resolved", async () => {
+  seedRecovery();
+  h.reports.push({ ...h.reports[0], id: 91, numeroChiusura: 41,
+    response: JSON.stringify({ baseline: { serial: ECR.matricola, closure: 41, source: "Q" } }) });
+  observe();
+  assert.equal((await requestRecovery()).body.canRetry, true);
+  assert.equal((await requestRecovery("retry", { confirmNotExecuted: true })).status, 409);
+  observe();
+  assert.equal((await requestRecovery("verify", {}, "91")).body.status, "confirmed");
+  observe(); observe(43);
+  assert.equal((await requestRecovery("retry", { confirmNotExecuted: true })).body.status, "confirmed");
   assert.deepEqual(h.sent, ["1F"]);
 });
 

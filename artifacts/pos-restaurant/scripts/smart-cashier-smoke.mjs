@@ -38,6 +38,12 @@ try {
   let savedInvoice = null;
   let failCustomerSave = true;
   let failCourtesyPrint = true;
+  let failZVerify = true;
+  const recoveryReports = [90, 91].map((id, i) => ({
+    id, type: "Z", numeroChiusura: 895 - i, printerSerial: `TEST-RT-${id}`,
+    status: "unknown", totalDb: "30.50", createdAt: "2026-10-31T18:14:25Z",
+    error: "Esito da verificare sulla RT",
+  }));
   const exportCustomer = { id: 41, tipo: "azienda", ragioneSociale: "Cliente collegato test", partitaIva: "12345678901", indirizzo: "Via Test 1", cap: "", comune: "Roma", createdAt: "2026-01-01T10:00:00.000Z", updatedAt: "2026-01-02T10:00:00.000Z" };
   const exportInvoice = { id: 81, numero: 24, sezionale: "1", anno: 2026, numeroDocumento: "1/24", customerId: 41, data: "2026-10-31", tipoDocumento: "TD01", stato: "bozza", totale: "57.50", ragioneSociale: exportCustomer.ragioneSociale };
   const xmlFixture = '<?xml version="1.0"?><FatturaElettronica><Numero>1/23</Numero></FatturaElettronica>';
@@ -78,12 +84,31 @@ try {
       let responseCode = 200;
       if (path === "/api/auth/login") body = { id: 9999, name: "Operatore test", role: "admin" };
       else if (path === "/api/auth/session") body = { id: 9999, name: "Operatore test", role: "admin" };
-      else if (process.env.POS_Z_CHECK === "1" && path === "/api/fiscal/printer-status") body = {
+      else if ((process.env.POS_Z_CHECK === "1" || process.env.POS_Z_RECOVERY_CHECK === "1") && path === "/api/fiscal/printer-status") body = {
         found: true, printer: { name: "RT simulata", ip: "192.0.2.1", port: 1126 },
         stato2X: { ok: true, status: { errCode: "000", scontrinoAperto: false, carta: false } },
         statoQ: { ok: false, status: null },
       };
-      else if (process.env.POS_Z_CHECK === "1" && path === "/api/fiscal/lotteria") body = { codice: null };
+      else if ((process.env.POS_Z_CHECK === "1" || process.env.POS_Z_RECOVERY_CHECK === "1") && path === "/api/fiscal/lotteria") body = { codice: null };
+      else if (process.env.POS_Z_RECOVERY_CHECK === "1" && path === "/api/fiscal/reports") body = recoveryReports;
+      else if (process.env.POS_Z_RECOVERY_CHECK === "1" && /^\/api\/fiscal\/reports\/9[01]\/recover$/.test(path)) {
+        const id = Number(path.split("/")[4]);
+        const report = recoveryReports.find(r => r.id === id);
+        const input = JSON.parse(request.postData);
+        await new Promise(resolve => setTimeout(resolve, 150));
+        if (id === 90 && input.action === "verify" && failZVerify) {
+          failZVerify = false; responseCode = 503;
+          body = { reportId: id, status: "unknown", canRetry: false, commandSent: false, message: "RT di test non leggibile: nessun comando rimandato" };
+        } else {
+          report.status = id === 91 || input.action === "retry" ? "confirmed" : "retry_ready";
+          report.error = null;
+          body = { reportId: id, status: report.status, canRetry: report.status === "retry_ready",
+            commandSent: input.action === "retry",
+            message: report.status === "retry_ready" ? "Contatore invariato: reinvio manuale disponibile"
+              : input.action === "retry" ? "Chiusura rimandata e confermata dalla RT" : "Chiusura già eseguita: nessun comando reinviato" };
+          if (input.action === "retry") assert.equal(input.confirmNotExecuted, true, "Explicit physical RT confirmation required");
+        }
+      }
       else if (process.env.POS_Z_CHECK === "1" && path === "/api/fiscal/z-report") {
         responseCode = 503;
         body = { error: "Scontrino fiscale aperto o in pagamento: completarlo o annullarlo dalla funzione dedicata. Chiusura Z non inviata." };
@@ -1111,8 +1136,37 @@ try {
     await writeFile("generated-artifacts/pos-smart/invoice-courtesy-1366x768.jpg",Buffer.from(screenshot.data,"base64"));
     console.log("PASS invoice courtesy: draft/issued actions, cancelled blocked, duplicate-click guard, visible RT error and success, only non-fiscal print route called; all APIs mocked");
   }
+  if (process.env.POS_Z_RECOVERY_CHECK === "1") {
+    await send("Emulation.setDeviceMetricsOverride", { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false });
+    await send("Page.navigate", { url: new URL("/backoffice/fiscale", origin).href });
+    await wait(`document.body.innerText.includes("Chiusura Z")`);
+    await button("Chiusura Z", "body");
+    await wait(`document.querySelector('[data-testid="verify-z-90"]')`);
+    const before = writes.length;
+    await click('[data-testid="verify-z-90"]');
+    await wait(`document.querySelector('[data-testid="z-recovery-result-90"]')?.textContent.includes("non leggibile")`);
+    assert(!await evaluate(`!!document.querySelector('[data-testid="retry-z-90"]')`), "No resend after failed verification");
+    await click('[data-testid="verify-z-90"]');
+    await wait(`document.querySelector('[data-testid="retry-z-90"]')`);
+    await click('[data-testid="retry-z-90"]');
+    await wait(`document.querySelector('[data-testid="confirm-retry-z"]')`);
+    assert(await evaluate(`document.querySelector('[data-testid="confirm-retry-z"]').disabled`), "Explicit confirmation initially required");
+    assert.equal(writes.length-before, 2, "Opening the dialog does not send a Z");
+    await click('[data-testid="confirm-z-not-executed"]');
+    await evaluate(`(() => {const b=document.querySelector('[data-testid="confirm-retry-z"]');b.click();b.click();})()`);
+    await wait(`document.querySelector('[data-testid="z-recovery-result-90"]')?.textContent.includes("rimandata e confermata")`);
+    await wait(`!document.querySelector('[data-testid="verify-z-90"]')`);
+    await click('[data-testid="verify-z-91"]');
+    await wait(`document.querySelector('[data-testid="z-recovery-result-91"]')?.textContent.includes("già eseguita")`);
+    await wait(`!document.querySelector('[data-testid="retry-z-91"]') && !document.querySelector('[data-testid="verify-z-91"]')`);
+    assert.equal(writes.length-before, 4, "Two checks, one explicit retry and one reconciliation; no automatic replay");
+    assert(!writes.slice(before).some(w => /\/z-report|payments|\/emit/.test(w)), "Recovery never uses the unconditional Z or payment endpoints");
+    const shot = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
+    await writeFile("generated-artifacts/pos-smart/z-report-recovery-1024x768.jpg", Buffer.from(shot.data, "base64"));
+    console.log("PASS Z recovery UI: failed verification, eligible resend, mandatory confirmation, double-click guard, already-executed reconciliation; all APIs mocked");
+  }
   assert.deepEqual(errors, [], "Browser errors");
-  if (process.env.POS_BILLING_CHECK !== "1" && process.env.POS_SPLIT_CHECK !== "1" && process.env.POS_Z_CHECK !== "1" && process.env.POS_INVOICE_COURTESY_CHECK !== "1") assert(!writes.some(w => /payments|fiscal|invoices|comanda/.test(w)), "No fiscal writes expected");
+  if (process.env.POS_BILLING_CHECK !== "1" && process.env.POS_SPLIT_CHECK !== "1" && process.env.POS_Z_CHECK !== "1" && process.env.POS_INVOICE_COURTESY_CHECK !== "1" && process.env.POS_Z_RECOVERY_CHECK !== "1") assert(!writes.some(w => /payments|fiscal|invoices|comanda/.test(w)), "No fiscal writes expected");
   console.log("PASS login, unified map table selection, item timestamps, all advanced controls, product mutation, payment modes and responsive category/navigation targets. All APIs mocked; no live fiscal operations.");
 } finally {
   ws?.close();

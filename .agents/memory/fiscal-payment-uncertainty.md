@@ -14,3 +14,9 @@ Lettura degli estremi del documento ed emissione sono due verifiche distinte: es
 **Why:** un modello può chiudere correttamente il documento ma non restituire un’identità completa o compatibile con l’altra interrogazione. La numerazione fiscale appartiene alla RT, non al gestionale.
 
 **How to apply:** conservare e mostrare lo stato incompleto degli estremi; non inventare numeri o presentare ID interni come riferimenti fiscali. Non correggere automaticamente episodi storici senza identificare l’operazione e il documento reale.
+
+L’utente vuole poter rimandare una chiusura Z che non risulta eseguita, senza restare bloccato da un vecchio tentativo incerto.
+
+**Why:** ha segnalato che il messaggio «Chiusura già inviata» impediva di recuperare una chiusura che la RT, secondo quanto osservato, non aveva eseguito.
+
+**How to apply:** offrire verifica e reinvio manuale separati. Se la stessa RT dimostra l’avanzamento del contatore originale, riconciliare senza nuovo comando. Consentire il reinvio soltanto dopo verifica del contatore invariato, RT pronta e conferma esplicita dell’operatore; ricontrollare prima dell’invio. Nessuna ripetizione automatica né cambio arbitrario di fonte del contatore.
