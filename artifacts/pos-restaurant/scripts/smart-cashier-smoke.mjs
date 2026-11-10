@@ -39,6 +39,7 @@ try {
   let failCustomerSave = true;
   let failCourtesyPrint = true;
   let failZVerify = true;
+  let newlyCreatedCustomer = null;
   const recoveryReports = [90, 91].map((id, i) => ({
     id, type: "Z", numeroChiusura: 895 - i, printerSerial: `TEST-RT-${id}`,
     status: "unknown", totalDb: "30.50", createdAt: "2026-10-31T18:14:25Z",
@@ -203,6 +204,16 @@ try {
         order.items.push(body);
       } else if (path === "/api/orders/101/covers" && request.method === "PATCH") {
         Object.assign(order, JSON.parse(request.postData)); body = order;
+      } else if (process.env.POS_CUSTOMER_CREATE_CHECK === "1" && path === "/api/vies") {
+        body = { valid: true, source: "vies", name: "Cliente VIES test",
+          parsed: { indirizzo: "Via Test 12", cap: "00100", comune: "Roma", provincia: "RM", nazione: "IT" } };
+      } else if (process.env.POS_CUSTOMER_CREATE_CHECK === "1" && path === "/api/customers" && request.method === "POST") {
+        const input = JSON.parse(request.postData);
+        newlyCreatedCustomer = { id: 42, codiceDestinatario: "0000000", ...Object.fromEntries(
+          Object.entries(input).filter(([key]) => ["tipo", "ragioneSociale", "partitaIva", "codiceFiscale", "codiceDestinatario", "pec", "indirizzo", "cap", "comune", "provincia", "nazione"].includes(key))) };
+        body = newlyCreatedCustomer;
+      } else if (process.env.POS_CUSTOMER_CREATE_CHECK === "1" && path === "/api/customers" && newlyCreatedCustomer) {
+        body = [newlyCreatedCustomer];
       } else if (process.env.POS_INVOICE_COURTESY_CHECK === "1" && path === "/api/invoices" && request.method === "GET") {
         body = [exportInvoice, { ...exportInvoice, id: 82, numero: 25, numeroDocumento: "1/25", stato: "emessa" },
           { ...exportInvoice, id: 83, numero: 26, numeroDocumento: "1/26", stato: "annullata" }];
@@ -1164,6 +1175,41 @@ try {
     const shot = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
     await writeFile("generated-artifacts/pos-smart/z-report-recovery-1024x768.jpg", Buffer.from(shot.data, "base64"));
     console.log("PASS Z recovery UI: failed verification, eligible resend, mandatory confirmation, double-click guard, already-executed reconciliation; all APIs mocked");
+  }
+  if (process.env.POS_CUSTOMER_CREATE_CHECK === "1") {
+    await send("Emulation.setDeviceMetricsOverride", { width: 1366, height: 768, deviceScaleFactor: 1, mobile: false });
+    await send("Page.navigate", { url: origin + "/" });
+    await wait(`!!document.querySelector('[data-testid="map-table-1"]')`);
+    await selectFirstTable();
+    await button("Cliente", ".pos-work-tabs");
+    await button("Crea nuovo cliente");
+    await wait(`document.querySelector('input[placeholder="P.IVA (es. 12345678901)"]')`);
+    const fill = async (placeholder, value) => { await evaluate(`(() => {
+      const input=[...document.querySelectorAll('input')].find(e=>e.placeholder===${JSON.stringify(placeholder)});
+      input.focus(); input.select();
+    })()`); await send("Input.insertText", { text: value }); await new Promise(resolve => setTimeout(resolve, 80)); };
+    await fill("P.IVA (es. 12345678901)", "12345678901");
+    await evaluate(`(()=>{const el=document.querySelector('input[placeholder="P.IVA (es. 12345678901)"]');el.focus();el.blur();})()`);
+    await wait(`document.querySelector('input[placeholder="CAP"]')?.value==="00100"`);
+    await fill("Cod. SDI", "abc1234");
+    await button("Crea cliente");
+    await wait(`!document.querySelector('input[placeholder="Cod. SDI"]')`);
+    assert.equal(newlyCreatedCustomer.codiceDestinatario, "ABC1234");
+    assert.equal(newlyCreatedCustomer.indirizzo, "Via Test 12");
+    assert.equal(newlyCreatedCustomer.cap, "00100");
+    assert.equal(newlyCreatedCustomer.comune, "Roma");
+    assert.equal(newlyCreatedCustomer.provincia, "RM");
+    const sent = payloads.find(p => p.path === "/api/customers").data;
+    for (const key of ["sdiCode", "indirizzoVia", "indirizzoCap", "indirizzoComune", "indirizzoProvince"]) assert(!Object.hasOwn(sent,key));
+    await send("Page.navigate", { url: new URL("/backoffice/clienti",origin).href });
+    await wait(`document.querySelector('button[aria-label="Modifica cliente Cliente VIES test"]')`);
+    await click('button[aria-label="Modifica cliente Cliente VIES test"]');
+    await wait(`document.querySelector('[role="dialog"][data-state="open"]')`);
+    const values = await evaluate(`[...document.querySelectorAll('[role="dialog"][data-state="open"] input')].map(e=>e.value)`);
+    for (const value of ["ABC1234","Via Test 12","00100","Roma","RM"]) assert(values.includes(value), value+" must survive reload and backoffice edit");
+    const shot = await send("Page.captureScreenshot", {format:"jpeg",quality:80});
+    await writeFile("generated-artifacts/pos-smart/customer-create-vies-1366x768.jpg",Buffer.from(shot.data,"base64"));
+    console.log("PASS real new-customer form: VIES address, explicit SDI, canonical POST, full-page reload and backoffice reopen; APIs mocked, no fiscal writes");
   }
   assert.deepEqual(errors, [], "Browser errors");
   if (process.env.POS_BILLING_CHECK !== "1" && process.env.POS_SPLIT_CHECK !== "1" && process.env.POS_Z_CHECK !== "1" && process.env.POS_INVOICE_COURTESY_CHECK !== "1" && process.env.POS_Z_RECOVERY_CHECK !== "1") assert(!writes.some(w => /payments|fiscal|invoices|comanda/.test(w)), "No fiscal writes expected");

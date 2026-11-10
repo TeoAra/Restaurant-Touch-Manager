@@ -14,3 +14,9 @@ Per verificare soltanto navigazione e gesti nella cassa reale, intercettare e bl
 **Why:** anche gesti apparentemente grafici possono invocare operazioni persistenti; una prova visiva non deve modificare disponibilità, comande o dati fiscali.
 
 **How to apply:** nei controlli browser puramente di interfaccia usare l’intercettazione delle richieste; per verificare invece il successo delle operazioni usare dati isolati e stampanti simulate. Il blocco delle scritture non prova il funzionamento di incassi o stampe.
+
+Nei test dei recuperi anagrafici avviati all’uscita dal campo, verificare che il valore sia entrato nello stato React, non soltanto nel DOM.
+
+**Why:** una modifica sintetica del valore seguita da focus/blur può non attivare il recupero, mentre l’immissione reale nel browser lo attiva; il timeout può quindi dipendere dal test, non dal servizio.
+
+**How to apply:** usare digitazione del browser per questi percorsi e attendere la compilazione effettiva dei campi prima di salvare.

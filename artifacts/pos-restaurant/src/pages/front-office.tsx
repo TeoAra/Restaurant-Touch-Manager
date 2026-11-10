@@ -1073,7 +1073,7 @@ function UserMenuButton({ showUserMenu, setShowUserMenu }: {
 }
 
 // ─── Payment Dialog ───────────────────────────────────────────────────────────
-type SimpleCustomer = { id: number; ragioneSociale: string; partitaIva: string | null; codiceFiscale: string | null; sdiCode: string | null; pec: string | null; indirizzoVia: string | null; indirizzoCap: string | null; indirizzoComune: string | null; indirizzoProvince: string | null };
+type SimpleCustomer = { id: number; ragioneSociale: string; partitaIva: string | null; codiceFiscale: string | null; codiceDestinatario: string | null; pec: string | null; indirizzo: string | null; cap: string | null; comune: string | null; provincia: string | null };
 
 function CustomerCard({ c, selected, onSelect }: { c: SimpleCustomer; selected: boolean; onSelect: () => void }) {
   return (
@@ -1112,9 +1112,11 @@ function NewCustomerForm({ onCreated, onCancel }: {
   const [cap, setCap] = useState("");
   const [comune, setComune] = useState("");
   const [provincia, setProvincia] = useState("");
+  const [nazione, setNazione] = useState("IT");
   const [viesStatus, setViesStatus] = useState<ViesStatus>("idle");
   const [viesMsg, setViesMsg] = useState("");
   const { toast } = useToast();
+  const customerQueryClient = useQueryClient();
 
   async function verificaPiva() {
     const piva = partitaIva.trim().replace(/\s/g, "");
@@ -1125,7 +1127,7 @@ function NewCustomerForm({ onCreated, onCancel }: {
       const resp = await fetch(`${API}/vies?vat=${encodeURIComponent(vatParam)}`);
       const data = await resp.json() as {
         valid?: boolean; source?: string; message?: string; error?: string;
-        name?: string; parsed?: { indirizzo: string; cap: string; comune: string; provincia: string };
+        name?: string; parsed?: { indirizzo: string; cap: string; comune: string; provincia: string; nazione?: string };
       };
       if (!resp.ok || data.error) { setViesStatus("error"); setViesMsg(data.error ?? "Errore nella verifica"); return; }
       if (!data.valid) { setViesStatus("error"); setViesMsg(data.message ?? "P.IVA non valida"); return; }
@@ -1140,6 +1142,7 @@ function NewCustomerForm({ onCreated, onCancel }: {
           if (data.parsed.cap) setCap(data.parsed.cap);
           if (data.parsed.comune) setComune(data.parsed.comune);
           if (data.parsed.provincia) setProvincia(data.parsed.provincia);
+          if (data.parsed.nazione) setNazione(data.parsed.nazione);
         }
       }
     } catch { setViesStatus("error"); setViesMsg("Errore di rete"); }
@@ -1147,7 +1150,7 @@ function NewCustomerForm({ onCreated, onCancel }: {
   }
 
   async function save() {
-    if (!ragioneSociale.trim()) return;
+    if (saving || viesStatus === "loading" || !ragioneSociale.trim()) return;
     setSaving(true);
     try {
       const res = await fetch(`${API}/customers`, {
@@ -1158,20 +1161,27 @@ function NewCustomerForm({ onCreated, onCancel }: {
           ragioneSociale: ragioneSociale.trim(),
           partitaIva: partitaIva.trim() || null,
           codiceFiscale: codiceFiscale.trim() || null,
-          sdiCode: sdiCode.trim() || null,
+          codiceDestinatario: sdiCode.trim().toUpperCase() || "0000000",
           pec: pec.trim() || null,
-          indirizzoVia: via.trim() || null,
-          indirizzoCap: cap.trim() || null,
-          indirizzoComune: comune.trim() || null,
-          indirizzoProvince: provincia.trim() || null,
+          indirizzo: via.trim() || null,
+          cap: cap.trim() || null,
+          comune: comune.trim() || null,
+          provincia: provincia.trim() || null,
+          nazione,
         }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.error || "Salvataggio cliente non riuscito");
+      }
       const c = await res.json();
+      customerQueryClient.invalidateQueries({ queryKey: ["customers"] });
+      customerQueryClient.invalidateQueries({ queryKey: ["customers-all"] });
+      customerQueryClient.invalidateQueries({ queryKey: ["invoices"] });
       onCreated(c);
       toast({ title: "Cliente creato" });
-    } catch {
-      toast({ title: "Errore creazione cliente", variant: "destructive" });
+    } catch (error) {
+      toast({ title: "Cliente non salvato", description: error instanceof Error ? error.message : "Controlla il collegamento e riprova", variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -1217,7 +1227,7 @@ function NewCustomerForm({ onCreated, onCancel }: {
       </div>
       <div className="grid grid-cols-2 gap-2">
         <Input placeholder="Cod. Fiscale" value={codiceFiscale} onChange={e => setCodiceFiscale(e.target.value)} className="h-8 text-sm font-mono text-slate-100 bg-[#22263a] border-[#3d4157] placeholder:text-slate-600" />
-        <Input placeholder="Cod. SDI" value={sdiCode} onChange={e => setSdiCode(e.target.value)} className="h-8 text-sm font-mono text-slate-100 bg-[#22263a] border-[#3d4157] placeholder:text-slate-600" />
+        <Input placeholder="Cod. SDI" maxLength={7} value={sdiCode} onChange={e => setSdiCode(e.target.value.toUpperCase())} className="h-8 text-sm font-mono text-slate-100 bg-[#22263a] border-[#3d4157] placeholder:text-slate-600" />
       </div>
       <Input placeholder="PEC" value={pec} onChange={e => setPec(e.target.value)} className="h-8 text-sm text-slate-100 bg-[#22263a] border-[#3d4157] placeholder:text-slate-600" />
       <Input placeholder="Via / Indirizzo" value={via} onChange={e => setVia(e.target.value)} className="h-8 text-sm text-slate-100 bg-[#22263a] border-[#3d4157] placeholder:text-slate-600" />
@@ -1228,7 +1238,7 @@ function NewCustomerForm({ onCreated, onCancel }: {
       </div>
       <div className="flex gap-2 pt-1">
         <Button variant="outline" size="sm" className="flex-1 h-8" onClick={onCancel}>Annulla</Button>
-        <Button size="sm" className="flex-1 h-8" disabled={!ragioneSociale.trim() || saving} onClick={save}>
+        <Button size="sm" className="flex-1 h-8" disabled={!ragioneSociale.trim() || saving || viesStatus === "loading"} onClick={save}>
           {saving ? "Salvataggio…" : "Crea cliente"}
         </Button>
       </div>
@@ -1389,7 +1399,7 @@ function PaymentDialog({ open, onClose, total, orderId, orderItems, onPay: onPay
     if (!emittiFattura) return;
     setLoadingCustomers(true);
     const url = customerSearch
-      ? `${API}/customers?search=${encodeURIComponent(customerSearch)}`
+      ? `${API}/customers?q=${encodeURIComponent(customerSearch)}`
       : `${API}/customers`;
     fetch(url).then(r => r.json()).then(data => {
       setCustomers(Array.isArray(data) ? data : []);

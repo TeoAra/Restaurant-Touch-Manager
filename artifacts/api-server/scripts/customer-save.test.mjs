@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq } from "drizzle-orm";
 import { customersTable, insertCustomerSchema } from "../../../lib/db/src/schema/customers.ts";
+import { normalizeCustomerInput } from "../src/lib/customer-input.ts";
+import { invoiceCustomerError } from "../src/lib/invoice-customer.ts";
 
 const db = drizzle({ query() { throw new Error("Tests must never access the database"); } });
 const existing = {
@@ -40,4 +42,29 @@ test("optional fields can stay blank or be explicitly cleared without becoming m
 test("invalid customer field types fail explicitly rather than silently dropping edits", () => {
   assert.equal(insertCustomerSchema.partial().safeParse({ cap: 100 }).success, false);
   assert.equal(insertCustomerSchema.partial().safeParse({ ragioneSociale: null }).success, false);
+});
+test("legacy front-office address and SDI aliases survive creation and SQL insertion", () => {
+  const legacy = { ragioneSociale: "Cliente VIES test", partitaIva: "12345678901", sdiCode: "ABC1234",
+    indirizzoVia: "Via Test 12", indirizzoCap: "00100", indirizzoComune: "Roma", indirizzoProvince: "RM" };
+  // This reproduces precisely why the old client lost the values silently.
+  const before = insertCustomerSchema.parse(legacy);
+  assert.equal(before.indirizzo, undefined);
+  assert.equal(before.codiceDestinatario, undefined);
+  const body = insertCustomerSchema.parse(normalizeCustomerInput(legacy));
+  assert.equal(body.codiceDestinatario, "ABC1234");
+  assert.equal(body.indirizzo, "Via Test 12");
+  assert.equal(body.cap, "00100");
+  assert.equal(body.comune, "Roma");
+  assert.equal(body.provincia, "RM");
+  assert.equal(invoiceCustomerError(body), null, "Saved address must pass the real invoice customer validation");
+  const query = db.insert(customersTable).values(body).toSQL();
+  for (const value of ["ABC1234", "Via Test 12", "00100", "Roma", "RM"]) assert(query.params.includes(value));
+  for (const alias of ["sdiCode", "indirizzoVia", "indirizzoCap", "indirizzoComune", "indirizzoProvince"]) assert(!Object.hasOwn(body, alias));
+});
+test("legacy partial edits do not erase omitted fields and canonical explicit clears take precedence", () => {
+  assert.deepEqual(insertCustomerSchema.partial().parse(normalizeCustomerInput({ sdiCode: "XYZ9876" })), { codiceDestinatario: "XYZ9876" });
+  assert.deepEqual(insertCustomerSchema.partial().parse(normalizeCustomerInput({
+    sdiCode: "OLD1234", codiceDestinatario: "", indirizzoVia: "Old address", indirizzo: null,
+  })), { codiceDestinatario: "", indirizzo: null });
+  assert.equal(insertCustomerSchema.partial().safeParse(normalizeCustomerInput({ indirizzoCap: 100 })).success, false);
 });

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, customersTable, insertCustomerSchema } from "@workspace/db";
 import { eq, ilike, or } from "drizzle-orm";
+import { normalizeCustomerInput } from "../lib/customer-input";
 
 const router = Router();
 
@@ -29,7 +30,7 @@ router.get("/:id", async (req, res) => {
 });
 
 router.post("/", async (req, res) => {
-  const parsed = insertCustomerSchema.safeParse(req.body);
+  const parsed = insertCustomerSchema.safeParse(normalizeCustomerInput(req.body));
   if (!parsed.success) return res.status(400).json({ error: "Dati cliente non validi: " + parsed.error.issues.map(issue => issue.path.join(".")).join(", ") });
   const body = parsed.data;
   if (!body.ragioneSociale.trim()) return res.status(400).json({ error: "Denominazione obbligatoria" });
@@ -59,7 +60,7 @@ router.patch("/:id", async (req, res) => {
   if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: "Cliente non valido" });
   // A GET response includes ISO timestamps: never feed those strings back to
   // Drizzle's Date columns, or an otherwise valid customer edit fails entirely.
-  const parsed = insertCustomerSchema.partial().safeParse(req.body);
+  const parsed = insertCustomerSchema.partial().safeParse(normalizeCustomerInput(req.body));
   if (!parsed.success) return res.status(400).json({ error: "Dati cliente non validi: " + parsed.error.issues.map(issue => issue.path.join(".")).join(", ") });
   const body = parsed.data;
   if (body.ragioneSociale !== undefined && !body.ragioneSociale.trim()) return res.status(400).json({ error: "Denominazione obbligatoria" });
