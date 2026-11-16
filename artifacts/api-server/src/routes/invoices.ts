@@ -109,7 +109,8 @@ router.get("/:id/xml", async (req, res) => {
   if (!xml) {
     try { xml = await buildXml(inv); }
     catch (error) { return res.status(400).json({ error: (error as Error).message }); }
-    await db.update(invoicesTable).set({ xmlContent: xml, stato: "emessa" }).where(eq(invoicesTable.id, id));
+    await db.update(invoicesTable).set({ xmlContent: xml, stato: "emessa",
+      issuedAt: inv.stato === "emessa" ? inv.issuedAt ?? null : sql`COALESCE(${invoicesTable.issuedAt}, now())` }).where(eq(invoicesTable.id, id));
   }
 
   const fileName = await xmlFilename(inv);
@@ -174,7 +175,7 @@ router.post("/:id/emit", async (req, res) => {
   const settings = await getSettings();
 
   const [updated] = await db.update(invoicesTable)
-    .set({ xmlContent: xml, stato: "emessa" })
+    .set({ xmlContent: xml, stato: "emessa", issuedAt: inv.stato === "emessa" ? inv.issuedAt ?? null : sql`COALESCE(${invoicesTable.issuedAt}, now())` })
     .where(eq(invoicesTable.id, id))
     .returning();
 

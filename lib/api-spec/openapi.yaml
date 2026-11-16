@@ -817,6 +817,22 @@ paths:
         "409": { description: Already submitted or RT identity mismatch; do not retry }
         "502": { description: Outcome unknown; record not marked cancelled; no automatic replay }
         "503": { description: RT unavailable or not ready; nothing sent }
+  /fiscal/accounting-summary:
+    get:
+      operationId: getFiscalAccounting
+      security: [{ staffCookie: [] }]
+      parameters:
+        - in: query
+          name: readRt
+          schema: { type: string, enum: ["1"] }
+          description: Explicit read-only RT status request; never prints or closes anything
+      responses:
+        "200":
+          description: Management turnover since last confirmed Z; invoices and RT kept distinct
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FiscalAccountingSummary" }
+        "401": { description: PIN session required }
   /fiscal/reports:
     get:
       operationId: listFiscalReports
@@ -895,6 +911,50 @@ components:
       in: cookie
       name: hellotable_staff
   schemas:
+    FiscalAccountingSummary:
+      type: object
+      required: [from, to, rtRecorded, invoices, overlap, total, iva, paidDrafts, receiptsCount, uncertainTotal, uncertainCount, legacyTotal, paymentsTotal, methods, historicalInvoiceDates, lastClosure, rtScopeKnown]
+      properties:
+        from: { type: [string, "null"], format: date-time }
+        to: { type: string, format: date-time }
+        rtRecorded: { type: string }
+        invoices: { type: string }
+        overlap: { type: string }
+        total: { type: string }
+        iva: { type: string }
+        paidDrafts: { type: string }
+        receiptsCount: { type: integer }
+        uncertainTotal: { type: string }
+        uncertainCount: { type: integer }
+        legacyTotal: { type: string }
+        paymentsTotal: { type: string }
+        historicalInvoiceDates: { type: boolean }
+        rtScopeKnown: { type: boolean }
+        methods:
+          type: array
+          items:
+            type: object
+            required: [method, amount]
+            properties:
+              method: { type: string }
+              amount: { type: string }
+        lastClosure:
+          type: [object, "null"]
+          required: [id, number, serial, source]
+          properties:
+            id: { type: integer }
+            number: { type: integer }
+            serial: { type: string }
+            source: { type: [string, "null"] }
+        rt:
+          type: object
+          required: [total, difference, matchedPeriod, readAt, message]
+          properties:
+            total: { type: [string, "null"] }
+            difference: { type: [string, "null"] }
+            matchedPeriod: { type: boolean }
+            readAt: { type: string, format: date-time }
+            message: { type: string }
     ZReportRecoveryInput:
       type: object
       required: [action]

@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import type { ZReportRecoveryResult } from "@workspace/api-client-react";
+import type { ZReportRecoveryResult, FiscalAccountingSummary } from "@workspace/api-client-react";
+import { FiscalAccountingPanel, FiscalAccountingTotals } from "@/components/FiscalAccountingPanel";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { BackofficeShell } from "@/components/BackofficeShell";
 import { Button } from "@/components/ui/button";
@@ -25,13 +26,14 @@ type FiscalReceipt = {
   numeroChiusura?: number | null; numeroDocumentoRt?: number | null; dataDocumentoRt?: string | null;
   emissionStatus?: string; voidStatus?: string | null; voidError?: string | null;
 };
-type FiscalReport = { id: number; type: string; printerSerial: string; numeroChiusura: number; status: string; error?: string; totalDb: string; createdAt: string };
+type FiscalReport = { id: number; type: string; printerSerial: string; numeroChiusura: number; status: string; error?: string; response?: string | null; totalDb: string; createdAt: string };
 
 type ReportResult = {
   tipo: "X" | "Z";
   data: string; anno: number; scontrini: number; totale: string; totale_iva: string;
   printer?: { ok: boolean; body?: string; error?: string; rtCode?: string; ms?: number };
   printer_name?: string; printer_matricola?: string; simulated: boolean;
+  accounting?: FiscalAccountingSummary;
 };
 
 type PrinterStatus = {
@@ -218,6 +220,7 @@ export default function FiscalePage() {
     } finally {
       setZLoading(false);
       qc.invalidateQueries({ queryKey: ["fiscal_reports"] });
+      qc.invalidateQueries({ queryKey: ["fiscal-accounting"] });
       qc.invalidateQueries({ queryKey: ["fiscal_printer_status"] });
     }
   }
@@ -245,6 +248,7 @@ export default function FiscalePage() {
       setRetryReport(null);
       setRetryConfirmed(false);
       qc.invalidateQueries({ queryKey: ["fiscal_reports"] });
+      qc.invalidateQueries({ queryKey: ["fiscal-accounting"] });
       qc.invalidateQueries({ queryKey: ["fiscal_printer_status"] });
     }
   }
@@ -538,6 +542,7 @@ export default function FiscalePage() {
         {/* ── TAB: REPORT X ──────────────────────────────────────────────── */}
         {tab === "xreport" && (
           <div className="space-y-4">
+            <FiscalAccountingPanel />
             <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm text-center space-y-4">
               <div className="h-16 w-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto">
                 <Activity className="h-8 w-8 text-blue-600" />
@@ -565,6 +570,7 @@ export default function FiscalePage() {
         {/* ── TAB: CHIUSURA Z ────────────────────────────────────────────── */}
         {tab === "zreport" && (
           <div className="space-y-4">
+            <FiscalAccountingPanel />
             <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm text-center space-y-4">
               <div className="h-16 w-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto">
                 <BarChart3 className="h-8 w-8 text-amber-600" />
@@ -613,6 +619,7 @@ export default function FiscalePage() {
                 <div className="font-semibold">Z {report.numeroChiusura} · Matricola {report.printerSerial}</div>
                 <div>{new Date(report.createdAt).toLocaleString("it-IT")} · {report.status === "confirmed" ? "Confermata dalla RT" : report.status === "retry_ready" ? "Contatore invariato · reinvio manuale disponibile" : report.status === "pending" ? "In corso / da verificare" : "Esito da verificare sulla RT"}</div>
                 <div className="text-xs text-slate-600">Totale gestionale: € {Number(report.totalDb).toFixed(2)}</div>
+                <SavedAccounting response={report.response} />
                 {report.error && <p className="text-amber-800">{report.error}</p>}
                 {["pending", "unknown", "retry_ready"].includes(report.status) && (
                   <div className="flex flex-wrap gap-2 pt-2">
@@ -827,6 +834,15 @@ export default function FiscalePage() {
   );
 }
 
+function SavedAccounting({ response }: { response?: string | null }) {
+  let accounting: FiscalAccountingSummary | undefined;
+  try { accounting = JSON.parse(response ?? "{}").accounting; } catch { /* old RT response */ }
+  if (!accounting) return <p className="text-xs text-slate-500">Dettaglio del turno non disponibile per questa vecchia chiusura.</p>;
+  return <details className="mt-2"><summary className="cursor-pointer text-sm font-semibold text-slate-800 py-2">Dettaglio vendite e fatture della chiusura</summary>
+    <FiscalAccountingTotals data={accounting} />
+  </details>;
+}
+
 function ReportResultCard({ result }: { result: ReportResult | null }) {
   if (!result) return null;
   const isX = result.tipo === "X";
@@ -843,6 +859,7 @@ function ReportResultCard({ result }: { result: ReportResult | null }) {
         )}
       </div>
       <p className="text-xs text-slate-600">I totali mostrati provengono dal gestionale e non sostituiscono il rapporto fiscale stampato dalla RT.</p>
+      {result.accounting && <FiscalAccountingTotals data={result.accounting} />}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-slate-50 rounded-lg p-3 text-center border border-slate-200">
           <div className="text-2xl font-bold text-slate-800">{result.scontrini}</div>

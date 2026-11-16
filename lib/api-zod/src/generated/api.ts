@@ -889,6 +889,56 @@ export const VoidFiscalReceiptBody = zod.object({
   motivo: zod.string().max(voidFiscalReceiptBodyMotivoMax).optional(),
 });
 
+export const GetFiscalAccountingQueryParams = zod.object({
+  readRt: zod
+    .enum(["1"])
+    .optional()
+    .describe(
+      "Explicit read-only RT status request; never prints or closes anything",
+    ),
+});
+
+export const GetFiscalAccountingResponse = zod.object({
+  from: zod.coerce.date().nullable(),
+  to: zod.coerce.date(),
+  rtRecorded: zod.string(),
+  invoices: zod.string(),
+  overlap: zod.string(),
+  total: zod.string(),
+  iva: zod.string(),
+  paidDrafts: zod.string(),
+  receiptsCount: zod.number(),
+  uncertainTotal: zod.string(),
+  uncertainCount: zod.number(),
+  legacyTotal: zod.string(),
+  paymentsTotal: zod.string(),
+  historicalInvoiceDates: zod.boolean(),
+  rtScopeKnown: zod.boolean(),
+  methods: zod.array(
+    zod.object({
+      method: zod.string(),
+      amount: zod.string(),
+    }),
+  ),
+  lastClosure: zod
+    .object({
+      id: zod.number(),
+      number: zod.number(),
+      serial: zod.string(),
+      source: zod.string().nullable(),
+    })
+    .nullable(),
+  rt: zod
+    .object({
+      total: zod.string().nullable(),
+      difference: zod.string().nullable(),
+      matchedPeriod: zod.boolean(),
+      readAt: zod.coerce.date(),
+      message: zod.string(),
+    })
+    .optional(),
+});
+
 export const ListFiscalReportsResponseItem = zod.object({
   id: zod.number(),
   type: zod.string(),

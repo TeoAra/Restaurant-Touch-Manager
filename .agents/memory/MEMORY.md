@@ -1,6 +1,6 @@
 - [Protocollo DTR RT XonXoff](dtr-rt-protocol.md) — gestionali `j`...`J`; parola TOTALE vietata nelle righe `@`; record max 256 byte con flow XOFF/XON; `K` sblocca errori. Spec PDF in attached_assets.
 - [Esiti fiscali incerti](fiscal-payment-uncertainty.md) — emissione e lettura estremi sono distinte; recupero contabile senza ripetere stampa o addebito, mai indovinare esiti o riferimenti RT.
-- [Attribuzione vendite nei report](report-attribution.md) — report vendite sempre su orders.createdAt + status paid, mai su order_items.createdAt.
+- [Attribuzione vendite nei report](report-attribution.md) — turni dall’ultima Z confermata, fatture senza duplicati; prodotti su data dell’ordine pagato, non degli articoli.
 - [Requisiti cassa Smart](pos-smart-requirements.md) — nessuna funzione rimossa; orari prodotti, tavoli e grafica mobile adattabile a touch POS, laptop e scheda intera.
 - [Verifiche browser della cassa](browser-verification.md) — scegliere il target Chromium corretto; bloccare le scritture nei controlli puramente grafici per non produrre incassi o stampe.
 - [Numerazione fatture](invoice-numbering.md) — 1/23 significa sezionale 1 e progressivo corrente 23; anno separato e nessuno zero aggiunto nel Numero XML per Passepartout.

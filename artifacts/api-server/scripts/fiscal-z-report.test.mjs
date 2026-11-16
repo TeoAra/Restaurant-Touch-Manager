@@ -46,7 +46,7 @@ const h = { reports: [], sent: [], q: [], x: [], command: { ok: true, body: "", 
 globalThis.__zReportTest = h;
 const code = source => ({ shortCircuit: true, url: `data:text/javascript,${encodeURIComponent(source)}` });
 const handlers = new Map();
-h.router = { get() {}, post(path, ...chain) { handlers.set(path, chain.at(-1)); } };
+h.router = { get(path, ...chain) { handlers.set(`GET ${path}`, chain.at(-1)); }, post(path, ...chain) { handlers.set(path, chain.at(-1)); } };
 const table = name => new Proxy({ name }, { get: (target, key) => key === "name" ? name : String(key) });
 h.tables = Object.fromEntries(["fiscalReportsTable", "fiscalReceiptsTable", "ordersTable", "paymentsTable", "printersTable"].map(name => [name, table(name)]));
 h.db = {
@@ -76,6 +76,17 @@ registerHooks({
     `);
     if (specifier.endsWith("/settings") || specifier === "./settings") return code(`export const getSettings=async()=>({});`);
     if (context.parentURL?.endsWith("/routes/fiscal.ts")) {
+      if (specifier.endsWith("/fiscal-accounting")) return code(`
+        export const accountingVatReport=async()=>({perAliquota:[],perMetodo:[]});
+        export const fiscalAccounting=async()=>({
+          from:"2026-10-26T22:00:00.000Z",to:new Date().toISOString(),
+          rtRecorded:"40.00",invoices:"10.00",overlap:"0.00",total:"50.00",iva:"4.55",
+          receiptsCount:3,lastClosure:null,methods:[],paymentsTotal:"50.00",
+          paidDrafts:"0.00",uncertainTotal:"0.00",uncertainCount:0,legacyTotal:"0.00",
+          historicalInvoiceDates:false,rtScopeKnown:false,
+          ...globalThis.__zReportTest.accounting
+        });
+      `);
       if (specifier === "express") return code(`export const Router=()=>globalThis.__zReportTest.router;`);
       if (specifier.endsWith("/fiscal-printer")) return code(`
         const h=globalThis.__zReportTest;
@@ -83,7 +94,7 @@ registerHooks({
         export const getStatusQ=async()=>h.q.shift()??{ok:false,status:null,raw:""};
         export const getStatus2X=async()=>h.x.shift()??{ok:false,status:null,raw:""};
         export const sendXonXoffCommand=async(_ip,_port,cmd)=>{
-          if(!h.reports.some(row=>row.status==="pending")) throw Error("Z sent without durable pending attempt");
+          if(cmd==="1F"&&!h.reports.some(row=>row.status==="pending")) throw Error("Z sent without durable pending attempt");
           h.sent.push(cmd);
           if(h.command instanceof Error) throw h.command;
           return h.command;
@@ -143,7 +154,39 @@ const requestZ = async () => {
   });
   return { status, body };
 };
-const reset = (q, x) => { h.reports = []; h.sent = []; h.q = q; h.x = x; h.command = { ok: true, body: "", ms: 1 }; };
+const reset = (q, x) => { h.reports = []; h.sent = []; h.q = q; h.x = x; h.accounting = {}; h.command = { ok: true, body: "", ms: 1 }; };
+const requestReport = async (path, query = {}) => {
+  let status = 200, body;
+  await handlers.get(path)({ query, log: { warn() {} } }, {
+    status(value) { status = value; return this; }, json(value) { body = value; return this; },
+  });
+  return { status, body };
+};
+test("management summary never prints, and explicit RT reading shows a discrepancy only for matching Q period and identity", async () => {
+  reset([ok(Q)], [ok(ECR)]);
+  const summary = await requestReport("GET /accounting-summary");
+  assert.equal(summary.body.total, "50.00");
+  assert.equal(summary.body.invoices, "10.00");
+  assert.equal(h.q.length, 1, "Default summary must not contact the RT");
+  h.accounting = { lastClosure: { id: 1, number: 41, serial: ECR.matricola, source: "Q" }, rtScopeKnown: true };
+  const live = await requestReport("GET /accounting-summary", { readRt: "1" });
+  assert.equal(live.body.rt.total, "100.00");
+  assert.equal(live.body.rt.difference, "60.00");
+  assert.deepEqual(h.sent, [], "Status reads never print a report");
+  h.q = [ok(Q)]; h.x = [ok(ECR)]; h.accounting.lastClosure.source = "2X";
+  assert.equal((await requestReport("GET /accounting-summary", { readRt: "1" })).body.rt.difference, null);
+  assert.equal((await requestReport("GET /accounting-summary", { readRt: "unexpected" })).status, 400);
+});
+test("X includes invoices in management totals without pretending they were sent by the RT", async () => {
+  reset([ok(Q)], []);
+  const result = await requestReport("/x-report");
+  assert.equal(result.body.totale, "50.00");
+  assert.equal(result.body.accounting.rtRecorded, "40.00");
+  assert.equal(result.body.accounting.invoices, "10.00");
+  assert.equal(result.body.accounting.rt.total, "100.00");
+  assert.deepEqual(h.sent, ["1f"]);
+  assert.deepEqual(h.reports, []);
+});
 test("11-character serial reaches the real Z route and is retained intact in the report", async () => {
   const before = transport.parseStatus2X(elevenCharacterFrame);
   const after = transport.parseStatus2X(elevenCharacterFrame.replace("0892H2X", "0893H2X"));
@@ -163,6 +206,9 @@ test("real Z route sends 1F exactly once with 2X fallback and saves verified out
   assert.deepEqual(h.sent, ["1F"]);
   assert.equal(h.reports[0].status, "confirmed");
   assert.equal(JSON.parse(h.reports[0].response).baseline.source, "2X");
+  assert.equal(JSON.parse(h.reports[0].response).accounting.total, "50.00");
+  assert.equal(JSON.parse(h.reports[0].response).accounting.invoices, "10.00");
+  assert.equal(result.body.accounting.to, JSON.parse(h.reports[0].response).accounting.to);
 });
 test("real Z route blocks open documents and provides precise reason without 1F", async () => {
   reset([ok({ ...Q, stato: 1 })], [ok(ECR)]);

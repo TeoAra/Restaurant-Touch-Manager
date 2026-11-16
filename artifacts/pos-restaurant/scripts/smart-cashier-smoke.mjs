@@ -49,6 +49,14 @@ try {
   const exportInvoice = { id: 81, numero: 24, sezionale: "1", anno: 2026, numeroDocumento: "1/24", customerId: 41, data: "2026-10-31", tipoDocumento: "TD01", stato: "bozza", totale: "57.50", ragioneSociale: exportCustomer.ragioneSociale };
   const xmlFixture = '<?xml version="1.0"?><FatturaElettronica><Numero>1/23</Numero></FatturaElettronica>';
   const settings = { cover_price: "1.50", feat_table_ops: "true", pos_type: "none" };
+  const accountingFixture = {
+    from: "2026-11-15T21:00:00.000Z", to: "2026-11-16T02:00:00.000Z",
+    rtRecorded: "40.00", invoices: "50.00", overlap: "10.00", total: "80.00", iva: "7.27",
+    paidDrafts: "0.00", receiptsCount: 3, uncertainTotal: "12.00", uncertainCount: 1,
+    legacyTotal: "0.00", paymentsTotal: "80.00", historicalInvoiceDates: false, rtScopeKnown: true,
+    methods: [{ method: "cash", amount: "30.00" }, { method: "card", amount: "50.00" }],
+    lastClosure: { id: 89, number: 100, serial: "TEST000001", source: "Q" },
+  };
   const send = (method, params = {}) => new Promise((resolve, reject) => {
     const id = ++seq;
     pending.set(id, { resolve, reject });
@@ -85,6 +93,16 @@ try {
       let responseCode = 200;
       if (path === "/api/auth/login") body = { id: 9999, name: "Operatore test", role: "admin" };
       else if (path === "/api/auth/session") body = { id: 9999, name: "Operatore test", role: "admin" };
+      else if (path === "/api/fiscal/accounting-summary") body = {
+        ...accountingFixture,
+        ...(new URL(request.url).searchParams.get("readRt") === "1" ? { rt: {
+          total: "42.00", difference: "2.00", matchedPeriod: true,
+          readAt: accountingFixture.to, message: "Lettura diretta RT simulata, nessun comando fiscale.",
+        } } : {}),
+      };
+      else if (path === "/api/fiscal/iva-report") body = { perAliquota: [
+        { aliquota: "10", imponibile: "72.73", iva: "7.27", totale: "80.00", orders: 4 },
+      ], perMetodo: [] };
       else if ((process.env.POS_Z_CHECK === "1" || process.env.POS_Z_RECOVERY_CHECK === "1") && path === "/api/fiscal/printer-status") body = {
         found: true, printer: { name: "RT simulata", ip: "192.0.2.1", port: 1126 },
         stato2X: { ok: true, status: { errCode: "000", scontrinoAperto: false, carta: false } },
@@ -1212,6 +1230,35 @@ try {
     console.log("PASS real new-customer form: VIES address, explicit SDI, canonical POST, full-page reload and backoffice reopen; APIs mocked, no fiscal writes");
   }
   assert.deepEqual(errors, [], "Browser errors");
+  if (process.env.POS_ACCOUNTING_CHECK === "1") {
+    const before = writes.length;
+    for (const width of [1366, 1024]) {
+      await send("Emulation.setDeviceMetricsOverride", { width, height: 768, deviceScaleFactor: 1, mobile: false });
+      await send("Page.navigate", { url: new URL("/backoffice/fiscale", origin).href });
+      await wait(`!![...document.querySelectorAll('button')].find(b=>b.textContent.includes('Chiusura Z'))`);
+      await button("Chiusura Z", "body");
+      await wait(`document.querySelector('[data-testid="fiscal-accounting-totals"]')?.textContent.includes("80,00")`);
+      assert(await evaluate(`document.querySelector('[data-testid="fiscal-accounting-totals"]').textContent.includes("50,00")`), "Invoices are shown independently of RT");
+      assert(await evaluate(`document.querySelector('[data-testid="fiscal-accounting-totals"]').textContent.includes("12,00")`), "Uncertain RT outcomes remain visible");
+      await button("Leggi totali RT", "body");
+      await wait(`document.querySelector('[data-testid="rt-accounting-reading"]')?.textContent.includes("42,00")`);
+      assert(await evaluate(`document.querySelector('[data-testid="rt-accounting-reading"]').textContent.includes("2,00")`), "RT discrepancy is visible");
+      await button("Aggiorna", "body");
+      await wait(`!document.querySelector('[data-testid="rt-accounting-reading"]')`);
+      assert(await evaluate(`document.documentElement.scrollWidth <= innerWidth + 1`), `No page overflow at ${width}`);
+      if (width === 1366) {
+        const shot = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
+        await writeFile("generated-artifacts/pos-smart/accounting-z-1366x768.jpg", Buffer.from(shot.data, "base64"));
+      }
+      await button("Report X", "body");
+      await wait(`document.querySelector('[data-testid="fiscal-accounting-totals"]')?.textContent.includes("80,00")`);
+    }
+    await send("Page.navigate", { url: new URL("/backoffice/reports", origin).href });
+    await wait(`document.querySelector('[data-testid="fiscal-accounting-totals"]')?.textContent.includes("80,00")`);
+    await wait(`document.body.textContent.includes("72.73") || document.body.textContent.includes("72,73")`);
+    assert(!writes.slice(before).length, "Viewing reports and reading totals never creates a payment, prints X or sends Z");
+    console.log("PASS accounting UI at 1366/1024: invoices, deduplication, uncertainty, explicit RT discrepancy, refresh and VAT response envelope; no fiscal writes");
+  }
   if (process.env.POS_BILLING_CHECK !== "1" && process.env.POS_SPLIT_CHECK !== "1" && process.env.POS_Z_CHECK !== "1" && process.env.POS_INVOICE_COURTESY_CHECK !== "1" && process.env.POS_Z_RECOVERY_CHECK !== "1") assert(!writes.some(w => /payments|fiscal|invoices|comanda/.test(w)), "No fiscal writes expected");
   console.log("PASS login, unified map table selection, item timestamps, all advanced controls, product mutation, payment modes and responsive category/navigation targets. All APIs mocked; no live fiscal operations.");
 } finally {

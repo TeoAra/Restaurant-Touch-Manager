@@ -5,6 +5,55 @@
  * POS Restaurant API
  * OpenAPI spec version: 0.1.0
  */
+export type FiscalAccountingSummaryMethodsItem = {
+  method: string;
+  amount: string;
+};
+
+/**
+ * @nullable
+ */
+export type FiscalAccountingSummaryLastClosure = {
+  id: number;
+  number: number;
+  serial: string;
+  /** @nullable */
+  source: string | null;
+} | null;
+
+export type FiscalAccountingSummaryRt = {
+  /** @nullable */
+  total: string | null;
+  /** @nullable */
+  difference: string | null;
+  matchedPeriod: boolean;
+  readAt: string;
+  message: string;
+};
+
+export interface FiscalAccountingSummary {
+  /** @nullable */
+  from: string | null;
+  to: string;
+  rtRecorded: string;
+  invoices: string;
+  overlap: string;
+  total: string;
+  iva: string;
+  paidDrafts: string;
+  receiptsCount: number;
+  uncertainTotal: string;
+  uncertainCount: number;
+  legacyTotal: string;
+  paymentsTotal: string;
+  historicalInvoiceDates: boolean;
+  rtScopeKnown: boolean;
+  methods: FiscalAccountingSummaryMethodsItem[];
+  /** @nullable */
+  lastClosure: FiscalAccountingSummaryLastClosure;
+  rt?: FiscalAccountingSummaryRt;
+}
+
 export type ZReportRecoveryInputAction =
   (typeof ZReportRecoveryInputAction)[keyof typeof ZReportRecoveryInputAction];
 
@@ -668,6 +717,20 @@ export type VoidFiscalReceiptBody = {
   /** @maxLength 500 */
   motivo?: string;
 };
+
+export type GetFiscalAccountingParams = {
+  /**
+   * Explicit read-only RT status request; never prints or closes anything
+   */
+  readRt?: GetFiscalAccountingReadRt;
+};
+
+export type GetFiscalAccountingReadRt =
+  (typeof GetFiscalAccountingReadRt)[keyof typeof GetFiscalAccountingReadRt];
+
+export const GetFiscalAccountingReadRt = {
+  NUMBER_1: "1",
+} as const;
 
 export type ListFiscalReports200ItemStatus =
   (typeof ListFiscalReports200ItemStatus)[keyof typeof ListFiscalReports200ItemStatus];

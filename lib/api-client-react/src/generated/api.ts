@@ -28,6 +28,8 @@ import type {
   CreateTableBody,
   DashboardSummary,
   ExpandedItemsResult,
+  FiscalAccountingSummary,
+  GetFiscalAccountingParams,
   GetPublicBookingConfig200,
   GetSalesByDayParams,
   GetTopProductsParams,
@@ -3518,6 +3520,105 @@ export const useVoidFiscalReceipt = <
 > => {
   return useMutation(getVoidFiscalReceiptMutationOptions(options));
 };
+
+export const getGetFiscalAccountingUrl = (
+  params?: GetFiscalAccountingParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/fiscal/accounting-summary?${stringifiedParams}`
+    : `/api/fiscal/accounting-summary`;
+};
+
+export const getFiscalAccounting = async (
+  params?: GetFiscalAccountingParams,
+  options?: RequestInit,
+): Promise<FiscalAccountingSummary> => {
+  return customFetch<FiscalAccountingSummary>(
+    getGetFiscalAccountingUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetFiscalAccountingQueryKey = (
+  params?: GetFiscalAccountingParams,
+) => {
+  return [
+    `/api/fiscal/accounting-summary`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetFiscalAccountingQueryOptions = <
+  TData = Awaited<ReturnType<typeof getFiscalAccounting>>,
+  TError = ErrorType<void>,
+>(
+  params?: GetFiscalAccountingParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getFiscalAccounting>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetFiscalAccountingQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getFiscalAccounting>>
+  > = ({ signal }) =>
+    getFiscalAccounting(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getFiscalAccounting>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetFiscalAccountingQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getFiscalAccounting>>
+>;
+export type GetFiscalAccountingQueryError = ErrorType<void>;
+
+export function useGetFiscalAccounting<
+  TData = Awaited<ReturnType<typeof getFiscalAccounting>>,
+  TError = ErrorType<void>,
+>(
+  params?: GetFiscalAccountingParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getFiscalAccounting>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetFiscalAccountingQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 export const getListFiscalReportsUrl = () => {
   return `/api/fiscal/reports`;

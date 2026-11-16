@@ -100,7 +100,7 @@ export default function BackOfficeIndex() {
             </div>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <div className="text-[11px] text-slate-400 mb-1">Incasso oggi</div>
+                <div className="text-[11px] text-slate-400 mb-1">Vendite documentate oggi</div>
                 <div className="text-xl font-bold text-primary">€ {summary.todayRevenue}</div>
                 <DeltaBadge pct={deltaIeri} label="vs ieri" />
                 <DeltaBadge pct={deltaSettimana} label={`vs ${new Date().toLocaleDateString("it-IT", { weekday: "short" })} scorso`} />
@@ -124,7 +124,7 @@ export default function BackOfficeIndex() {
         {/* Andamento ultimi 7 giorni */}
         {spark.length > 0 && spark.some(s => s.revenue > 0) && (
           <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-            <div className="text-[11px] text-slate-400 mb-2">Incassi ultimi 7 giorni</div>
+            <div className="text-[11px] text-slate-400 mb-2">Vendite documentate ultimi 7 giorni · RT e fatture</div>
             <div className="h-20">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={spark} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
@@ -132,7 +132,7 @@ export default function BackOfficeIndex() {
                   <Tooltip
                     cursor={{ fill: "rgba(0,0,0,0.04)" }}
                     contentStyle={{ borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 12 }}
-                    formatter={(v: number) => [`€ ${v.toFixed(2)}`, "Incasso"]}
+                    formatter={(v: number) => [`€ ${v.toFixed(2)}`, "Vendite"]}
                   />
                   <Bar dataKey="revenue" fill="hsl(158 46% 29%)" radius={[3, 3, 0, 0]} />
                 </BarChart>

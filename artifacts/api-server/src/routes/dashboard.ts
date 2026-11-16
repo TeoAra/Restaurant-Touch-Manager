@@ -1,19 +1,22 @@
 import { Router } from "express";
 import { db, ordersTable, orderItemsTable, tablesTable, paymentsTable, roomsTable } from "@workspace/db";
 import { eq, and, gte, lt, sql } from "drizzle-orm";
+import { loadReportData, accountingVatReport } from "../lib/fiscal-accounting";
+import { buildReportLedger, summarizeLedger, reportDay, reportDayStart } from "../lib/report-ledger";
 
 const router = Router();
+const dayOffset = (days: number) => {
+  const date = new Date(`${reportDay(new Date())}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
 
 router.get("/summary", async (req, res) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
+  const today = reportDayStart(dayOffset(0));
+  const yesterday = reportDayStart(dayOffset(-1));
   // Stesso giorno della settimana scorsa (es. giovedì vs giovedì scorso)
-  const lastWeekStart = new Date(today);
-  lastWeekStart.setDate(lastWeekStart.getDate() - 7);
-  const lastWeekEnd = new Date(lastWeekStart);
-  lastWeekEnd.setDate(lastWeekEnd.getDate() + 1);
+  const lastWeekStart = reportDayStart(dayOffset(-7));
+  const lastWeekEnd = reportDayStart(dayOffset(-6));
 
   // Carichiamo solo gli ordini pagati degli ultimi 8 giorni (basta per oggi/ieri/settimana scorsa)
   const paidOrders = await db.select().from(ordersTable)
@@ -30,8 +33,10 @@ router.get("/summary", async (req, res) => {
     return d >= lastWeekStart && d < lastWeekEnd;
   });
 
-  const sum = (list: typeof paidOrders) => list.reduce((s, o) => s + parseFloat(o.total), 0);
-  const todayRevenue = sum(todayOrders);
+  const accounting = await loadReportData();
+  const end = new Date();
+  const revenue = (from: Date, to: Date) => Number(summarizeLedger(accounting, from, to).total);
+  const todayRevenue = revenue(today, end);
   const avgOrderValue = todayOrders.length > 0 ? todayRevenue / todayOrders.length : 0;
 
   const tables = await db.select().from(tablesTable);
@@ -44,9 +49,9 @@ router.get("/summary", async (req, res) => {
     occupiedTables,
     totalTables: tables.length,
     avgOrderValue: avgOrderValue.toFixed(2),
-    yesterdayRevenue: sum(yesterdayOrders).toFixed(2),
+    yesterdayRevenue: revenue(yesterday, today).toFixed(2),
     yesterdayOrders: yesterdayOrders.length,
-    lastWeekRevenue: sum(lastWeekOrders).toFixed(2),
+    lastWeekRevenue: revenue(lastWeekStart, lastWeekEnd).toFixed(2),
     lastWeekOrders: lastWeekOrders.length,
   });
 });
@@ -56,29 +61,31 @@ router.get("/sales-by-day", async (req, res) => {
   const daysRaw = parseInt(String(req.query.days ?? "30"), 10);
   const days = isNaN(daysRaw) ? 30 : Math.min(365, Math.max(1, daysRaw));
 
-  const rangeStart = new Date();
-  rangeStart.setDate(rangeStart.getDate() - days);
-  rangeStart.setHours(0, 0, 0, 0);
+  const rangeStart = reportDayStart(dayOffset(-(days - 1)));
 
   const orders = await db.select().from(ordersTable)
     .where(and(gte(ordersTable.createdAt, rangeStart), eq(ordersTable.status, "paid")));
 
   const byDay = new Map<string, { revenue: number; orders: number }>();
   for (const order of orders) {
-    const date = new Date(order.createdAt).toISOString().split("T")[0];
+    const date = reportDay(order.createdAt);
     const existing = byDay.get(date) ?? { revenue: 0, orders: 0 };
     byDay.set(date, {
-      revenue: existing.revenue + parseFloat(order.total),
+      revenue: existing.revenue,
       orders: existing.orders + 1,
     });
+  }
+  for (const entry of buildReportLedger(await loadReportData())) {
+    if (entry.at < rangeStart.getTime() || entry.at >= Date.now()) continue;
+    const date = reportDay(new Date(entry.at));
+    const existing = byDay.get(date) ?? { revenue: 0, orders: 0 };
+    byDay.set(date, { ...existing, revenue: existing.revenue + entry.revenue / 100 });
   }
 
   // Riempi tutti i giorni del periodo richiesto
   const result = [];
   for (let i = days - 1; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split("T")[0];
+    const dateStr = dayOffset(-i);
     const data = byDay.get(dateStr) ?? { revenue: 0, orders: 0 };
     result.push({
       date: dateStr,
@@ -137,40 +144,13 @@ router.get("/top-products", async (req, res) => {
 // namespace dashboard per coerenza con altre statistiche di reporting.
 router.get("/iva-report", async (req, res) => {
   const { from, to } = req.query as { from?: string; to?: string };
-  const today = new Date().toISOString().slice(0, 10);
-  const fromDate = from ?? today;
-  const toDate   = to   ?? today;
-
-  const result = await db.execute(sql`
-    SELECT
-      ROUND((iva::numeric * 100.0 / NULLIF((importo::numeric - iva::numeric), 0))::numeric, 0) AS aliquota,
-      COUNT(*) AS scontrini,
-      SUM((importo::numeric - iva::numeric))::text AS imponibile,
-      SUM(iva::numeric)::text AS iva,
-      SUM(importo::numeric)::text AS totale
-    FROM fiscal_receipts
-    WHERE annullato = false
-      AND data >= ${fromDate}
-      AND data <= ${toDate}
-    GROUP BY aliquota
-    ORDER BY aliquota DESC
-  `);
-
-  const byMethod = await db.execute(sql`
-    SELECT metodo_pagamento AS metodo, COUNT(*) AS n, SUM(importo::numeric)::text AS totale
-    FROM fiscal_receipts
-    WHERE annullato = false
-      AND data >= ${fromDate}
-      AND data <= ${toDate}
-    GROUP BY metodo_pagamento
-  `);
-
-  res.json({
-    from: fromDate,
-    to: toDate,
-    perAliquota: result.rows,
-    perMetodo: byMethod.rows,
-  });
+  try { res.json(await accountingVatReport(from, to)); }
+  catch (error) {
+    if (error instanceof Error && ["Data non valida", "Il periodo non è valido"].includes(error.message)) {
+      res.status(400).json({ error: error.message }); return;
+    }
+    throw error;
+  }
 });
 
 router.get("/tables-status", async (req, res) => {

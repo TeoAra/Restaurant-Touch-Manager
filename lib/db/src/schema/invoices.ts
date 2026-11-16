@@ -20,6 +20,7 @@ export const invoicesTable = pgTable("invoices", {
   stato: text("stato").notNull().default("bozza"),
   note: text("note"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  issuedAt: timestamp("issued_at", { withTimezone: true }),
 }, (table) => [
   uniqueIndex("invoices_year_series_number_unique").on(table.anno, table.sezionale, table.numero),
 ]);

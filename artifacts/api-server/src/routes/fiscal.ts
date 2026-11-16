@@ -19,8 +19,39 @@ import { randomUUID } from "node:crypto";
 import { requireStaffAdmin } from "../lib/staff-session";
 import { rtReference, cancellationConfirmed } from "../lib/fiscal-identity";
 import { zReadiness, zConfirmed, zRecoveryState, type ZBaseline } from "../lib/fiscal-z-state";
+import { fiscalAccounting, accountingVatReport } from "../lib/fiscal-accounting";
+import { GetFiscalAccountingQueryParams, GetFiscalAccountingResponse } from "@workspace/api-zod";
 
 const router = Router();
+
+// Read-only management summary. Physical RT reads are explicit, never a print.
+router.get("/accounting-summary", requireStaffAdmin, async (req, res) => {
+  const query = GetFiscalAccountingQueryParams.safeParse(req.query);
+  if (!query.success) { res.status(400).json({ error: "Parametri riepilogo non validi" }); return; }
+  const accounting = await fiscalAccounting();
+  if (req.query.readRt === "1") {
+    const printer = await getFiscalPrinter();
+    if (printer) {
+      const port = printer.port ?? 1126;
+      const q = await getStatusQ(printer.ip, port);
+      const identity = await getStatus2X(printer.ip, port);
+      const serial = identity.ok ? identity.status?.matricola?.trim() : null;
+      const matched = accounting.rtScopeKnown && accounting.lastClosure?.source === "Q" && !!serial && accounting.lastClosure?.serial === serial &&
+        q.ok && q.status?.chiusura === accounting.lastClosure.number + 1;
+      const available = q.ok && !!q.status && q.status.stato === 0;
+      Object.assign(accounting, { rt: {
+        total: available ? q.status!.totaleGiorno.toFixed(2) : null,
+        difference: available && matched ? (q.status!.totaleGiorno - Number(accounting.rtRecorded)).toFixed(2) : null,
+        matchedPeriod: matched, readAt: new Date().toISOString(),
+        message: !available ? "Totali RT non leggibili o documento aperto."
+          : !matched ? "Totale attuale della RT; periodo non riconciliabile con l’ultima Z salvata (chiusura esterna, matricola o fonte contatore da verificare)."
+          : "Lettura diretta RT. La differenza è RT meno documenti registrati; non prova l’avvenuta trasmissione all’AdE.",
+      } });
+    } else Object.assign(accounting, { rt: { total: null, difference: null, matchedPeriod: false,
+      readAt: new Date().toISOString(), message: "Nessuna RT configurata." } });
+  }
+  res.json(GetFiscalAccountingResponse.parse(accounting));
+});
 
 // ── Lista scontrini fiscali ─────────────────────────────────────────────────
 router.get("/receipts", async (req, res) => {
@@ -230,21 +261,17 @@ router.post("/cancel-open-receipt", async (req, res) => {
 router.post("/x-report", async (req, res) => {
   const anno = new Date().getFullYear();
   const now = new Date().toISOString().slice(0, 10);
-
-  // Totali DB di oggi
-  const totals = await db.execute(sql`
-    SELECT COUNT(*) as count, COALESCE(SUM(importo::numeric), 0) as totale,
-           COALESCE(SUM(iva::numeric), 0) as totale_iva
-    FROM fiscal_receipts
-    WHERE anno = ${anno} AND data = ${now} AND annullato = false
-  `);
-  const row = totals.rows[0] as { count: string; totale: string; totale_iva: string };
+  const accounting = await fiscalAccounting();
 
   const printer = await getFiscalPrinter();
   let printerResult = null;
   if (printer) {
     // X-report: "1f" = Rapporto Finanziario Giorno (XonXoff)
     const rtPort = printer.port ?? 1126;
+    const reading = await getStatusQ(printer.ip, rtPort);
+    Object.assign(accounting, { rt: { total: reading.ok && reading.status?.stato === 0 ? reading.status.totaleGiorno.toFixed(2) : null,
+      difference: null, matchedPeriod: false, readAt: new Date().toISOString(),
+      message: "Lettura RT precedente al report X; le fatture sono aggiunte soltanto al riepilogo gestionale." } });
     printerResult = await sendXonXoffCommand(printer.ip, rtPort, "1f", 8000);
   } else {
     printerResult = { ok: false, error: "Nessuna stampante fiscale configurata" };
@@ -254,9 +281,10 @@ router.post("/x-report", async (req, res) => {
     tipo: "X",
     data: now,
     anno,
-    scontrini: Number(row.count),
-    totale: row.totale,
-    totale_iva: row.totale_iva,
+    scontrini: accounting.receiptsCount,
+    totale: accounting.total,
+    totale_iva: accounting.iva,
+    accounting,
     printer: printerResult,
     printer_name: printer?.name ?? null,
     printer_matricola: printer?.matricola ?? null,
@@ -339,6 +367,14 @@ router.post("/reports/:id/recover", requireStaffAdmin, async (req, res): Promise
         state = "retry_ready";
         message = "RT pronta e contatore Z invariato. Puoi rimandare la chiusura dopo aver controllato anche il display/storico della RT.";
       } else if (observed === "unchanged" && action === "retry") {
+        // A retry can occur on another day: freeze a NEW snapshot up to this
+        // attempt, not the date on which the original failed request was made.
+        evidence.accounting = await fiscalAccounting();
+        Object.assign(evidence.accounting, { rt: { total: q.ok && q.status ? q.status.totaleGiorno.toFixed(2) : null,
+          difference: null, matchedPeriod: false, readAt: new Date().toISOString(), message: "Lettura prima del reinvio Z." } });
+        await db.update(fiscalReportsTable).set({ totalDb: evidence.accounting.total,
+          response: JSON.stringify({ ...evidence, recoveryStartedAt: new Date().toISOString() }),
+        }).where(eq(fiscalReportsTable.id, id));
         commandSent = true;
         command = await sendXonXoffCommand(printer.ip, port, "1F", 12000);
         q = await getStatusQ(printer.ip, port);
@@ -374,15 +410,6 @@ router.post("/z-report", requireStaffAdmin, async (req, res): Promise<void> => {
   const anno = new Date().getFullYear();
   const now = new Date().toISOString().slice(0, 10);
 
-  // Totali DB di oggi
-  const totals = await db.execute(sql`
-    SELECT COUNT(*) as count, COALESCE(SUM(importo::numeric), 0) as totale,
-           COALESCE(SUM(iva::numeric), 0) as totale_iva
-    FROM fiscal_receipts
-    WHERE anno = ${anno} AND data = ${now} AND annullato = false
-  `);
-  const row = totals.rows[0] as { count: string; totale: string; totale_iva: string };
-
   const printer = await getFiscalPrinter();
   if (!printer) {
     res.status(503).json({ error: "Nessuna RT configurata: chiusura fiscale non eseguita." }); return;
@@ -396,6 +423,10 @@ router.post("/z-report", requireStaffAdmin, async (req, res): Promise<void> => {
     res.status(503).json({ error: readiness.error }); return;
   }
   const { serial, closure } = readiness.baseline;
+  const accounting = await fiscalAccounting();
+  Object.assign(accounting, { rt: { total: before.ok && before.status ? before.status.totaleGiorno.toFixed(2) : null,
+    difference: null, matchedPeriod: false, readAt: new Date().toISOString(),
+    message: "Totale letto dalla RT prima della chiusura Z. Le fatture restano separate dai corrispettivi RT." } });
   const attempt = await db.transaction(async tx => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(7315092)`);
     const [existing] = await tx.select().from(fiscalReportsTable).where(and(
@@ -405,8 +436,8 @@ router.post("/z-report", requireStaffAdmin, async (req, res): Promise<void> => {
     ));
     if (existing) return null;
     const [saved] = await tx.insert(fiscalReportsTable).values({
-      type: "Z", printerSerial: serial, numeroChiusura: closure, status: "pending", totalDb: row.totale,
-      response: JSON.stringify({ baseline: readiness.baseline, before, identity }),
+      type: "Z", printerSerial: serial, numeroChiusura: closure, status: "pending", totalDb: accounting.total,
+      response: JSON.stringify({ baseline: readiness.baseline, before, identity, accounting }),
     }).returning();
     return saved;
   });
@@ -423,7 +454,7 @@ router.post("/z-report", requireStaffAdmin, async (req, res): Promise<void> => {
     printerResult = { ...command, ok: confirmed, error: confirmed ? undefined : "Esito Z da verificare sulla RT. Non ripetere automaticamente la chiusura." };
     await db.update(fiscalReportsTable).set({
       status: confirmed ? "confirmed" : "unknown", error: printerResult.error ?? null,
-      response: JSON.stringify({ baseline: readiness.baseline, command, after, afterIdentity }), completedAt: confirmed ? new Date() : null,
+      response: JSON.stringify({ baseline: readiness.baseline, before, identity, command, after, afterIdentity, accounting }), completedAt: confirmed ? new Date() : null,
     }).where(eq(fiscalReportsTable.id, attempt.id));
   } catch (error) {
     await db.update(fiscalReportsTable).set({ status: "unknown", error: "Comunicazione interrotta: verificare la chiusura fisica sulla RT." }).where(eq(fiscalReportsTable.id, attempt.id));
@@ -435,9 +466,10 @@ router.post("/z-report", requireStaffAdmin, async (req, res): Promise<void> => {
     tipo: "Z",
     data: now,
     anno,
-    scontrini: Number(row.count),
-    totale: row.totale,
-    totale_iva: row.totale_iva,
+    scontrini: accounting.receiptsCount,
+    totale: accounting.total,
+    totale_iva: accounting.iva,
+    accounting,
     printer: printerResult,
     printer_name: printer?.name ?? null,
     printer_matricola: printer?.matricola ?? null,
@@ -613,43 +645,13 @@ router.post("/open-drawer", requireAdminHeader, async (req, res) => {
 // GET /api/fiscal/iva-report?from=YYYY-MM-DD&to=YYYY-MM-DD
 router.get("/iva-report", async (req, res) => {
   const { from, to } = req.query as { from?: string; to?: string };
-  const today = new Date().toISOString().slice(0, 10);
-  const fromDate = from ?? today;
-  const toDate   = to   ?? today;
-
-  // Aggrega scontrini fiscali raggruppati per aliquota IVA approssimata.
-  // L'aliquota viene calcolata da: iva_amount / (importo - iva_amount) * 100
-  const result = await db.execute(sql`
-    SELECT
-      ROUND((iva::numeric * 100.0 / NULLIF((importo::numeric - iva::numeric), 0))::numeric, 0) AS aliquota,
-      COUNT(*) AS scontrini,
-      SUM((importo::numeric - iva::numeric))::text AS imponibile,
-      SUM(iva::numeric)::text AS iva,
-      SUM(importo::numeric)::text AS totale
-    FROM fiscal_receipts
-    WHERE annullato = false
-      AND data >= ${fromDate}
-      AND data <= ${toDate}
-    GROUP BY aliquota
-    ORDER BY aliquota DESC
-  `);
-
-  // Totali per metodo pagamento
-  const byMethod = await db.execute(sql`
-    SELECT metodo_pagamento AS metodo, COUNT(*) AS n, SUM(importo::numeric)::text AS totale
-    FROM fiscal_receipts
-    WHERE annullato = false
-      AND data >= ${fromDate}
-      AND data <= ${toDate}
-    GROUP BY metodo_pagamento
-  `);
-
-  res.json({
-    from: fromDate,
-    to: toDate,
-    perAliquota: result.rows,
-    perMetodo: byMethod.rows,
-  });
+  try { res.json(await accountingVatReport(from, to)); }
+  catch (error) {
+    if (error instanceof Error && ["Data non valida", "Il periodo non è valido"].includes(error.message)) {
+      res.status(400).json({ error: error.message }); return;
+    }
+    throw error;
+  }
 });
 
 // ── Lista conti sospesi (paga dopo) ──────────────────────────────────────────

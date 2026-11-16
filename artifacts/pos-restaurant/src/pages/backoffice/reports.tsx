@@ -10,6 +10,8 @@ import { BackofficeShell } from "@/components/BackofficeShell";
 import { useEffect, useState } from "react";
 import { downloadCsv, itNum } from "@/lib/csv";
 
+import { FiscalAccountingPanel } from "@/components/FiscalAccountingPanel";
+
 function ExportCsvButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
   return (
     <button
@@ -35,13 +37,17 @@ function IvaReportSection() {
   const [to, setTo] = useState(today);
   const [rows, setRows] = useState<IvaRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    fetch(`${API}/fiscal/iva-report?from=${from}&to=${to}`)
-      .then(r => r.json())
-      .then(d => setRows(Array.isArray(d) ? d : []))
-      .finally(() => setLoading(false));
+    const controller = new AbortController();
+    setLoading(true); setError(null);
+    fetch(`${API}/fiscal/iva-report?from=${from}&to=${to}`, { signal: controller.signal })
+      .then(async r => { const body = await r.json(); if (!r.ok) throw new Error(body.error || "Report IVA non disponibile"); return body; })
+      .then(d => { if (!Array.isArray(d.perAliquota)) throw new Error("Risposta report IVA non valida"); setRows(d.perAliquota); })
+      .catch(e => { if (!controller.signal.aborted) { setRows([]); setError(e.message); } })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
   }, [from, to]);
 
   const totImponibile = rows.reduce((s, r) => s + parseFloat(r.imponibile || "0"), 0);
@@ -52,7 +58,7 @@ function IvaReportSection() {
     <div className="bg-card border border-border rounded-xl p-5">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <h3 className="font-bold text-foreground flex items-center gap-2">
-          <Receipt className="h-4 w-4 text-primary" /> Report IVA per aliquota
+          <Receipt className="h-4 w-4 text-primary" /> Riepilogo IVA gestionale
         </h3>
         <div className="flex items-center gap-2 text-sm">
           <label className="text-muted-foreground">Dal</label>
@@ -65,7 +71,7 @@ function IvaReportSection() {
             disabled={rows.length === 0}
             onClick={() => downloadCsv(
               `report-iva_${from}_${to}.csv`,
-              ["Aliquota %", "Imponibile", "IVA", "Totale", "Scontrini"],
+              ["Aliquota effettiva %", "Imponibile", "IVA", "Totale", "Movimenti"],
               [
                 ...rows.map(r => [r.aliquota, itNum(r.imponibile), itNum(r.iva), itNum(r.totale), r.orders]),
                 ["TOTALE", itNum(totImponibile), itNum(totIva), itNum(totTotale), ""],
@@ -74,6 +80,8 @@ function IvaReportSection() {
           />
         </div>
       </div>
+      <p className="text-xs text-muted-foreground mb-3">Include fatture e documenti RT, al netto delle sovrapposizioni note. Aliquota effettiva arrotondata per documento: non è il dettaglio fiscale per reparto della RT. Date nel fuso italiano.</p>
+      {error && <p role="alert" className="text-sm text-red-800 mb-3">{error}</p>}
       {loading ? (
         <div className="text-center text-muted-foreground py-6 text-sm">Caricamento…</div>
       ) : rows.length === 0 ? (
@@ -87,7 +95,7 @@ function IvaReportSection() {
                 <th className="py-2 text-right">Imponibile</th>
                 <th className="py-2 text-right">IVA</th>
                 <th className="py-2 text-right">Totale</th>
-                <th className="py-2 text-right">Scontrini</th>
+                <th className="py-2 text-right">Movimenti</th>
               </tr>
             </thead>
             <tbody>
@@ -212,10 +220,12 @@ export default function ReportsPage() {
     <BackofficeShell title="Report e Statistiche" subtitle="Andamento vendite e prodotti top" fixedHeight>
       <ScrollArea className="flex-1">
         <div className="p-6 space-y-6">
+          <FiscalAccountingPanel />
+          <p className="text-sm text-muted-foreground">I totali delle vendite includono documenti RT emessi e fatture, senza duplicare lo stesso ordine. Le sezioni giornaliere seguono la data di incasso/emissione; i prodotti e gli ordini seguono la data dell’ordine pagato.</p>
           {/* KPI cards */}
           {summary && (
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-              <StatCard label="Incasso oggi" value={`€ ${summary.todayRevenue}`} icon={Euro} />
+              <StatCard label="Vendite documentate oggi" value={`€ ${summary.todayRevenue}`} icon={Euro} />
               <StatCard label="Ordini oggi" value={String(summary.todayOrders)} icon={ShoppingCart} />
               <StatCard label="Ordini aperti" value={String(summary.openOrders)} icon={TrendingUp} />
               <StatCard label="Tavoli occupati" value={`${summary.occupiedTables}/${summary.totalTables}`} icon={TableProperties} sub={`Valore medio: € ${summary.avgOrderValue}`} />
